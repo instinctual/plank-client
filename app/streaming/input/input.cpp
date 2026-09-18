@@ -125,6 +125,8 @@ bool SdlInputHandler::hasMacStreamKeyboardFocus() const
     for (const auto& output : m_PresentationLayout.outputs) {
         if (MacWindow::hasKeyboardFocus(output.window)) return true;
     }
+    if (m_PresentationLayout.outputs.isEmpty() && m_Window != nullptr)
+        return MacWindow::hasKeyboardFocus(m_Window);
     return false;
 }
 #endif
@@ -209,8 +211,7 @@ void SdlInputHandler::setWindow(SDL_Window *window)
     if ((LiGetHostFeatureFlags() & (LI_FF_RAW_HID_TABLET | LI_FF_RAW_HID_FOCUS_SUSPEND)) ==
             (LI_FF_RAW_HID_TABLET | LI_FF_RAW_HID_FOCUS_SUSPEND)) {
         m_MacRawWacomInput.reset(new MacRawWacomInput(requestTabletCursor));
-        m_MacRawWacomInput->setActive(isCaptureActive() &&
-            (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0);
+        refreshTabletFocus();
     }
 #endif
 #ifdef HAVE_LIBINPUT_TABLET
@@ -266,6 +267,7 @@ void SdlInputHandler::setPresentationLayout(
         m_PresentationLayout.outputs.append(
             {m_Window, QRect(QPoint(0, 0), m_PresentationLayout.canvasSize), true});
     }
+    refreshTabletFocus();
     reconcileWaylandTabletCursorOutputs();
     updateTabletCursorVisibility();
     updatePointerRegionLock();
@@ -624,7 +626,7 @@ void SdlInputHandler::notifyFocusLost()
 #endif
     activateCompositorCursor();
 #ifdef HAVE_MAC_RAW_WACOM
-    if (m_MacRawWacomInput) m_MacRawWacomInput->setActive(false);
+    refreshTabletFocus();
 #endif
 #ifdef HAVE_LIBINPUT_TABLET
     if (m_LinuxWacomInput) {
@@ -647,7 +649,7 @@ void SdlInputHandler::notifyFocusGained()
     m_MacQuitShortcut->refresh();
 #endif
 #ifdef HAVE_MAC_RAW_WACOM
-    if (m_MacRawWacomInput) m_MacRawWacomInput->setActive(isCaptureActive());
+    refreshTabletFocus();
 #endif
 #ifdef HAVE_LIBINPUT_TABLET
     if (m_LinuxWacomInput) {
@@ -656,6 +658,26 @@ void SdlInputHandler::notifyFocusGained()
     if (m_LinuxRawWacomInput) {
         m_LinuxRawWacomInput->setActive(true);
     }
+#endif
+}
+
+void SdlInputHandler::refreshTabletFocus()
+{
+#ifdef HAVE_MAC_RAW_WACOM
+    if (!m_MacRawWacomInput) return;
+
+    // Native fullscreen Spaces can change the key window before SDL updates
+    // its cached focus flags, or without a matching SDL focus event. Keep the
+    // raw tablet lease while either presentation window owns native focus.
+    const bool captureActive = isCaptureActive();
+    const bool nativeFocus = hasMacStreamKeyboardFocus();
+    const bool active = captureActive && nativeFocus;
+    if (active == m_MacRawWacomFocusActive) return;
+    m_MacRawWacomFocusActive = active;
+    SDL_LogInfo(SDL_LOG_CATEGORY_INPUT,
+                "Mac Wacom stream focus: active=%d capture=%d native=%d",
+                active, captureActive, nativeFocus);
+    m_MacRawWacomInput->setActive(active);
 #endif
 }
 
@@ -822,13 +844,6 @@ bool SdlInputHandler::isSystemKeyCaptureActive()
 
 void SdlInputHandler::setCaptureActive(bool active)
 {
-#ifdef HAVE_MAC_RAW_WACOM
-    if (m_MacRawWacomInput) {
-        SDL_Window* focus = SDL_GetKeyboardFocus();
-        m_MacRawWacomInput->setActive(active && focus &&
-            presentationWindow(SDL_GetWindowID(focus)) != nullptr);
-    }
-#endif
     if (active) {
         setCursorVisible(m_LocalCursorSupported ?
                              (!m_MouseWasInVideoRegion || m_RemoteCursorVisible) :
@@ -865,6 +880,8 @@ void SdlInputHandler::setCaptureActive(bool active)
         setCursorVisible(true);
         m_FakeMouseCaptureActive = false;
     }
+
+    refreshTabletFocus();
 
     // Update mouse pointer region constraints
     updatePointerRegionLock();

@@ -4283,6 +4283,8 @@ void Session::execInternal()
         // Native Quit changes explicit session state, not the SDL event queue.
         // Bound the wait even when a stalled Host produces no events.
         eventWaitTimeout = std::min(eventWaitTimeout, 50);
+        // Reconcile AppKit focus even when SDL omits a Spaces focus event.
+        m_InputHandler->refreshTabletFocus();
 #endif
         if (!SDL_WaitEventTimeout(&event, eventWaitTimeout)) {
             if (reconnectThread != nullptr &&
