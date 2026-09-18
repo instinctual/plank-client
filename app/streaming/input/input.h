@@ -82,6 +82,8 @@ public:
 
     void notifyFocusGained();
 
+    void refreshTabletFocus();
+
     bool isCaptureActive();
 
     void setToolbarInteractionActive(bool active);
@@ -220,6 +222,7 @@ private:
 
 #ifdef HAVE_MAC_RAW_WACOM
     std::unique_ptr<MacRawWacomInput> m_MacRawWacomInput;
+    bool m_MacRawWacomFocusActive = false;
 #endif
 
 #ifdef HAVE_LIBINPUT_TABLET
