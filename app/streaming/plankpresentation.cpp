@@ -2,6 +2,18 @@
 
 #include <QtMath>
 
+QVector<QRect> PlankPresentation::horizontalCanvas(const QVector<QSize>& outputSizes)
+{
+    QVector<QRect> rects;
+    int x = 0;
+    for (const QSize& size : outputSizes) {
+        if (!size.isValid()) return {};
+        rects.append(QRect(x, 0, size.width(), size.height()));
+        x += size.width();
+    }
+    return rects;
+}
+
 bool PlankPresentation::setSecondaryFullscreen(SDL_Window* window, bool fullscreen)
 {
 #ifdef Q_OS_DARWIN

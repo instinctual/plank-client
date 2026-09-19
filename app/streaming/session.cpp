@@ -1977,6 +1977,7 @@ bool Session::snapshotClientDisplays()
     for (int index = 0; index < displayCount; ++index) {
         ClientDisplaySnapshot snapshot;
         snapshot.displayId = StreamUtils::getDisplayId(index);
+        snapshot.primary = snapshot.displayId == SDL_GetPrimaryDisplay();
         SDL_DisplayMode nativeMode;
         SDL_Rect safeArea;
         if (snapshot.displayId == 0 ||
@@ -2283,6 +2284,7 @@ bool Session::configurePlankHostLayout()
     QSize authenticatedDesktopSize;
     QSizeF authenticatedLogicalSize;
     bool hostRejectsRequestedLayout = false;
+    bool virtualPrimary = false;
     {
         QReadLocker lock(&m_Computer->lock);
         layoutPolicy = m_Computer->plankHostLayout;
@@ -2292,6 +2294,8 @@ bool Session::configurePlankHostLayout()
         authenticatedDesktopSize = QSize(m_Computer->outputTopology.desktopWidth,
                                          m_Computer->outputTopology.desktopHeight);
         authenticatedLogicalSize = m_Computer->outputTopology.captureLogicalBounds.size();
+        virtualPrimary = m_Computer->outputTopology.startupLayoutKind == NvOutputTopology::SingleHostLayout &&
+            (m_Computer->outputTopology.featureFlags & NvOutputTopology::VirtualPrimaryConnectorFeature);
         const bool hostPolicyKnown = m_Computer->outputTopology.displayPolicyKnown();
         hostRejectsRequestedLayout = hostPolicyKnown &&
                 !m_Computer->outputTopology.allowsBookmarkHostLayout(layoutPolicy);
@@ -2306,6 +2310,7 @@ bool Session::configurePlankHostLayout()
 
     m_ResolvedHostLayout.clear();
     m_ResolvedVirtualModes.clear();
+    m_ResolvedPrimaryOutput = -1;
     if (scalingMode != NvOutputTopology::NativeScalingMode &&
             scalingMode != NvOutputTopology::ScaledSpanMode) {
         const QString error = tr("The bookmark contains an unsupported client scaling mode.");
@@ -2321,7 +2326,7 @@ bool Session::configurePlankHostLayout()
                                    display.logicalBounds.y,
                                    display.logicalBounds.w,
                                    display.logicalBounds.h),
-                             display.nativeSize, display.macBackingSize});
+                             display.nativeSize, display.macBackingSize, display.primary});
         }
 
         QString error;
@@ -2337,7 +2342,8 @@ bool Session::configurePlankHostLayout()
             m_ResolvedHostLayout = QStringLiteral("fixed");
         }
         else if (!NvOutputTopology::resolveClientDisplayLayout(
-                    displays, m_ResolvedHostLayout, m_ResolvedVirtualModes, &error)) {
+                    displays, m_ResolvedHostLayout, m_ResolvedVirtualModes, &error,
+                    virtualPrimary ? &m_ResolvedPrimaryOutput : nullptr)) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s", qPrintable(error));
             emit displayLaunchError(error);
             return false;
@@ -2365,6 +2371,19 @@ bool Session::configurePlankHostLayout()
         m_ResolvedVirtualModes.append(virtualMode1);
         if (layoutPolicy == NvOutputTopology::DualHorizontalHostLayout) {
             m_ResolvedVirtualModes.append(virtualMode2);
+            if (virtualPrimary) {
+                QVector<NvClientDisplay> displays;
+                for (const auto& display : std::as_const(m_ClientDisplays)) {
+                    displays.append({QRect(display.logicalBounds.x, display.logicalBounds.y,
+                                           display.logicalBounds.w, display.logicalBounds.h),
+                                     display.nativeSize, display.macBackingSize, display.primary});
+                }
+                m_ResolvedPrimaryOutput = NvOutputTopology::clientPrimaryIndex(displays);
+                if (m_ResolvedPrimaryOutput < 0) {
+                    emit displayLaunchError(tr("Unable to identify one primary client display. Please reconnect."));
+                    return false;
+                }
+            }
         }
     }
     else {
@@ -2464,6 +2483,26 @@ bool Session::configurePlankLaunchGeometry()
                     "PLANK presentation selection: host-outputs=%d client-multi=%d selected-outputs=%d",
                     hostOutputs, m_MultiDisplayPresentationAvailable,
                     m_UseMultiDisplayPresentation ? 2 : 1);
+    }
+
+    // Manual virtual modes define the stream boundary. Each fullscreen window
+    // must use its Host output rectangle even if its Mac panel has more pixels.
+    if (m_UseMultiDisplayPresentation &&
+            m_ResolvedHostLayout == NvOutputTopology::DualHorizontalHostLayout &&
+            m_ResolvedScalingMode == NvOutputTopology::NativeScalingMode &&
+            m_ResolvedVirtualModes.size() == m_ClientDisplays.size()) {
+        QVector<QSize> hostOutputSizes;
+        for (const QString& mode : std::as_const(m_ResolvedVirtualModes)) {
+            hostOutputSizes.append(NvOutputTopology::virtualModeSize(mode));
+        }
+        const auto hostCanvas = PlankPresentation::horizontalCanvas(hostOutputSizes);
+        if (hostCanvas.size() != m_ClientDisplays.size()) {
+            emit displayLaunchError(tr("The Host output sizes are invalid for two-screen presentation."));
+            return false;
+        }
+        for (int i = 0; i < m_ClientDisplays.size(); ++i) {
+            m_ClientDisplays[i].canvasRect = hostCanvas.at(i);
+        }
     }
 
     const QSize resolution = configurePlankDisplayMode();
@@ -2863,7 +2902,8 @@ bool Session::startConnectionAsync(bool reconnecting,
                           plankTransportToken,
                           acceptedCaptureSource,
                           acceptedEncoderBackend,
-                          acceptedEncodingMode);
+                          acceptedEncodingMode,
+                          m_ResolvedPrimaryOutput);
         };
         try {
             startApp();

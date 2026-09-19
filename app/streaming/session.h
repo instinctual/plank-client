@@ -429,6 +429,7 @@ private:
     QString m_ResolvedScalingMode;
     QString m_ResolvedHostLayout;
     QStringList m_ResolvedVirtualModes;
+    int m_ResolvedPrimaryOutput = -1;
 
     struct ClientDisplaySnapshot {
         SDL_DisplayID displayId = 0;
@@ -437,6 +438,7 @@ private:
         QSize macBackingSize;
         QRect macMatchedBounds;
         QRect canvasRect;
+        bool primary = false;
     };
     QVector<ClientDisplaySnapshot> m_ClientDisplays;
     SDL_DisplayID m_TargetDisplayId = 0;

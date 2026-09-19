@@ -31,6 +31,7 @@ struct NvClientDisplay
     QRect bounds;
     QSize nativeSize;
     QSize backingSize {}; // macOS current compositor pixels; absent on other platforms
+    bool primary = false;
 };
 
 struct NvOutputTopology
@@ -55,6 +56,7 @@ struct NvOutputTopology
     static const int DesktopHandoffNoticeFeature = 0x10000;
     static const int AuthenticatedDesktopStageFeature = 0x20000;
     static const int WorkerInstanceFeature = 0x40000;
+    static const int VirtualPrimaryConnectorFeature = 0x2000000;
     // Fixed capture description only. Not part of the Linux launch feature
     // mask: parsing this does not grant input, layout changes or media launch.
     static const int FixedCaptureFeature = 0x80000;
@@ -91,6 +93,7 @@ struct NvOutputTopology
                                              DesktopHandoffNoticeFeature |
                                              AuthenticatedDesktopStageFeature |
                                              WorkerInstanceFeature |
+                                             VirtualPrimaryConnectorFeature |
                                              PlatformClipboardSyncFeature;
     static const char* NativeScalingMode;
     static const char* ScaledSpanMode;
@@ -111,7 +114,9 @@ struct NvOutputTopology
     static bool resolveClientDisplayLayout(QVector<NvClientDisplay> displays,
                                            QString& hostLayout,
                                            QStringList& virtualModes,
-                                           QString* error = nullptr);
+                                           QString* error = nullptr,
+                                           int* primaryOutput = nullptr);
+    static int clientPrimaryIndex(QVector<NvClientDisplay> displays);
     static QStringList qualifiedVirtualModes();
     static QString resolveMacClientDisplayMode(const QVector<NvClientDisplay>& displays,
                                                QString* error = nullptr, int* scale = nullptr);

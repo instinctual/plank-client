@@ -18,6 +18,7 @@ private slots:
     void enforcesHostDisplayPolicy();
     void validatesRequestedLayoutGeometry();
     void matchesOneClientDisplay();
+    void matchesPrimaryInDesktopOrder();
     void matchesTwoClientDisplaysLeftToRight();
     void rejectsUnsupportedClientLayouts();
     void parsesFixedCapture();
@@ -487,6 +488,48 @@ void TestOutputTopology::matchesOneClientDisplay()
              qPrintable(error));
     QCOMPARE(layout, QStringLiteral("single"));
     QCOMPARE(modes, QStringList({QStringLiteral("3840x2160")}));
+}
+
+void TestOutputTopology::matchesPrimaryInDesktopOrder()
+{
+    QFile fixture(QString::fromUtf8(qgetenv("PLANK_REPO_ROOT")) +
+                  "/tests/protocol/output-topology-v13-virtual-primary.json");
+    QVERIFY(fixture.open(QIODevice::ReadOnly));
+    NvOutputTopology topology;
+    QVERIFY(NvOutputTopology::fromJson(QJsonDocument::fromJson(fixture.readAll()).object(), topology));
+    QVERIFY(topology.featureFlags & NvOutputTopology::VirtualPrimaryConnectorFeature);
+    QVERIFY(topology.matchesRequestedHostLayout("dual-horizontal", {"1920x1200", "2560x1440"}));
+    QCOMPARE(topology.outputs[0].id, QStringLiteral("x11:DP-2"));
+    QCOMPARE(topology.outputs[1].id, QStringLiteral("x11:DP-0"));
+    QVERIFY(topology.outputs[1].primary);
+
+    const NvClientDisplay eizo {QRect(1920, 0, 2560, 1440), QSize(2560, 1440), {}, true};
+    const NvClientDisplay laptop {QRect(0, 0, 1920, 1200), QSize(3456, 2234), {}, false};
+    QCOMPARE(NvOutputTopology::clientPrimaryIndex({eizo, laptop}), 1);
+    QCOMPARE(NvOutputTopology::clientPrimaryIndex({laptop, eizo}), 1);
+    auto leftPrimary = laptop;
+    leftPrimary.primary = true;
+    QCOMPARE(NvOutputTopology::clientPrimaryIndex({leftPrimary, eizo}), -1);
+    auto noPrimary = eizo;
+    noPrimary.primary = false;
+    QCOMPARE(NvOutputTopology::clientPrimaryIndex({laptop, noPrimary}), -1);
+
+    // A qualified virtual pair retains its existing sizes and gains only the
+    // optional primary connector index for a Host that advertises the bit.
+    QString layout;
+    QStringList modes;
+    QString error;
+    int primary = -1;
+    const NvClientDisplay virtualLaptop {QRect(0, 0, 1920, 1200), QSize(1920, 1200), {}, false};
+    QVERIFY2(NvOutputTopology::resolveClientDisplayLayout(
+                 {eizo, virtualLaptop}, layout, modes, &error, &primary), qPrintable(error));
+    QCOMPARE(layout, QStringLiteral("dual-horizontal"));
+    QCOMPARE(modes, QStringList({QStringLiteral("1920x1200"), QStringLiteral("2560x1440")}));
+    QCOMPARE(primary, 1);
+    QVERIFY(NvOutputTopology::SupportedFeatureFlags &
+            NvOutputTopology::VirtualPrimaryConnectorFeature);
+    QVERIFY(!(NvOutputTopology::VirtualPrimaryConnectorFeature &
+              NvOutputTopology::ClipboardSyncFeature));
 }
 
 void TestOutputTopology::matchesTwoClientDisplaysLeftToRight()
