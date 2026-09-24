@@ -1,3 +1,17 @@
+## 1.1.010 — Camera and microphone timing
+
+### Client
+
+- Default microphone activation to Manual for new configurations; preserve saved preferences.
+- Ubuntu: retain capture timing with stereo Opus audio when supported by the Host.
+- Preserve microphone compatibility with Hosts using the previous stereo format.
+
+### Host
+
+- Request a recovery frame when another application joins PLANK Camera.
+- Use timestamped microphone playback to align camera presentation when both are active.
+- Preserve camera-only operation and compatibility with previous Clients.
+
 ## 1.1.009 — Remote output routing
 
 ### Host
