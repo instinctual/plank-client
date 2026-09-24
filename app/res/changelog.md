@@ -1,3 +1,11 @@
+## 1.1.009 — Remote output routing
+
+### Host
+
+- Forward audio sent to PLANK Output while physical speakers retain normal local playback.
+- Fix automatic PLANK Output selection when a session connects.
+- Keep remote volume and mute tied to PLANK Output when another device is selected locally.
+
 ## 1.1.008 — Camera setup status
 
 ### Host
