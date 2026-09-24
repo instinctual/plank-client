@@ -300,6 +300,12 @@ contains(DEFINES, HAVE_LIBINPUT_TABLET) {
 }
 
 # Platform-specific renderers and decoders
+linux:contains(CONFIG, plank-transport) {
+    SOURCES += streaming/camera/linuxnativecamera.cpp
+    HEADERS += streaming/camera/linuxnativecamera.h \
+        streaming/camera/nativecameraframe.h streaming/camera/uvch264control.h
+}
+
 ffmpeg {
     message(FFmpeg decoder selected)
 
