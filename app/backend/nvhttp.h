@@ -147,6 +147,10 @@ public:
     bool
     getPlankOccupied(QString serverInfo);
 
+    static
+    QString
+    getPlankSessionUser(QString serverInfo);
+
     QString
     getServerInfo(NvLogLevel logLevel, bool fastFail = false);
 
