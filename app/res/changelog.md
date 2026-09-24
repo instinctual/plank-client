@@ -1,3 +1,16 @@
+## 1.1.002 — Stereo microphone candidate
+
+Update Host and Client together for this candidate's microphone protocol.
+
+### Client
+
+- Forward microphone audio in stereo using 192 kbps variable-bitrate Opus.
+
+### Host
+
+- macOS: expose a 48 kHz stereo PLANK Microphone input and preserve both channels through decoding.
+- Require the matching stereo driver before offering microphone forwarding.
+
 ## 1.1.001
 
 Update Host and Client together. This version is not compatible with the previous release's transport.
