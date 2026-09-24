@@ -55,6 +55,7 @@ struct Reply {
     PLANK_NATIVE_SESSION_CONFIGURATION configuration {};
     bool clipboard = false;
     bool microphone = false;
+    unsigned microphoneSchema = 2;
     bool camera = false;
 };
 
@@ -114,6 +115,8 @@ inline bool parseReply(const QJsonObject& object, const NvOutputTopology& topolo
     reply.transportToken = encoded;
     reply.clipboard = clipboard;
     reply.microphone = microphone;
+    if (microphone && agreement.launchSchema == 7)
+        reply.microphoneSchema = unsigned(object.value("features").toObject().value("microphone").toObject().value("schema_version").toInt());
     reply.camera = camera;
     reply.configuration.structSize = sizeof(reply.configuration);
     reply.configuration.negotiatedVideoFormat = topology.appleEncodingMode == QLatin1String("hevc-10-444-videotoolbox") ?

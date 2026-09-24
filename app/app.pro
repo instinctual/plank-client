@@ -190,6 +190,12 @@ unix:if(!macx|disable-prebuilts) {
     }
 }
 
+linux {
+    PKGCONFIG += libpipewire-0.3
+    SOURCES += streaming/audio/linuxmicrophone.cpp
+    HEADERS += streaming/audio/linuxmicrophone.h streaming/audio/microphonecapturequeue.h streaming/audio/microphonecaptureclock.h
+}
+
 linux:packagesExist(libinput):packagesExist(libudev) {
     DEFINES += HAVE_LIBINPUT_TABLET
     PKGCONFIG += libinput libudev

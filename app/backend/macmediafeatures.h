@@ -38,6 +38,19 @@ inline QJsonObject profile(const QString& name, const QString& mode)
         {"codecs", QJsonArray {"h264-annex-b", "mjpeg"}}};
     return {};
 }
+inline QJsonArray profiles(const QString& name, const QString& mode)
+{
+    QJsonArray result;
+#ifdef Q_OS_LINUX
+    if (name == QLatin1String("microphone")) {
+        auto timed = profile(name, mode);
+        timed.insert("schema_version", 3); timed.insert("capture_clock", "monotonic-ns");
+        result.append(timed);
+    }
+#endif
+    result.append(profile(name, mode));
+    return result;
+}
 inline bool containsProfile(const QJsonValue& value, const QJsonObject& expected)
 {
     if (!value.isObject() || value.toObject().size() > 32 || expected.isEmpty()) return false;
@@ -72,7 +85,7 @@ inline QJsonObject offer(const QString& mode)
     for (const auto& name : names()) {
         const bool enabled = (name != QLatin1String("clipboard") || NvOutputTopology::PlatformClipboardSyncFeature) &&
                              (name != QLatin1String("camera") || cameraSupported());
-        features.insert(name, enabled ? QJsonArray {profile(name, mode)} : QJsonArray {});
+        features.insert(name, enabled ? profiles(name, mode) : QJsonArray {});
     }
     return {{"schema_version", 1}, {"transport", transport()}, {"required_features", required()}, {"features", features}};
 }
@@ -91,8 +104,11 @@ inline bool select(const QJsonObject& response, const QString& mode, Agreement& 
         if ((value.isNull() || value.isUndefined()) && !response.value("required_features").toArray().contains(name)) {
             selected.insert(name, QJsonValue::Null);
         } else {
-            if (offered.value(name).toArray().isEmpty() || !containsProfile(value, profile(name, mode))) return false;
-            selected.insert(name, profile(name, mode));
+            QJsonObject match;
+            for (const auto& choice : offered.value(name).toArray())
+                if (containsProfile(value, choice.toObject())) { match = choice.toObject(); break; }
+            if (match.isEmpty()) return false;
+            selected.insert(name, match);
         }
     }
     result = {7, mode, selected, response.value("required_features").toArray()};

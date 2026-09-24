@@ -1,7 +1,7 @@
 #pragma once
 #include <opus.h>
 
-// The authenticated PMIC v2 contract is stereo, 48 kHz, 10 ms. Force coupled
+// The authenticated PMIC v2/v3 contract is stereo, 48 kHz, 10 ms. Force coupled
 // stereo even for silence/mono devices so every packet matches that contract.
 enum { PlankMicrophoneRate = 48000, PlankMicrophoneChannels = 2,
        PlankMicrophoneFrames = 480, PlankMicrophoneBitrate = 192000 };

@@ -3,6 +3,10 @@
 #include "microphoneopus.h"
 #include <QDebug>
 #include <chrono>
+#include <memory>
+#ifdef Q_OS_LINUX
+#include "linuxmicrophone.h"
+#endif
 #ifdef Q_OS_MACOS
 #include "macmicrophonepermission.h"
 #endif
@@ -12,8 +16,8 @@
 #endif
 
 PlankMicrophone::PlankMicrophone(PlankTransportNativeEndpoint* endpoint,
-                               std::atomic<bool>& requested, bool automaticInput)
-    : m_Endpoint(endpoint), m_Requested(requested), m_AutomaticInput(automaticInput),
+                               std::atomic<bool>& requested, bool automaticInput, bool timed)
+    : m_Endpoint(endpoint), m_Requested(requested), m_AutomaticInput(automaticInput), m_Timed(timed),
       m_Thread(&PlankMicrophone::run, this)
 {
 }
@@ -44,10 +48,17 @@ void PlankMicrophone::run()
     m_State.store(State::Unavailable);
 #else
     using Clock = std::chrono::steady_clock;
+#ifdef Q_OS_LINUX
+    std::unique_ptr<PlankLinuxMicrophone> timedCapture;
+    std::uint64_t timedNextSample = 0;
+#endif
     SDL_AudioStream* stream = nullptr;
     OpusEncoder* encoder = nullptr;
     bool audioInitialized = false;
     const auto closeCapture = [&] {
+#ifdef Q_OS_LINUX
+        timedCapture.reset();
+#endif
         if (stream) SDL_DestroyAudioStream(stream);
         if (encoder) opus_encoder_destroy(encoder);
         if (audioInitialized) SDL_QuitSubSystem(SDL_INIT_AUDIO);
@@ -106,6 +117,49 @@ void PlankMicrophone::run()
         }
         if (!enabled) { m_State.store(State::Off); continue; }
         if (ackState != PLANK_TRANSPORT_MICROPHONE_ACTIVE) { failed = true; continue; }
+#ifdef Q_OS_LINUX
+        if (m_Timed) {
+            if (!timedCapture) {
+                timedCapture.reset(new PlankLinuxMicrophone);
+                timedNextSample = 0;
+                encoder = plankMicrophoneCreateEncoder();
+                if (!timedCapture->valid() || !encoder ||
+                        plank_transport_native_microphone_activate(m_Endpoint, command) != PLANK_TRANSPORT_OK) {
+                    failed = true; closeCapture(); continue;
+                }
+                lastSamples = Clock::now();
+            }
+            if (!timedCapture->valid()) { failed = true; closeCapture(); continue; }
+            int lookahead = 0;
+            if (opus_encoder_ctl(encoder, OPUS_GET_LOOKAHEAD(&lookahead)) != OPUS_OK || lookahead < 0 || lookahead > 480) {
+                failed = true; closeCapture(); continue;
+            }
+            PlankLinuxMicrophone::Packet input;
+            for (unsigned i = 0; i < 6 && timedCapture->take(input); i++) {
+                const auto codecDelay = std::uint64_t(lookahead) * 1000000000 / PlankMicrophoneRate;
+                if (input.captureTimeNs <= codecDelay) { failed = true; break; }
+                if (input.sampleTime != timedNextSample && opus_encoder_ctl(encoder, OPUS_RESET_STATE) != OPUS_OK) {
+                    failed = true; break;
+                }
+                timedNextSample = input.sampleTime + 480;
+                std::uint8_t packet[1275];
+                const int bytes = opus_encode_float(encoder, input.samples, 480, packet, sizeof(packet));
+                if (bytes < 1) { failed = true; break; }
+                const int result = plank_transport_native_microphone_send_timed(m_Endpoint, command,
+                    input.sampleTime, input.captureTimeNs - codecDelay, packet, std::size_t(bytes));
+                captured = true; lastSamples = Clock::now();
+                if (result != PLANK_TRANSPORT_OK && result != PLANK_TRANSPORT_DROPPED && result != PLANK_TRANSPORT_TIMEOUT) {
+                    failed = true; break;
+                }
+            }
+            if (Clock::now() - lastSamples > std::chrono::seconds(2)) failed = true;
+            if (failed) closeCapture();
+            m_State.store(failed ? State::Unavailable : captured ? State::Active : State::Pending);
+            continue;
+        }
+#else
+        if (m_Timed) { failed = true; closeCapture(); continue; }
+#endif
         if (!stream) {
             audioInitialized = SDL_InitSubSystem(SDL_INIT_AUDIO);
             if (audioInitialized) {

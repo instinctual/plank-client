@@ -831,7 +831,7 @@ bool Session::startPlankTransportDataPlane(quint16 port,
         result = plank_transport_native_endpoint_wait_ready(endpoint, 12000);
     }
     if (result == PLANK_TRANSPORT_OK && m_MicrophoneNegotiated) {
-        result = plank_transport_native_microphone_enable(endpoint);
+        result = plank_transport_native_microphone_enable_version(endpoint, m_MicrophoneSchema);
     }
     if (result == PLANK_TRANSPORT_OK && m_CameraNegotiated &&
             plank_transport_native_camera_enable(endpoint, m_MicrophoneNegotiated ? 1 : 0) != PLANK_TRANSPORT_OK) {
@@ -2891,6 +2891,7 @@ bool Session::startConnectionAsync(bool reconnecting,
                 macLaunch = http->startMacPreview(topology, pin, m_StreamConfig.bitrate, quicUdpPayloadMtu);
                 m_MacClipboardNegotiated = macLaunch.clipboard;
                 m_MicrophoneNegotiated = macLaunch.microphone;
+                m_MicrophoneSchema = macLaunch.microphoneSchema;
                 m_CameraNegotiated = macLaunch.camera;
                 plankTransportPort = http->controlPort();
                 plankTransportCertificateSha256 = pin;
@@ -3288,7 +3289,7 @@ bool Session::startConnectionAsync(bool reconnecting,
         if (m_MicrophoneNegotiated) {
             if (!reconnecting) m_MicrophoneRequested.store(m_Preferences->microphoneAutomatic);
             m_Microphone.reset(new PlankMicrophone(m_PlankTransportEndpoint,
-                m_MicrophoneRequested, m_Preferences->microphoneAutomaticInput));
+                m_MicrophoneRequested, m_Preferences->microphoneAutomaticInput, m_MicrophoneSchema == 3));
         }
     }
     {
