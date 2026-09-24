@@ -1,3 +1,10 @@
+## 1.1.008 — Camera setup status
+
+### Host
+
+- Recognize an enabled PLANK Camera during macOS setup and stop offering Enable Camera again.
+- Update an already-enabled camera extension while retaining the existing approval when macOS permits.
+
 ## 1.1.007 — Mac remote audio output
 
 ### Host
