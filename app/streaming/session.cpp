@@ -833,8 +833,9 @@ bool Session::startPlankTransportDataPlane(quint16 port,
     if (result == PLANK_TRANSPORT_OK && m_MicrophoneNegotiated) {
         result = plank_transport_native_microphone_enable(endpoint);
     }
-    if (result == PLANK_TRANSPORT_OK && m_CameraNegotiated) {
-        result = plank_transport_native_camera_enable(endpoint, m_MicrophoneNegotiated ? 1 : 0);
+    if (result == PLANK_TRANSPORT_OK && m_CameraNegotiated &&
+            plank_transport_native_camera_enable(endpoint, m_MicrophoneNegotiated ? 1 : 0) != PLANK_TRANSPORT_OK) {
+        qWarning() << "PLANK camera lane is unavailable; other session media remain available";
     }
     if (result != PLANK_TRANSPORT_OK) {
         QByteArray error(512, '\0');
@@ -4868,7 +4869,7 @@ void Session::execInternal()
                 const auto action = m_PlankToolbar->handleMouseButton(event.button);
                 if (action == PlankToolbar::Action::ToggleCamera) {
                     m_CameraRequested.store(!m_CameraRequested.load());
-                    continue;
+                    break;
                 }
                 if (action == PlankToolbar::Action::ToggleMicrophone) {
                     m_MicrophoneRequested.store(!m_MicrophoneRequested.load());
