@@ -1,3 +1,10 @@
+## 1.1.006 — Microphone queue recovery
+
+### Host
+
+- Discard stale microphone audio after scheduling stalls and re-prime with fresh samples.
+- Improve stereo microphone clock correction when capture delivers packets in batches.
+
 ## 1.1.005 — Mac Client display discovery
 
 ### Client
