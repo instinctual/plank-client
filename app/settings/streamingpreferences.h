@@ -275,6 +275,10 @@ public:
     Q_PROPERTY(PlankUnreachableAction plankUnreachableAction MEMBER plankUnreachableAction NOTIFY plankUnreachableActionChanged)
     Q_PROPERTY(bool showPerformanceOverlay MEMBER showPerformanceOverlay NOTIFY showPerformanceOverlayChanged)
     Q_PROPERTY(AudioConfig audioConfig MEMBER audioConfig NOTIFY audioConfigChanged)
+    Q_PROPERTY(QString cameraDevice MEMBER cameraDevice NOTIFY cameraDeviceChanged)
+    Q_INVOKABLE QVariantList cameraDevices() const;
+    Q_PROPERTY(bool nativeCameraSupported READ nativeCameraSupported CONSTANT)
+    bool nativeCameraSupported() const;
     Q_PROPERTY(bool microphoneAutomatic MEMBER microphoneAutomatic NOTIFY microphoneAutomaticChanged)
     Q_PROPERTY(bool microphoneAutomaticInput MEMBER microphoneAutomaticInput NOTIFY microphoneAutomaticInputChanged)
     Q_PROPERTY(bool plankToolbarPinned MEMBER plankToolbarPinned NOTIFY plankToolbarPinnedChanged)
@@ -328,6 +332,7 @@ public:
     int plankUnreachableTimeoutSeconds;
     PlankUnreachableAction plankUnreachableAction;
     AudioConfig audioConfig;
+    QString cameraDevice;
     bool microphoneAutomatic;
     bool microphoneAutomaticInput;
     int identityGbrBitDepth;
@@ -344,6 +349,7 @@ signals:
     void unsupportedFpsChanged();
     void enableMdnsChanged();
     void audioConfigChanged();
+    void cameraDeviceChanged();
     void microphoneAutomaticChanged();
     void microphoneAutomaticInputChanged();
     void plankToolbarPinnedChanged();

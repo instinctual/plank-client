@@ -4,9 +4,14 @@
 #include <Limelight.h>
 #include <QByteArray>
 
-// Typed schema-5 launch only. Never reinterpret Linux's PLS1 launch response
+// Typed schema-6 launch only. Never reinterpret Linux's PLS1 launch response
 // or infer services from a platform name or a decoder's capabilities.
 namespace MacPreviewLaunch {
+#if defined(Q_OS_LINUX)
+constexpr bool CameraSupported = true;
+#else
+constexpr bool CameraSupported = false;
+#endif
 
 inline QJsonObject request(const NvOutputTopology& topology, int bitrateKbps,
                            int udpPayloadSize)
@@ -16,12 +21,12 @@ inline QJsonObject request(const NvOutputTopology& topology, int bitrateKbps,
             !NvOutputTopology::fromJson(topology.toJson(), checked) ||
             bitrateKbps < 10000 || bitrateKbps > 150000 ||
             udpPayloadSize < 1200 || udpPayloadSize > 65527) return {};
-    return {{"schema_version", 5}, {"capture_generation", checked.generation},
+    return {{"schema_version", 6}, {"capture_generation", checked.generation},
             {"capture_id", checked.outputs.first().id},
             {"width", checked.desktopWidth}, {"height", checked.desktopHeight},
             {"encoding_mode", checked.appleEncodingMode}, {"frame_rate", 60},
             {"bitrate_kbps", bitrateKbps}, {"max_udp_payload_size", udpPayloadSize},
-            {"clipboard", NvOutputTopology::PlatformClipboardSyncFeature != 0}, {"microphone", true}};
+            {"clipboard", NvOutputTopology::PlatformClipboardSyncFeature != 0}, {"microphone", true}, {"camera", CameraSupported}};
 }
 
 struct Reply {
@@ -29,6 +34,7 @@ struct Reply {
     PLANK_NATIVE_SESSION_CONFIGURATION configuration {};
     bool clipboard = false;
     bool microphone = false;
+    bool camera = false;
 };
 
 inline bool parseReply(const QJsonObject& object, const NvOutputTopology& topology,
@@ -39,17 +45,18 @@ inline bool parseReply(const QJsonObject& object, const NvOutputTopology& topolo
     reply = {};
     if (request(topology, 10000, udpPayloadSize).isEmpty() ||
             approvedControlPort < 1 || approvedControlPort > 65535 ||
-            object.size() != 7 || object.value("schema_version") != QJsonValue(5) ||
+            object.size() != 7 || object.value("schema_version") != QJsonValue(6) ||
             object.value("state") != QJsonValue("connecting") ||
             object.value("udp_port") != QJsonValue(approvedControlPort) ||
             object.value("max_udp_payload_size") != QJsonValue(udpPayloadSize) ||
             object.value("capture") != topology.toJson().value("capture")) return false;
     const auto services = object.value("services").toObject();
     if (!services.value("clipboard").isBool() || !services.value("microphone").isBool() ||
+            !services.value("camera").isBool() || (services.value("camera").toBool() && !CameraSupported) ||
             (services.value("clipboard").toBool() && !NvOutputTopology::PlatformClipboardSyncFeature) ||
             services != QJsonObject {{"audio", true}, {"input", true}, {"pen", "normalized"},
                 {"cursor", "embedded"}, {"clipboard", services.value("clipboard")},
-                {"microphone", services.value("microphone")}}) return false;
+                {"microphone", services.value("microphone")}, {"camera", services.value("camera")}}) return false;
 
     const QString token = object.value("transport_token").toString();
     if (token.size() != 44) return false;
@@ -59,6 +66,7 @@ inline bool parseReply(const QJsonObject& object, const NvOutputTopology& topolo
     reply.transportToken = encoded;
     reply.clipboard = services.value("clipboard").toBool();
     reply.microphone = services.value("microphone").toBool();
+    reply.camera = services.value("camera").toBool();
     reply.configuration.structSize = sizeof(reply.configuration);
     reply.configuration.negotiatedVideoFormat = topology.appleEncodingMode == QLatin1String("hevc-10-444-videotoolbox") ?
                 VIDEO_FORMAT_H265_REXT10_444 : VIDEO_FORMAT_H265_MAIN10;

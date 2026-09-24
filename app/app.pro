@@ -232,6 +232,7 @@ SOURCES += \
     streaming/input/mouse.cpp \
     streaming/session.cpp \
     streaming/audio/microphone.cpp \
+    streaming/camera/camera.cpp \
     streaming/avsynccontroller.cpp \
     streaming/plankdisplaymode.cpp \
     streaming/plankpresentation.cpp \

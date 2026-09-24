@@ -30,6 +30,7 @@
 namespace {
 constexpr int ToolbarHeight = 39;
 constexpr int MicrophoneWidth = 34;
+constexpr int CameraWidth = 34;
 constexpr int EdgeRevealHeight = 3;
 constexpr Uint32 EdgeActivationDelayMs = 1000;
 constexpr Uint32 AutoHideDelayMs = 5000;
@@ -367,6 +368,7 @@ void PlankToolbar::notifyWindowChanged()
                 m_WindowPixelWidth, m_WindowPixelHeight);
     m_Width = std::min(PlankToolbarStats::EncoderTargetLeft + m_EncoderTargetWidth +
                       (m_MicrophoneSupported ? MicrophoneWidth : 0) +
+                      (m_CameraSupported ? CameraWidth : 0) +
                       PlankToolbarStats::WindowControlsWidth,
                       std::max(m_WindowWidth, 1));
     if (m_ToolbarLeft < 0) {
@@ -623,6 +625,9 @@ PlankToolbar::Action PlankToolbar::handlePointerButton(
             break;
         case Control::Fullscreen:
             action = Action::ToggleFullscreen;
+            break;
+        case Control::Camera:
+            action = Action::ToggleCamera;
             break;
         case Control::Microphone:
             action = Action::ToggleMicrophone;
@@ -943,6 +948,41 @@ void PlankToolbar::redraw()
         const QString label = m_MicrophoneState == PlankMicrophone::State::Active ? QStringLiteral("On") :
             m_MicrophoneState == PlankMicrophone::State::Pending ? QStringLiteral("Wait") :
             m_MicrophoneState == PlankMicrophone::State::Unavailable ? QStringLiteral("N/A") : QStringLiteral("Off");
+        painter.drawText(QRectF(x-16, 24, 32, 12), Qt::AlignCenter, label);
+    }
+    if (m_CameraSupported) {
+        const qreal x = m_Width - 121.0 - (m_MicrophoneSupported ? MicrophoneWidth : 0);
+        const bool hovered = m_LocalPointerInteraction && cameraContains(m_PointerX, m_PointerY);
+        if (hovered) {
+            // Keep the hint in the existing toolbar surface. A separate popup
+            // would introduce another focus/pointer boundary during capture.
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(35, 43, 53));
+            painter.drawRoundedRect(QRectF(targetLeft - 3, 1, targetWidth + 6, 36), 3, 3);
+            painter.setPen(QColor(235, 239, 244));
+            QFont hintFont = labelFont; hintFont.setPixelSize(11); painter.setFont(hintFont);
+            QString hint;
+            switch (m_CameraState) {
+            case PlankCamera::State::Active: hint = QStringLiteral("Camera on\nClick to turn off"); break;
+            case PlankCamera::State::Off: hint = QStringLiteral("Camera off\nClick to enable"); break;
+            case PlankCamera::State::Pending: hint = QStringLiteral("Starting camera\nClick to cancel"); break;
+            case PlankCamera::State::Unavailable: hint = QStringLiteral("Camera unavailable\nCheck device/host setup"); break;
+            }
+            painter.drawText(QRectF(targetLeft, 1, targetWidth, 36), Qt::AlignCenter, hint);
+        }
+        const QColor color = m_CameraState == PlankCamera::State::Active ? QColor(52, 199, 110) :
+            m_CameraState == PlankCamera::State::Pending ? QColor(240, 186, 70) :
+            m_CameraState == PlankCamera::State::Unavailable ? QColor(239, 88, 88) : QColor(180, 189, 202);
+        painter.setPen(QPen(color, 1.4, Qt::SolidLine, Qt::RoundCap));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRoundedRect(QRectF(x-8, 7, 16, 12), 2, 2);
+        painter.drawEllipse(QPointF(x, 13), 4, 4);
+        if (m_CameraState == PlankCamera::State::Off || m_CameraState == PlankCamera::State::Unavailable)
+            painter.drawLine(QPointF(x-8, 4), QPointF(x+8, 21));
+        QFont font = painter.font(); font.setPixelSize(9); painter.setFont(font);
+        const QString label = m_CameraState == PlankCamera::State::Active ? QStringLiteral("On") :
+            m_CameraState == PlankCamera::State::Pending ? QStringLiteral("Wait") :
+            m_CameraState == PlankCamera::State::Unavailable ? QStringLiteral("N/A") : QStringLiteral("Off");
         painter.drawText(QRectF(x-16, 24, 32, 12), Qt::AlignCenter, label);
     }
     const QRectF fullscreenRect(fullscreenCenter.x() - WindowButtonSize / 2.0,
@@ -1404,6 +1444,21 @@ bool PlankToolbar::microphoneContains(int x, int y) const
         x <= toolbarLeft() + m_Width - 106 && y >= 2 && y <= 37;
 }
 
+void PlankToolbar::setCameraState(bool supported, PlankCamera::State state)
+{
+    if (supported == m_CameraSupported && state == m_CameraState) return;
+    const bool geometryChanged = supported != m_CameraSupported;
+    m_CameraSupported = supported; m_CameraState = state;
+    if (geometryChanged) notifyWindowChanged();
+    redraw();
+}
+
+bool PlankToolbar::cameraContains(int x, int y) const
+{
+    return m_CameraSupported && x >= toolbarLeft() + m_Width - 136 - (m_MicrophoneSupported ? MicrophoneWidth : 0) &&
+        x <= toolbarLeft() + m_Width - 106 - (m_MicrophoneSupported ? MicrophoneWidth : 0) && y >= 2 && y <= 37;
+}
+
 bool PlankToolbar::handleContains(int x, int y) const
 {
     return x >= toolbarLeft() && x <= toolbarLeft() + 22 &&
@@ -1442,6 +1497,7 @@ PlankToolbar::Control PlankToolbar::controlAt(int x, int y) const
     if (fullscreenContains(x, y)) {
         return Control::Fullscreen;
     }
+    if (cameraContains(x, y)) return Control::Camera;
     if (microphoneContains(x, y)) return Control::Microphone;
     if (minimizeContains(x, y)) {
         return Control::Minimize;
@@ -1469,5 +1525,6 @@ int PlankToolbar::sliderRight() const
 {
     return toolbarLeft() + std::max(PlankToolbarStats::EncoderTargetLeft,
                                    m_Width - PlankToolbarStats::WindowControlsWidth -
-                                   (m_MicrophoneSupported ? MicrophoneWidth : 0));
+                                   (m_MicrophoneSupported ? MicrophoneWidth : 0) -
+                                   (m_CameraSupported ? CameraWidth : 0));
 }

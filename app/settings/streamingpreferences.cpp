@@ -1,4 +1,5 @@
 #include "streamingpreferences.h"
+#include "streaming/camera/camera.h"
 #include "backend/planknetwork.h"
 #include "plankclientpolicy.h"
 #include <QSettings>
@@ -13,6 +14,7 @@
 #define SER_VSYNC "vsync"
 #define SER_HOSTAUDIO "hostaudio"
 #define SER_AUDIOCFG "audiocfg"
+#define SER_CAMERA_DEVICE "camera-device"
 #define SER_MICROPHONE_AUTOMATIC "microphone-automatic"
 #define SER_MICROPHONE_AUTOMATIC_INPUT "microphone-automatic-host-input"
 #define SER_PLANK_TOOLBAR_PINNED "planktoolbarpinned"
@@ -85,6 +87,7 @@ void StreamingPreferences::reload()
     plankToolbarPinned = settings.value(SER_PLANK_TOOLBAR_PINNED, false).toBool();
     enableVsync = settings.value(SER_VSYNC, true).toBool();
     playAudioOnHost = settings.value(SER_HOSTAUDIO, false).toBool();
+    cameraDevice = settings.value(SER_CAMERA_DEVICE, QString()).toString();
     microphoneAutomatic = settings.value(SER_MICROPHONE_AUTOMATIC, true).toBool();
     microphoneAutomaticInput = settings.value(SER_MICROPHONE_AUTOMATIC_INPUT, true).toBool();
     enableMdns = settings.value(SER_MDNS, false).toBool();
@@ -252,6 +255,7 @@ void StreamingPreferences::save()
     settings.setValue(SER_FPS, fps);
     settings.setValue(SER_VSYNC, enableVsync);
     settings.setValue(SER_HOSTAUDIO, playAudioOnHost);
+    settings.setValue(SER_CAMERA_DEVICE, cameraDevice);
     settings.setValue(SER_MICROPHONE_AUTOMATIC, microphoneAutomatic);
     settings.setValue(SER_MICROPHONE_AUTOMATIC_INPUT, microphoneAutomaticInput);
     if (!mdnsDiscoveryManaged) {
@@ -271,4 +275,18 @@ void StreamingPreferences::save()
     settings.setValue(SER_MUTEONFOCUSLOSS, muteOnFocusLoss);
     settings.setValue(SER_CAPTURESYSKEYS, captureSysKeysMode);
     settings.setValue(SER_KEEPAWAKE, keepAwake);
+}
+
+QVariantList StreamingPreferences::cameraDevices() const
+{
+    return PlankCamera::devices();
+}
+
+bool StreamingPreferences::nativeCameraSupported() const
+{
+#if defined(Q_OS_LINUX) && defined(PLANK_TRANSPORT)
+    return true;
+#else
+    return false;
+#endif
 }
