@@ -88,7 +88,7 @@ void StreamingPreferences::reload()
     enableVsync = settings.value(SER_VSYNC, true).toBool();
     playAudioOnHost = settings.value(SER_HOSTAUDIO, false).toBool();
     cameraDevice = settings.value(SER_CAMERA_DEVICE, QString()).toString();
-    microphoneAutomatic = settings.value(SER_MICROPHONE_AUTOMATIC, true).toBool();
+    microphoneAutomatic = settings.value(SER_MICROPHONE_AUTOMATIC, false).toBool();
     microphoneAutomaticInput = settings.value(SER_MICROPHONE_AUTOMATIC_INPUT, true).toBool();
     enableMdns = settings.value(SER_MDNS, false).toBool();
     const PlankClientPolicy systemPolicy;
