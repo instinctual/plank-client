@@ -103,6 +103,7 @@ void NvHTTP::setTrustAddress(NvAddress address)
 
 void NvHTTP::setPlankSessionToken(QString sessionToken, QByteArray identityKey)
 {
+    m_MacMediaAgreement = {}; m_MacMediaCertificate.clear();
     m_SessionToken = std::move(sessionToken);
     m_IdentityKey = std::move(identityKey);
 }
@@ -626,6 +627,7 @@ QString NvHTTP::authenticate(QString username, QString password, bool* greeterCo
     for (int round = 0; round < 16; ++round) {
         const QString state = result.value("state").toString();
         if (state == "authenticated") {
+            m_MacMediaAgreement = {}; m_MacMediaCertificate.clear();
             m_SessionToken = result.value("session_token").toString();
             if (m_SessionToken.isEmpty()) {
                 throw GfeHttpResponseException(401, "Authentication returned no session token");
@@ -707,16 +709,49 @@ NvOutputTopology NvHTTP::getOutputTopology(QString* certificateSha256)
     return topology;
 }
 
+MacMediaFeatures::Agreement NvHTTP::negotiateMacMedia(const QString& encodingMode,
+                                                     const QString& certificateSha256)
+{
+    if (m_MacMediaAgreement.launchSchema && m_MacMediaAgreement.encodingMode == encodingMode &&
+        m_MacMediaCertificate == certificateSha256) return m_MacMediaAgreement;
+    m_MacMediaAgreement = {}; m_MacMediaCertificate.clear();
+    const auto offered = MacMediaFeatures::offer(encodingMode);
+    if (offered.isEmpty()) throw GfeHttpResponseException(426, "This Client does not support the selected Mac video profile.");
+    MacMediaFeatures::Agreement selected;
+    try {
+        const auto response = requestPinnedMacJson(QStringLiteral("/plank/negotiate"), offered, certificateSha256);
+        if (!MacMediaFeatures::select(response, encodingMode, selected)) {
+            throw GfeHttpResponseException(426,
+                "Host and Client do not share the required desktop media features. Update one of them to a compatible version.");
+        }
+    } catch (const GfeHttpResponseException& error) {
+        // Only a positively identified older Host missing this route gets an
+        // adapter. TLS/auth/malformed replies/timeouts never trigger downgrade.
+        if (error.getStatusCode() != 404) throw;
+        const auto information = requestPinnedMacJson(QStringLiteral("/serverinfo"), {}, certificateSha256);
+        const int schema = MacMediaFeatures::legacySchema(information.value("host_version").toString());
+        selected = MacMediaFeatures::legacy(schema, encodingMode);
+        if (!selected.launchSchema) throw GfeHttpResponseException(426,
+            "This Host has no supported media negotiation protocol. Update the Host or use a compatible Client.");
+    }
+    m_MacMediaAgreement = selected; m_MacMediaCertificate = certificateSha256;
+    qInfo() << "Mac media agreement: launch=" << selected.launchSchema
+            << "clipboard=" << selected.enabled("clipboard") << "microphone=" << selected.enabled("microphone")
+            << "camera=" << selected.enabled("camera");
+    return selected;
+}
+
 MacPreviewLaunch::Reply NvHTTP::startMacPreview(const NvOutputTopology& topology,
                                               const QString& certificateSha256,
                                               int bitrateKbps, int udpPayloadSize)
 {
-    const auto body = MacPreviewLaunch::request(topology, bitrateKbps, udpPayloadSize);
     // One-shot launch: even an ambiguous timeout must require fresh auth.
     SecureStringGuard tokenGuard(m_SessionToken);
-    const auto object = postPinnedMacJson(QStringLiteral("/plank/launch"), body, certificateSha256);
+    const auto agreement = negotiateMacMedia(topology.appleEncodingMode, certificateSha256);
+    const auto body = MacPreviewLaunch::request(topology, bitrateKbps, udpPayloadSize, agreement);
+    const auto object = requestPinnedMacJson(QStringLiteral("/plank/launch"), body, certificateSha256);
     MacPreviewLaunch::Reply parsed;
-    if (!MacPreviewLaunch::parseReply(object, topology, controlPort(), udpPayloadSize, parsed)) {
+    if (!MacPreviewLaunch::parseReply(object, topology, controlPort(), udpPayloadSize, parsed, agreement, bitrateKbps)) {
         throw GfeHttpResponseException(400, "Invalid Mac preview launch response");
     }
     return parsed;
@@ -736,7 +771,8 @@ NvOutputTopology NvHTTP::prepareMacDisplay(const QString& mode, const QString& e
     if (current.featureFlags != NvOutputTopology::FixedCaptureFlags) {
         throw GfeHttpResponseException(400, "Host does not support Mac desktop preparation");
     }
-    const auto object = postPinnedMacJson(QStringLiteral("/plank/display"), request, pin);
+    negotiateMacMedia(encodingMode, pin);
+    const auto object = requestPinnedMacJson(QStringLiteral("/plank/display"), request, pin);
     NvOutputTopology result;
     if (!NvOutputTopology::fromJson(object, result) ||
             result.featureFlags != NvOutputTopology::FixedCaptureFlags ||
@@ -748,13 +784,15 @@ NvOutputTopology NvHTTP::prepareMacDisplay(const QString& mode, const QString& e
     return result;
 }
 
-QJsonObject NvHTTP::postPinnedMacJson(const QString& path, const QJsonObject& body,
+QJsonObject NvHTTP::requestPinnedMacJson(const QString& path, const QJsonObject& body,
                                     const QString& certificateSha256)
 {
     waitForRequestPermission();
     const QByteArray pin = QByteArray::fromHex(certificateSha256.toLatin1());
-    if ((path != QLatin1String("/plank/launch") && path != QLatin1String("/plank/display")) ||
-            body.isEmpty() || pin.size() != 32 ||
+    const bool information = path == QLatin1String("/serverinfo");
+    if ((path != QLatin1String("/plank/launch") && path != QLatin1String("/plank/display") &&
+         path != QLatin1String("/plank/negotiate") && !information) ||
+            (body.isEmpty() && !information) || (!body.isEmpty() && information) || pin.size() != 32 ||
             QString::fromLatin1(pin.toHex()) != certificateSha256 ||
             m_SessionToken.isEmpty() || m_SessionToken.size() > 512 ||
             m_BaseUrlHttps.scheme() != QLatin1String("https") ||
@@ -787,7 +825,8 @@ QJsonObject NvHTTP::postPinnedMacJson(const QString& path, const QJsonObject& bo
         throw QtNetworkReplyException(QNetworkReply::SslHandshakeFailedError, "Host identity is not established.");
     HostTlsGuard guard(manager, m_TrustStore, m_TrustEndpoint,
                        HostTlsGuard::Mode::RequireKnown, m_IdentityKey, pin);
-    QScopedPointer<QNetworkReply> reply(manager.post(request, QJsonDocument(body).toJson(QJsonDocument::Compact)));
+    QScopedPointer<QNetworkReply> reply(information ? manager.get(request) :
+        manager.post(request, QJsonDocument(body).toJson(QJsonDocument::Compact)));
     constexpr qint64 MaximumReplyBytes = 32768;
     reply->setReadBufferSize(MaximumReplyBytes + 1);
     QByteArray response;
@@ -836,11 +875,21 @@ QJsonObject NvHTTP::postPinnedMacJson(const QString& path, const QJsonObject& bo
                 "and approve Screen Recording and Accessibility in System Settings > Privacy & Security. "
                 "If already enabled, the permissions may belong to an earlier signed build.");
         }
+        if (status == 426 && failure.value(QStringLiteral("error")) == QLatin1String("protocol_incompatible")) {
+            throw GfeHttpResponseException(status,
+                "Host and Client do not share the required desktop media features. Update one of them to a compatible version.");
+        }
         throw GfeHttpResponseException(status, path == QLatin1String("/plank/display") ?
             "Mac desktop resolution change was not accepted" : "Mac stream launch was not accepted");
     }
     if (reply->error() != QNetworkReply::NoError) {
         throw QtNetworkReplyException(reply->error(), "Mac preview launch failed or timed out");
+    }
+    if (information) {
+        const QString xml = QString::fromUtf8(response);
+        response.fill('\0');
+        verifyResponseStatus(xml);
+        return {{"host_version", getXmlString(xml, "PlankHostVersion")}};
     }
     QJsonParseError parseError {};
     const auto document = QJsonDocument::fromJson(response, &parseError);

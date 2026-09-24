@@ -1,3 +1,17 @@
+## 1.1.004 — Media compatibility candidate
+
+### Client
+
+- Negotiate each Mac media feature independently, preserving desktop connections when optional features are unavailable.
+- Connect to supported older Mac Hosts; disable incompatible microphone or camera forwarding.
+- Ubuntu: select a native H.264/MJPEG webcam and enable it from the session toolbar. Camera starts off on each connection.
+
+### Host
+
+- Accept Mac launch schemas 4, 5 and 6 alongside independently versioned media features.
+- Keep desktop audio and input available to schema-4 Clients, with their incompatible mono microphone disabled.
+- macOS: offer native compressed camera output and decoded NV12 through the PLANK Camera extension.
+
 ## 1.1.002 — Stereo microphone candidate
 
 Update Host and Client together for this candidate's microphone protocol.

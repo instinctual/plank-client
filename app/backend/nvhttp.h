@@ -253,13 +253,16 @@ private:
                    NvLogLevel logLevel, HostTlsGuard::Mode trustMode = HostTlsGuard::Mode::Observe);
 
     QJsonObject postPlankJson(QString command, const QJsonObject& body);
-    QJsonObject postPinnedMacJson(const QString& path, const QJsonObject& body,
+    MacMediaFeatures::Agreement negotiateMacMedia(const QString& encodingMode, const QString& certificateSha256);
+    QJsonObject requestPinnedMacJson(const QString& path, const QJsonObject& body,
                                  const QString& certificateSha256);
 
     NvAddress m_Address;
     QNetworkAccessManager* m_Nam;
     QString m_SessionToken;
     QString m_WorkerInstance;
+    MacMediaFeatures::Agreement m_MacMediaAgreement;
+    QString m_MacMediaCertificate;
     HostTrustStore m_TrustStore;
     QString m_TrustEndpoint;
     QByteArray m_IdentityKey;
