@@ -4,7 +4,7 @@
 #include <Limelight.h>
 #include <QByteArray>
 
-// Typed schema-4 launch only. Never reinterpret Linux's PLS1 launch response
+// Typed schema-5 launch only. Never reinterpret Linux's PLS1 launch response
 // or infer services from a platform name or a decoder's capabilities.
 namespace MacPreviewLaunch {
 
@@ -16,7 +16,7 @@ inline QJsonObject request(const NvOutputTopology& topology, int bitrateKbps,
             !NvOutputTopology::fromJson(topology.toJson(), checked) ||
             bitrateKbps < 10000 || bitrateKbps > 150000 ||
             udpPayloadSize < 1200 || udpPayloadSize > 65527) return {};
-    return {{"schema_version", 4}, {"capture_generation", checked.generation},
+    return {{"schema_version", 5}, {"capture_generation", checked.generation},
             {"capture_id", checked.outputs.first().id},
             {"width", checked.desktopWidth}, {"height", checked.desktopHeight},
             {"encoding_mode", checked.appleEncodingMode}, {"frame_rate", 60},
@@ -39,7 +39,7 @@ inline bool parseReply(const QJsonObject& object, const NvOutputTopology& topolo
     reply = {};
     if (request(topology, 10000, udpPayloadSize).isEmpty() ||
             approvedControlPort < 1 || approvedControlPort > 65535 ||
-            object.size() != 7 || object.value("schema_version") != QJsonValue(4) ||
+            object.size() != 7 || object.value("schema_version") != QJsonValue(5) ||
             object.value("state") != QJsonValue("connecting") ||
             object.value("udp_port") != QJsonValue(approvedControlPort) ||
             object.value("max_udp_payload_size") != QJsonValue(udpPayloadSize) ||
