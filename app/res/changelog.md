@@ -1,3 +1,10 @@
+## 1.1.011 — Mac audio and input scheduling
+
+### Host
+
+- Move repeated macOS session checks off the media queue to reduce audio dropouts and typing delays during application startup and camera use.
+- Retain session revocation and enforce a freshness limit when system checks stall.
+
 ## 1.1.010 — Camera and microphone timing
 
 ### Client
