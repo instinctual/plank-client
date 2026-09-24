@@ -1,3 +1,11 @@
+## 1.1.005 — Mac Client display discovery
+
+### Client
+
+- Start sessions when macOS omits the native display-mode flag, using the current backing-pixel dimensions.
+- Show a connection error if the display layout cannot be read.
+- Retain independent media negotiation; the 1.1.004 Host can remain installed.
+
 ## 1.1.004 — Media compatibility candidate
 
 ### Client

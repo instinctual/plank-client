@@ -1682,6 +1682,7 @@ bool Session::initialize()
 
     if (!snapshotClientDisplays()) {
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
+        emit displayLaunchError(tr("Unable to read the Client display layout. Check the connected displays and try again."));
         return false;
     }
 

@@ -488,6 +488,7 @@ macx {
         streaming/input/sdl-darwin-scancodes.h \
         streaming/macwindow.h \
         streaming/macdisplaygeometry.h \
+        streaming/macdisplaymode.h \
         streaming/video/ffmpeg-renderers/vt.h \
         streaming/macclipboardsync.h \
         streaming/clipboardpolltimer.h \
