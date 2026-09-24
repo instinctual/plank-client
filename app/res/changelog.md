@@ -1,3 +1,10 @@
+## 1.1.013 — Mac capture clock
+
+### Host
+
+- Use PLANK Output as the explicit clock for remote audio capture.
+- Add bounded capture-timing diagnostics for intermittent audio gaps during camera use.
+
 ## 1.1.012 — Lower overhead for Mac session checks
 
 ### Host
