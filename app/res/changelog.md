@@ -1,3 +1,10 @@
+## 1.1.012 — Lower overhead for Mac session checks
+
+### Host
+
+- Check desktop ownership in the background every 500 ms while keeping user-switch and sleep notifications responsive.
+- Expire stale session information after one second without blocking audio or typing.
+
 ## 1.1.011 — Mac audio and input scheduling
 
 ### Host
