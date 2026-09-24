@@ -156,6 +156,12 @@ NvHTTP::getCurrentGame(QString serverInfo)
     }
 }
 
+bool
+NvHTTP::getPlankOccupied(QString serverInfo)
+{
+    return getXmlString(serverInfo, "PlankOccupied") == QLatin1String("1");
+}
+
 QString
 NvHTTP::getServerInfo(NvLogLevel logLevel, bool fastFail)
 {
