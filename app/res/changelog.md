@@ -1,3 +1,12 @@
+## 1.1.007 — Mac remote audio output
+
+### Host
+
+- Add PLANK Output as the macOS playback destination during remote sessions.
+- Restore previous playback and alert devices after disconnect, with routing recovery after Host failures.
+- Keep remote volume and mute independent of the physical output after selection.
+- Recommend restarting after installation to load updated PLANK audio devices; allow restarting later.
+
 ## 1.1.006 — Microphone queue recovery
 
 ### Host
