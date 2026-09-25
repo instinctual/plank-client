@@ -1,3 +1,10 @@
+## 1.1.014 — Mac virtual audio clock correction
+
+### Host
+
+- Correct the clock timestamp period advertised by PLANK Output and PLANK Microphone to meet Core Audio requirements.
+- Keep microphone packets at 10 ms and support larger bounded Core Audio reads.
+
 ## 1.1.013 — Mac capture clock
 
 ### Host
