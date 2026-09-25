@@ -89,8 +89,13 @@ int errorNumber(IOReturn result)
 void MacRawWacomInput::requestPermissionIfNeeded()
 {
     if (IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeUnknown) return;
+    if (supportedTabletPresence() == 1) IOHIDRequestAccess(kIOHIDRequestTypeListenEvent);
+}
+
+int MacRawWacomInput::supportedTabletPresence()
+{
     io_iterator_t entries = 0;
-    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOHIDDevice"), &entries)) return;
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOHIDDevice"), &entries)) return -1;
     bool attached = false;
     while (io_registry_entry_t entry = IOIteratorNext(entries)) {
         CFTypeRef vendor = IORegistryEntryCreateCFProperty(entry, CFSTR(kIOHIDVendorIDKey), kCFAllocatorDefault, 0);
@@ -110,7 +115,7 @@ void MacRawWacomInput::requestPermissionIfNeeded()
         IOObjectRelease(entry);
     }
     IOObjectRelease(entries);
-    if (attached) IOHIDRequestAccess(kIOHIDRequestTypeListenEvent);
+    return attached ? 1 : 0;
 }
 
 class MacRawWacomInput::Impl : public std::enable_shared_from_this<Impl>

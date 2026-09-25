@@ -35,6 +35,7 @@
 #include "streaming/mackeyboardcapture.h"
 #include "streaming/input/macrawwacom.h"
 #include "streaming/audio/macmicrophonepermission.h"
+#include "backend/macpermissions.h"
 #endif
 
 #ifdef HAVE_FFMPEG
@@ -989,6 +990,8 @@ int main(int argc, char *argv[])
 #ifdef Q_OS_MACOS
     // Ask before any stream can capture the pointer. Also handle enabling the
     // preference later in Settings, without ever prompting from a live stream.
+    auto permissions = new MacPermissions([] { return Session::get() == nullptr; }, &engine);
+    engine.rootContext()->setContextProperty("macPermissions", permissions);
     auto requestKeyboardPermission = [] {
         if (Session::get() == nullptr) {
             MacKeyboardCapture::requestPermissionIfNeeded(

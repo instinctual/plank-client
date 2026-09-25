@@ -501,6 +501,8 @@ macx {
         streaming/plankclipboard.h
     OBJECTIVE_SOURCES += streaming/macclipboardsync.mm
     OBJECTIVE_SOURCES += streaming/audio/macmicrophonepermission.mm
+    OBJECTIVE_SOURCES += backend/macpermissions.mm
+    HEADERS += backend/macpermissions.h
 }
 embedded {
     message(Embedded build)

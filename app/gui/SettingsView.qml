@@ -17,6 +17,12 @@ Flickable {
 
     signal languageChanged()
 
+    Loader {
+        id: macPermissionsDialog
+        active: Qt.platform.os === "osx"
+        source: active ? "MacPermissionsDialog.qml" : ""
+    }
+
     boundsBehavior: Flickable.OvershootBounds
 
     contentWidth: width
@@ -795,6 +801,18 @@ Flickable {
             title: qsTr("Input Settings")
 
             PlankSettingsGrid {
+
+                PlankSettingLabel {
+                    visible: Qt.platform.os === "osx"
+                    text: qsTr("macOS permissions")
+                }
+                Button {
+                    visible: Qt.platform.os === "osx"
+                    Layout.fillWidth: true
+                    text: qsTr("Review permissions…")
+                    enabled: macPermissionsDialog.status === Loader.Ready
+                    onClicked: macPermissionsDialog.item.open()
+                }
 
                 PlankSettingLabel {
                     text: qsTr("Capture system keyboard shortcuts")

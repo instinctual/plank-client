@@ -1,3 +1,15 @@
+## 1.1.019 — Clearer Mac setup and uninstall
+
+### Client
+
+- macOS: review permission status and open the relevant system settings from Configuration.
+- macOS: include an uninstaller, with optional cleanup of your saved Client data.
+
+### Host
+
+- macOS: show permissions and optional devices in an aligned status panel with clear actions.
+- macOS: remove PLANK Camera safely during uninstall; leave the Host intact if approval or a restart is needed.
+
 ## 1.1.018 — Distinct Mac app icons
 
 ### Client

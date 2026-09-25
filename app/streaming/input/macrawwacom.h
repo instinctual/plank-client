@@ -10,6 +10,8 @@ class MacRawWacomInput
 public:
     // Interactive launcher only; registry inspection does not open/seize HID.
     static void requestPermissionIfNeeded();
+    // Read-only registry enumeration: -1 unavailable, 0 absent, 1 attached.
+    static int supportedTabletPresence();
     explicit MacRawWacomInput(std::function<void()> tabletActivity);
     ~MacRawWacomInput();
     void setActive(bool active);
