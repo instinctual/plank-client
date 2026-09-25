@@ -1,3 +1,13 @@
+## 1.1.018 — Distinct Mac app icons
+
+### Client
+
+- macOS: use the approved monitor-framed artwork to distinguish Client from Host.
+
+### Host
+
+- macOS: use the approved open-landscape artwork, keeping the shared warm PLANK style.
+
 ## 1.1.017 — Mac workstation names
 
 ### Host
