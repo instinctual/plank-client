@@ -226,22 +226,37 @@ CenteredGridView {
 
         Column {
             id: workstationStatus
-            width: 280
+            width: model.inSession && model.sessionUser ? 280 : 190
             anchors.right: parent.right
             anchors.rightMargin: 18
             anchors.verticalCenter: parent.verticalCenter
             spacing: 3
 
-            Label {
+            RowLayout {
                 width: parent.width
-                text: pcEntry.sessionStatusText()
-                elide: Text.ElideLeft
-                color: model.statusUnknown ? theme.textSecondary :
-                       !model.online ? theme.textDisabled :
-                       model.inSession ? theme.danger : theme.success
-                font.pointSize: 11
-                font.weight: Font.DemiBold
-                horizontalAlignment: Text.AlignRight
+                spacing: 0
+                Item { Layout.fillWidth: true }
+                Label {
+                    id: occupancyLabel
+                    text: model.statusUnknown ? qsTr("Checking") :
+                          !model.online ? qsTr("Offline") :
+                          model.inSession ? qsTr("In Session") : qsTr("Online")
+                    color: model.statusUnknown ? theme.textSecondary :
+                           !model.online ? theme.textDisabled :
+                           model.inSession ? theme.danger : theme.success
+                    font.pointSize: 11
+                    font.weight: Font.DemiBold
+                    Layout.minimumWidth: implicitWidth
+                }
+                Label {
+                    visible: model.online && !model.statusUnknown && model.inSession && !!model.sessionUser
+                    text: " - " + (model.sessionUser || "")
+                    elide: Text.ElideRight
+                    color: occupancyLabel.color
+                    font: occupancyLabel.font
+                    Layout.minimumWidth: 0
+                    Layout.maximumWidth: Math.max(0, workstationStatus.width - occupancyLabel.implicitWidth)
+                }
             }
 
             Label {

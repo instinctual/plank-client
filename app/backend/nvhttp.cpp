@@ -165,6 +165,9 @@ NvHTTP::getPlankOccupied(QString serverInfo)
 QString
 NvHTTP::getPlankSessionUser(QString serverInfo)
 {
+    if (!getPlankOccupied(serverInfo)) {
+        return QString();
+    }
     const QString name = getXmlString(serverInfo, "PlankSessionUser");
     if (name.size() < 1 || name.size() > 64) {
         return QString();

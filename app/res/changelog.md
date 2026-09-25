@@ -1,3 +1,15 @@
+## 1.1.015 — Workstation session indicator
+
+### Client
+
+- Show In Session when a workstation has a logged-in desktop or a remote session.
+- Show the desktop username only when the Linux Host administrator enables it.
+
+### Host
+
+- Report session status without account lookups or session cleanup during discovery.
+- Include connections to the Mac login screen. Same-user access and takeover rules are unchanged.
+
 ## 1.1.014 — Mac virtual audio clock correction
 
 ### Host
