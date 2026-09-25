@@ -728,7 +728,7 @@ CenteredGridView {
                 Layout.fillWidth: true
                 model: editCaptureSource.captureSource === 2 ? [qsTr("Match client display(s)"), qsTr("One Mac virtual display")] : [
                     qsTr("Match client displays"),
-                    qsTr("Physical displays"),
+                    qsTr("Match Host"),
                     qsTr("One virtual display"),
                     qsTr("Two virtual displays (horizontal)")
                 ]
@@ -737,7 +737,7 @@ CenteredGridView {
             Label {
                 Layout.fillWidth: true
                 visible: editCaptureSource.captureSource !== 2 && editBookmarkDialog.hostDisplayPolicy === 0
-                text: qsTr("This headless workstation does not provide physical displays.")
+                text: qsTr("Match Host requires physical displays attached to the workstation.")
                 wrapMode: Text.Wrap
                 opacity: 0.72
             }

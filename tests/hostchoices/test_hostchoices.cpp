@@ -2,6 +2,8 @@
 #include <QQmlEngine>
 #include <QQmlComponent>
 #include <QGuiApplication>
+#include <QFile>
+#include <QRegularExpression>
 #include "streamingpreferences.h"
 
 class FakeManager : public QObject {
@@ -26,6 +28,55 @@ public:
 class HostChoicesTest : public QObject {
     Q_OBJECT
 private slots:
+    void bookmarkLayoutLabels_data() {
+        QTest::addColumn<QString>("filename");
+        QTest::addColumn<QString>("choiceId");
+        QTest::addColumn<QString>("captureId");
+        QTest::newRow("create") << "main.qml" << "addHostLayout" << "addCaptureSource";
+        QTest::newRow("edit") << "PcView.qml" << "editHostLayout" << "editCaptureSource";
+    }
+
+    void bookmarkLayoutLabels() {
+        QFETCH(QString, filename);
+        QFETCH(QString, choiceId);
+        QFETCH(QString, captureId);
+        const QString guiPath = QString::fromUtf8(qgetenv("PLANK_CLIENT_SOURCE")) + "/app/gui/";
+        QFile source(guiPath + filename);
+        QVERIFY(source.open(QIODevice::ReadOnly));
+        // Exercise the actual bookmark dropdown, without the full application's
+        // networking and singleton setup. Keep its option indices unchanged.
+        const QRegularExpression dropdown(
+                    "PlankComboBox \\{\\s+id: " + choiceId + "\\b.*?\\n\\s*\\}",
+                    QRegularExpression::DotMatchesEverythingOption);
+        const auto match = dropdown.match(QString::fromUtf8(source.readAll()));
+        QVERIFY(match.hasMatch());
+        const QString fixture = QStringLiteral(
+                    "import QtQuick\nimport QtQuick.Controls\nimport QtQuick.Layouts\n"
+                    "import \".\"\nItem { id: fixture; property int captureSource: 0; "
+                    "property alias choice: %1; "
+                    "QtObject { id: %2; property int captureSource: fixture.captureSource }\n%3\n}")
+                .arg(choiceId, captureId, match.captured());
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(fixture.toUtf8(), QUrl::fromLocalFile(guiPath + "LayoutLabelTest.qml"));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        QObject* choice = root->property("choice").value<QObject*>();
+        QVERIFY(choice);
+        for (int captureSource : {0, 1, 2}) {
+            QVERIFY(root->setProperty("captureSource", captureSource));
+            const QStringList expected = captureSource == 2
+                    ? QStringList{"Match client display(s)", "One Mac virtual display"}
+                    : QStringList{"Match client displays", "Match Host", "One virtual display",
+                                  "Two virtual displays (horizontal)"};
+            QCOMPARE(choice->property("count").toInt(), expected.size());
+            for (int index = 0; index < expected.size(); ++index) {
+                QVERIFY(choice->setProperty("currentIndex", index));
+                QCOMPARE(choice->property("currentText").toString(), expected[index]);
+            }
+        }
+    }
+
     void filtersAndIgnoresStaleReplies() {
         FakeManager manager;
         qmlRegisterSingletonInstance("ComputerManager", 1, 0, "ComputerManager", &manager);
