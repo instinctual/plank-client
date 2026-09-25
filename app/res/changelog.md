@@ -6,6 +6,7 @@
 - Show the desktop username only when the Linux Host administrator enables it.
 - Optionally remember the last successful sign-in username for each bookmark; passwords are never saved.
 - Rename the physical-display layout option to Match Host; display behavior is unchanged.
+- macOS: center the toolbar below the camera-notch area instead of shifting it sideways.
 
 ### Host
 

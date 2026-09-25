@@ -6,27 +6,6 @@
 
 namespace PlankToolbarLogic {
 
-// Keep an already safe position. Otherwise reveal in an unobscured top area.
-// Coordinates are window-local logical points, not Retina backing pixels.
-inline int unobscuredToolbarLeft(int currentLeft, int toolbarWidth,
-                                int windowWidth, int leftAreaEnd,
-                                int rightAreaStart)
-{
-    const int available = std::max(0, windowWidth - toolbarWidth);
-    currentLeft = std::clamp(currentLeft, 0, available);
-    leftAreaEnd = std::clamp(leftAreaEnd, 0, std::max(0, windowWidth));
-    rightAreaStart = std::clamp(rightAreaStart, leftAreaEnd, std::max(0, windowWidth));
-    if (currentLeft + toolbarWidth <= leftAreaEnd || currentLeft >= rightAreaStart)
-        return currentLeft;
-    if (toolbarWidth <= leftAreaEnd)
-        return (leftAreaEnd - toolbarWidth) / 2;
-    if (toolbarWidth <= windowWidth - rightAreaStart)
-        return rightAreaStart + (windowWidth - rightAreaStart - toolbarWidth) / 2;
-    // A very narrow logical display cannot fit the entire toolbar beside the
-    // housing. Keep the drag handle exposed so the operator can reposition it.
-    return 0;
-}
-
 inline float resolvePixelDensity(float reportedDensity,
                                  int logicalWidth,
                                  int logicalHeight,

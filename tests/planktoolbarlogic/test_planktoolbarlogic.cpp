@@ -12,7 +12,7 @@ class TestPlankToolbarLogic : public QObject
     Q_OBJECT
 
 private slots:
-    void avoidsCameraHousingWithoutChangingSafePositions();
+    void preservesCenteredAndDraggedPositions();
     void resolvesReportedAndDerivedDensity();
     void alignsLogicalHitRectWithPhysicalSurface_data();
     void alignsLogicalHitRectWithPhysicalSurface();
@@ -33,16 +33,23 @@ private slots:
     void sizesEncoderSegmentWithoutMovingSlider();
 };
 
-void TestPlankToolbarLogic::avoidsCameraHousingWithoutChangingSafePositions()
+void TestPlankToolbarLogic::preservesCenteredAndDraggedPositions()
 {
-    using PlankToolbarLogic::unobscuredToolbarLeft;
-    QCOMPARE(unobscuredToolbarLeft(585, 539, 1710, 770, 940), 115);
-    QCOMPARE(unobscuredToolbarLeft(70, 539, 1710, 770, 940), 70);
-    QCOMPARE(unobscuredToolbarLeft(1000, 539, 1710, 770, 940), 1000);
-    QCOMPARE(unobscuredToolbarLeft(200, 300, 1000, 250, 430), 565);
-    QCOMPARE(unobscuredToolbarLeft(100, 539, 900, 400, 500), 0);
-    QCOMPARE(unobscuredToolbarLeft(300, 539, 1200, 1200, 1200), 300);
-    QCOMPARE(unobscuredToolbarLeft(150, 270, 855, 385, 470), 57);
+    using namespace PlankToolbarLogic;
+    for (int windowWidth : {400, 855, 1710, 2560, 3840}) {
+        const int toolbarWidth = std::min(windowWidth, 539);
+        const int available = windowWidth - toolbarWidth;
+        // Centered reveal, either edge, and an operator-chosen position all
+        // survive a layout refresh. There is no camera exclusion horizontally.
+        for (int left : {0, available / 2, available * 3 / 4, available}) {
+            const float position = horizontalPosition(left, windowWidth, toolbarWidth);
+            QCOMPARE(logicalLeftFromPosition(position, windowWidth, toolbarWidth), left);
+        }
+        QVERIFY(std::abs(logicalLeftFromPosition(0.5f, windowWidth, toolbarWidth) -
+                         available / 2) <= 1);
+        QCOMPARE(logicalLeftFromPosition(-1.0f, windowWidth, toolbarWidth), 0);
+        QCOMPARE(logicalLeftFromPosition(2.0f, windowWidth, toolbarWidth), available);
+    }
 }
 
 void TestPlankToolbarLogic::resolvesReportedAndDerivedDensity()
