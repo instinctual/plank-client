@@ -1,3 +1,10 @@
+## 1.1.022 — Host setup follows display changes
+
+### Host
+
+- Keep macOS setup centered when the desktop resolution changes after installation.
+- Stop automatic centering once you drag the setup window yourself.
+
 ## 1.1.021 — Consistent Mac setup windows
 
 ### Client
