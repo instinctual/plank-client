@@ -1,3 +1,10 @@
+## 1.1.017 — Mac workstation names
+
+### Host
+
+- macOS: use the operating-system hostname by default, matching Linux; custom names remain configurable.
+- Upgrade the old installer-generated name to the automatic default without changing machine identity or other settings.
+
 ## 1.1.016 — Permission setup and Mac Host settings
 
 ### Client
