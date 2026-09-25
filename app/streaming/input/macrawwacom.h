@@ -8,6 +8,8 @@
 class MacRawWacomInput
 {
 public:
+    // Interactive launcher only; registry inspection does not open/seize HID.
+    static void requestPermissionIfNeeded();
     explicit MacRawWacomInput(std::function<void()> tabletActivity);
     ~MacRawWacomInput();
     void setActive(bool active);

@@ -1,3 +1,14 @@
+## 1.1.016 — Permission setup before streaming
+
+### Client
+
+- macOS: request microphone and attached USB Wacom permissions at app launch instead of during a session.
+- Keep sessions usable without microphone permission; enabling it no longer opens a permission prompt over the stream.
+
+### Host
+
+- macOS: include system-audio consent in the Host app's permission setup before remote use.
+
 ## 1.1.015 — Workstation session indicator
 
 ### Client

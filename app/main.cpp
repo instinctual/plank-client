@@ -15,6 +15,8 @@
 #include <QTemporaryFile>
 #include <QThreadPool>
 #include <QRegularExpression>
+#include <QPointer>
+#include <QTimer>
 
 #ifdef Q_OS_UNIX
 #include <sys/socket.h>
@@ -31,6 +33,8 @@
 #ifdef Q_OS_MACOS
 #include "macapplication.h"
 #include "streaming/mackeyboardcapture.h"
+#include "streaming/input/macrawwacom.h"
+#include "streaming/audio/macmicrophonepermission.h"
 #endif
 
 #ifdef HAVE_FFMPEG
@@ -993,17 +997,32 @@ int main(int argc, char *argv[])
     };
     QObject::connect(StreamingPreferences::get(), &StreamingPreferences::captureSysKeysModeChanged,
                      &app, requestKeyboardPermission);
-    // CLI autoconnect must not put a permission dialog behind its stream.
-    // Provision permission once by opening the ordinary launcher first.
+    // Resolve optional microphone consent before constructing the launcher:
+    // no bookmark/autoconnect can race a pending native permission dialog.
+    // Never block Qt's main event loop or start recording to request consent.
+    // CLI autoconnect remains non-prompting; provision via the launcher first.
     if (commandLineParserResult == GlobalCommandLineParser::NormalStartRequested) {
-        requestKeyboardPermission();
+        QTimer::singleShot(0, &engine, [&engine, requestKeyboardPermission] {
+            requestKeyboardPermission();
+            MacRawWacomInput::requestPermissionIfNeeded();
+            plankMacRequestMicrophonePermission([context = QPointer<QQmlApplicationEngine>(&engine)] {
+                if (!context) return;
+                QMetaObject::invokeMethod(context, [context] {
+                    if (!context) return;
+                    context->load(QUrl(QStringLiteral("qrc:/gui/main.qml")));
+                    if (context->rootObjects().isEmpty()) QCoreApplication::exit(-1);
+                }, Qt::QueuedConnection);
+            });
+        });
     }
+    else
 #endif
-
-    // Load the main.qml file
-    engine.load(QUrl(QStringLiteral("qrc:/gui/main.qml")));
-    if (engine.rootObjects().isEmpty()) {
-        return -1;
+    {
+        // Load immediately on Linux and for non-prompting CLI autoconnect.
+        engine.load(QUrl(QStringLiteral("qrc:/gui/main.qml")));
+        if (engine.rootObjects().isEmpty()) {
+            return -1;
+        }
     }
 
     int err = app.exec();

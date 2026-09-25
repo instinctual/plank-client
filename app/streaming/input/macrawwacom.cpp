@@ -86,6 +86,33 @@ int errorNumber(IOReturn result)
 }
 }
 
+void MacRawWacomInput::requestPermissionIfNeeded()
+{
+    if (IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeUnknown) return;
+    io_iterator_t entries = 0;
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOHIDDevice"), &entries)) return;
+    bool attached = false;
+    while (io_registry_entry_t entry = IOIteratorNext(entries)) {
+        CFTypeRef vendor = IORegistryEntryCreateCFProperty(entry, CFSTR(kIOHIDVendorIDKey), kCFAllocatorDefault, 0);
+        CFTypeRef product = IORegistryEntryCreateCFProperty(entry, CFSTR(kIOHIDProductIDKey), kCFAllocatorDefault, 0);
+        CFTypeRef transport = IORegistryEntryCreateCFProperty(entry, CFSTR(kIOHIDTransportKey), kCFAllocatorDefault, 0);
+        int vendorId = 0, productId = 0;
+        if (transport && CFEqual(transport, CFSTR("USB")) &&
+                vendor && product && CFGetTypeID(vendor) == CFNumberGetTypeID() &&
+                CFGetTypeID(product) == CFNumberGetTypeID() &&
+                CFNumberGetValue(static_cast<CFNumberRef>(vendor), kCFNumberIntType, &vendorId) &&
+                CFNumberGetValue(static_cast<CFNumberRef>(product), kCFNumberIntType, &productId)) {
+            attached |= plankWacomTransportForUsbDevice(vendorId, productId) == PlankWacomTransport::ExactRawHid;
+        }
+        if (vendor) CFRelease(vendor);
+        if (product) CFRelease(product);
+        if (transport) CFRelease(transport);
+        IOObjectRelease(entry);
+    }
+    IOObjectRelease(entries);
+    if (attached) IOHIDRequestAccess(kIOHIDRequestTypeListenEvent);
+}
+
 class MacRawWacomInput::Impl : public std::enable_shared_from_this<Impl>
 {
     struct ActivityGuard {
@@ -97,12 +124,7 @@ class MacRawWacomInput::Impl : public std::enable_shared_from_this<Impl>
 public:
     explicit Impl(std::function<void()> activity)
         : activity(std::make_shared<ActivityGuard>(std::move(activity)))
-    {
-        // Constructor runs on the Client UI thread. Only the normal OS prompt
-        // may grant access; never edit privacy databases or run as root.
-        if (IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeUnknown)
-            IOHIDRequestAccess(kIOHIDRequestTypeListenEvent);
-    }
+    {}
     void start()
     {
         worker = std::thread([self = shared_from_this()] { self->run(); });

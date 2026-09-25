@@ -82,7 +82,13 @@ void PlankMicrophone::run()
         if (requested != lastRequested) { failed = false; lastRequested = requested; }
         int permission = 1;
 #ifdef Q_OS_MACOS
-        if (requested && !failed) permission = plankMacMicrophonePermission(true);
+        // Consent is requested by the launcher, never by a stream/toolbar toggle.
+        // An unprovisioned CLI launch remains usable without microphone capture.
+        if (requested && !failed) {
+            permission = plankMacMicrophonePermission() == 1 ? 1 : -1;
+            if (permission < 0) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                "Microphone permission is unavailable; authorize PLANK Client in System Settings or reopen the launcher before connecting");
+        }
 #endif
         if (permission < 0) failed = true;
         const bool enabled = requested && !failed && permission == 1;
