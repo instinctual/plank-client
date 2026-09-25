@@ -940,8 +940,14 @@ int main(int argc, char *argv[])
                                                        return StreamingPreferences::get(qmlEngine);
                                                    });
 
-    // We require the Material theme
-    QQuickStyle::setStyle("Material");
+    // Installer setup is a standalone process: use native macOS controls there
+    // without changing the established Material launcher/streaming UI.
+#ifdef Q_OS_MACOS
+    if (commandLineParserResult == GlobalCommandLineParser::PermissionsSetupRequested)
+        QQuickStyle::setStyle("macOS");
+    else
+#endif
+        QQuickStyle::setStyle("Material");
 
     // Our icons are styled for a dark theme, so we do not allow the user to override this
     qputenv("QT_QUICK_CONTROLS_MATERIAL_THEME", "Dark");

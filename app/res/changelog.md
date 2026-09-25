@@ -1,3 +1,15 @@
+## 1.1.021 — Consistent Mac setup windows
+
+### Client
+
+- Give installer permission setup native macOS styling and the same clear columns as Host setup.
+- Keep Refresh and Close together at the lower right.
+
+### Host
+
+- Open setup centered on the usable desktop.
+- Move Refresh and Close to the lower right.
+
 ## 1.1.020 — Permission setup after installation
 
 ### Client
