@@ -45,6 +45,12 @@ quint16 PlankClientPolicy::networkPort() const
                           QStringLiteral("PLANK network"));
 }
 
+bool PlankClientPolicy::rememberUsername() const
+{
+    bool enabled = false;
+    return managedBoolean(QStringLiteral("authentication/remember_username"), &enabled) && enabled;
+}
+
 bool PlankClientPolicy::relayWakeEnabled() const
 {
     bool enabled = false;

@@ -290,6 +290,14 @@ ComputerManager::ComputerManager(StreamingPreferences* prefs)
 {
     QSettings settings;
 
+    if (!PlankClientPolicy().rememberUsername()) {
+        // Purge both copies, including stale backup entries outside array size.
+        // Otherwise a restored backup could revive a disabled saved username.
+        for (const auto array : {SER_HOSTS, SER_HOSTS_BACKUP}) {
+            NvComputer::forgetSavedUsernames(settings, QString::fromLatin1(array));
+        }
+    }
+
     // If there's a hosts backup copy, we must have failed to commit
     // a previous update before exiting. Restore the backup now.
     int hosts = settings.beginReadArray(SER_HOSTS_BACKUP);
@@ -831,6 +839,7 @@ private:
                 }
                 m_Computer->updateAppList(apps);
             }
+            m_Computer->rememberAuthenticatedUsername(m_Username, trustAddress);
             m_ComputerManager->clientSideAttributeUpdated(m_Computer);
             emit authenticationCompleted(m_Computer, nullptr);
         } catch (const GfeHttpResponseException& error) {

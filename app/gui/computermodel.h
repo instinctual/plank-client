@@ -36,6 +36,7 @@ public:
     Q_INVOKABLE void deleteComputer(int computerIndex);
 
     Q_INVOKABLE void authenticateComputer(int computerIndex, QString username, QString password);
+    Q_INVOKABLE QString rememberedUsername(int computerIndex) const;
     Q_INVOKABLE void respondToAuthenticationTakeover(bool accepted);
     Q_INVOKABLE void respondToHostTrust(bool accepted);
     ~ComputerModel() override;

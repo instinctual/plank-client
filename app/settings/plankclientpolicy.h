@@ -12,6 +12,7 @@ public:
     static QString defaultConfigPath();
 
     bool managedBoolean(const QString& key, bool* value) const;
+    bool rememberUsername() const;
     quint16 networkPort() const;
     bool relayWakeEnabled() const;
     quint16 relayWakePort() const;

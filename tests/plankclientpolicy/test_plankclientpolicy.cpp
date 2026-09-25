@@ -21,6 +21,9 @@ private slots:
     void relayWakeDefaultsOff();
     void relayWakeOptIn_data();
     void relayWakeOptIn();
+    void rememberUsernameDefaultsOff();
+    void rememberUsernameOptIn_data();
+    void rememberUsernameOptIn();
 };
 
 void TestPlankClientPolicy::omittedValueIsNotManaged()
@@ -189,6 +192,36 @@ void TestPlankClientPolicy::relayWakeOptIn()
     settings.remove(QStringLiteral("network/relay_wake_enabled"));
     settings.sync();
     QVERIFY(!policy.relayWakeEnabled());
+}
+
+void TestPlankClientPolicy::rememberUsernameDefaultsOff()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const PlankClientPolicy policy(directory.filePath(QStringLiteral("missing.conf")));
+    QVERIFY(!policy.rememberUsername());
+}
+
+void TestPlankClientPolicy::rememberUsernameOptIn_data()
+{
+    relayWakeOptIn_data();
+}
+
+void TestPlankClientPolicy::rememberUsernameOptIn()
+{
+    QFETCH(QString, configured);
+    QFETCH(bool, enabled);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("client.conf"));
+    QSettings settings(path, QSettings::IniFormat);
+    settings.setValue(QStringLiteral("authentication/remember_username"), configured);
+    settings.sync();
+    const PlankClientPolicy policy(path);
+    QCOMPARE(policy.rememberUsername(), enabled);
+    settings.remove(QStringLiteral("authentication/remember_username"));
+    settings.sync();
+    QVERIFY(!policy.rememberUsername());
 }
 
 QTEST_APPLESS_MAIN(TestPlankClientPolicy)

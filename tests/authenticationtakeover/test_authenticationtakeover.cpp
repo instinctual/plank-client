@@ -5,6 +5,7 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QFile>
 #include <future>
 
 class AuthenticationTakeoverTest : public QObject
@@ -127,6 +128,80 @@ private slots:
         decision->respond(root->property("choice").toInt() == 1);
         QVERIFY(waiting.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
         QCOMPARE(waiting.get(), accepted);
+        QCOMPARE(warnings.count(), 0);
+    }
+
+    void rememberedUsernameDialog()
+    {
+        // Exercise the actual inline login dialog without loading the bookmark
+        // page's network/streaming model. Only the model's two methods are fake.
+        QFile source(QStringLiteral(":/gui/PcView.qml"));
+        QVERIFY(source.open(QIODevice::ReadOnly));
+        const QByteArray page = source.readAll();
+        const int start = page.indexOf("    NavigableDialog {\n        id: loginDialog");
+        const int end = page.indexOf("    NavigableDialog {\n        id: editBookmarkDialog", start);
+        QVERIFY(start >= 0 && end > start);
+        QByteArray qml = R"(
+            import QtQuick 2.15
+            import QtQuick.Controls 2.15
+            import QtQuick.Layouts 1.15
+            import "qrc:/gui"
+            ApplicationWindow {
+                width: 900; height: 600; visible: true
+                property alias dialog: loginDialog
+                property alias username: usernameField
+                property alias password: passwordField
+                property string savedUsername: ""
+                property string submittedUsername: ""
+                property int attempts: 0
+                Item { id: stackView }
+                PlankTheme { id: theme }
+                QtObject {
+                    id: computerModel
+                    function rememberedUsername(index) { return savedUsername }
+                    function authenticateComputer(index, username, password) {
+                        submittedUsername = username
+                        attempts++
+                    }
+                }
+        )" + page.mid(start, end - start) + "\n}";
+        QQmlEngine engine;
+        QSignalSpy warnings(&engine, &QQmlEngine::warnings);
+        QQmlComponent component(&engine);
+        component.setData(qml, QUrl("qrc:/username-test.qml"));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto* window = qobject_cast<QQuickWindow*>(root.data());
+        QVERIFY(window && QTest::qWaitForWindowExposed(window));
+        auto* dialog = root->property("dialog").value<QObject*>();
+        auto* username = root->property("username").value<QObject*>();
+        auto* password = root->property("password").value<QObject*>();
+        QVERIFY(dialog && username && password);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
+        QTRY_VERIFY(username->property("activeFocus").toBool());
+        QVERIFY(username->property("text").toString().isEmpty());
+        QVERIFY(QMetaObject::invokeMethod(dialog, "reject"));
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        root->setProperty("savedUsername", "example-user");
+        QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
+        QTRY_VERIFY(password->property("activeFocus").toBool());
+        QCOMPARE(username->property("text").toString(), QStringLiteral("example-user"));
+        QCOMPARE(root->property("attempts").toInt(), 0); // no automatic login
+        password->setProperty("text", "synthetic-only");
+        QVERIFY(QMetaObject::invokeMethod(dialog, "reject"));
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QVERIFY(password->property("text").toString().isEmpty());
+        QVERIFY(username->property("text").toString().isEmpty());
+        QCOMPARE(root->property("attempts").toInt(), 0);
+        QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
+        QTRY_VERIFY(password->property("activeFocus").toBool());
+        username->setProperty("text", "different-user"); // prefill remains editable
+        password->setProperty("text", "synthetic-only");
+        QVERIFY(QMetaObject::invokeMethod(dialog, "accept"));
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+        QCOMPARE(root->property("attempts").toInt(), 1);
+        QCOMPARE(root->property("submittedUsername").toString(), QStringLiteral("different-user"));
+        QVERIFY(password->property("text").toString().isEmpty());
         QCOMPARE(warnings.count(), 0);
     }
 };

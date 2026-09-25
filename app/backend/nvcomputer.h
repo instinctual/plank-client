@@ -4,6 +4,7 @@
 #include "nvaddress.h"
 #include "outputtopology.h"
 #include "settings/streamingpreferences.h"
+#include "settings/plankclientpolicy.h"
 
 #include <QThread>
 #include <QReadWriteLock>
@@ -43,7 +44,8 @@ public:
 
     explicit NvComputer(NvHTTP& http, QString serverInfo);
 
-    explicit NvComputer(QSettings& settings);
+    explicit NvComputer(QSettings& settings,
+                        const PlankClientPolicy& policy = PlankClientPolicy());
 
     NvComputer(NvAddress manualAddress, QString nickname, int videoProfile,
                int captureSource,
@@ -84,7 +86,16 @@ public:
     uniqueAddresses() const;
 
     void
-    serialize(QSettings& settings, bool serializeApps) const;
+    serialize(QSettings& settings, bool serializeApps,
+              const PlankClientPolicy& policy = PlankClientPolicy()) const;
+
+    // Local opt-in prefill only. Never populated by Host discovery metadata.
+    QString rememberedUsername(const PlankClientPolicy& policy = PlankClientPolicy()) const;
+    void rememberAuthenticatedUsername(const QString& username, const NvAddress& expectedAddress,
+                                       const PlankClientPolicy& policy = PlankClientPolicy());
+
+    // Purge every entry in a bookmark array, including orphaned backup entries.
+    static void forgetSavedUsernames(QSettings& settings, const QString& array);
 
     // Caller is responsible for synchronizing read access to both hosts
     bool
@@ -149,5 +160,8 @@ public:
     mutable CopySafeReadWriteLock lock;
 
 private:
+    static void forgetSavedUsername(QSettings& settings);
     uint16_t externalPort;
+    // Optional persisted local state; intentionally absent from update(serverinfo).
+    QString m_RememberedUsername;
 };

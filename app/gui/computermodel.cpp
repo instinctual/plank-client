@@ -346,6 +346,12 @@ void ComputerModel::requestRelayWake(int computerIndex)
     request->start();
 }
 
+QString ComputerModel::rememberedUsername(int computerIndex) const
+{
+    if (computerIndex < 0 || computerIndex >= m_Computers.count()) return QString();
+    return m_Computers[computerIndex]->rememberedUsername();
+}
+
 void ComputerModel::authenticateComputer(int computerIndex, QString username,
                                          QString password)
 {

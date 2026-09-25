@@ -4,6 +4,7 @@
 
 - Show In Session when a workstation has a logged-in desktop or a remote session.
 - Show the desktop username only when the Linux Host administrator enables it.
+- Optionally remember the last successful sign-in username for each bookmark; passwords are never saved.
 
 ### Host
 
