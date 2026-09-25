@@ -7,11 +7,13 @@
 - Optionally remember the last successful sign-in username for each bookmark; passwords are never saved.
 - Rename the physical-display layout option to Match Host; display behavior is unchanged.
 - macOS: center the toolbar below the camera-notch area instead of shifting it sideways.
+- macOS: install the Client and its administrator configuration together with a PKG installer.
 
 ### Host
 
 - Report session status without account lookups or session cleanup during discovery.
 - Include connections to the Mac login screen. Same-user access and takeover rules are unchanged.
+- macOS: use /etc/plank/host.conf for administrator settings, preserving existing settings and machine identity on upgrade.
 
 ## 1.1.014 — Mac virtual audio clock correction
 
