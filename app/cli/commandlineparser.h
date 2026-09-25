@@ -11,6 +11,9 @@ public:
     enum ParseResult {
         NormalStartRequested,
         StreamRequested,
+#ifdef Q_OS_MACOS
+        PermissionsSetupRequested,
+#endif
     };
 
     GlobalCommandLineParser();

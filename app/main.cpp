@@ -963,6 +963,11 @@ int main(int argc, char *argv[])
     case GlobalCommandLineParser::NormalStartRequested:
         initialView = "qrc:/gui/PcView.qml";
         break;
+#ifdef Q_OS_MACOS
+    case GlobalCommandLineParser::PermissionsSetupRequested:
+        // The installer opens only the permission view, never the bookmark UI.
+        break;
+#endif
     case GlobalCommandLineParser::StreamRequested:
         {
             initialView = "qrc:/gui/CliStartStreamSegue.qml";
@@ -1004,15 +1009,18 @@ int main(int argc, char *argv[])
     // no bookmark/autoconnect can race a pending native permission dialog.
     // Never block Qt's main event loop or start recording to request consent.
     // CLI autoconnect remains non-prompting; provision via the launcher first.
-    if (commandLineParserResult == GlobalCommandLineParser::NormalStartRequested) {
-        QTimer::singleShot(0, &engine, [&engine, requestKeyboardPermission] {
+    if (commandLineParserResult == GlobalCommandLineParser::NormalStartRequested ||
+            commandLineParserResult == GlobalCommandLineParser::PermissionsSetupRequested) {
+        const QString startupView = commandLineParserResult == GlobalCommandLineParser::PermissionsSetupRequested ?
+                    QStringLiteral("qrc:/gui/MacPermissionSetup.qml") : QStringLiteral("qrc:/gui/main.qml");
+        QTimer::singleShot(0, &engine, [&engine, requestKeyboardPermission, startupView] {
             requestKeyboardPermission();
             MacRawWacomInput::requestPermissionIfNeeded();
-            plankMacRequestMicrophonePermission([context = QPointer<QQmlApplicationEngine>(&engine)] {
+            plankMacRequestMicrophonePermission([context = QPointer<QQmlApplicationEngine>(&engine), startupView] {
                 if (!context) return;
-                QMetaObject::invokeMethod(context, [context] {
+                QMetaObject::invokeMethod(context, [context, startupView] {
                     if (!context) return;
-                    context->load(QUrl(QStringLiteral("qrc:/gui/main.qml")));
+                    context->load(QUrl(startupView));
                     if (context->rootObjects().isEmpty()) QCoreApplication::exit(-1);
                 }, Qt::QueuedConnection);
             });

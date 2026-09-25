@@ -1,3 +1,15 @@
+## 1.1.020 — Permission setup after installation
+
+### Client
+
+- macOS: open permission setup automatically after installation, without connecting or opening bookmarks.
+- Keep launch-time permission checks for new users and changed approvals.
+
+### Host
+
+- macOS: retain automatic installer setup and clearly defer approval when nobody is logged in.
+- Remove the unverifiable System Audio status indicator while retaining consent setup and a Settings shortcut.
+
 ## 1.1.019 — Clearer Mac setup and uninstall
 
 ### Client

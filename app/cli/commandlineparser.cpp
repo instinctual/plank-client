@@ -209,8 +209,20 @@ GlobalCommandLineParser::ParseResult GlobalCommandLineParser::parse(const QStrin
         "See 'plank-client <action> --help' for help of specific action."
     );
     parser.addPositionalArgument("action", "Action to execute", "<action>");
+#ifdef Q_OS_MACOS
+    parser.addOption(QCommandLineOption("setup-permissions", "Review macOS permissions without opening bookmarks or connecting."));
+#endif
     parser.parse(args);
     auto posArgs = parser.positionalArguments();
+
+#ifdef Q_OS_MACOS
+    if (parser.isSet("setup-permissions")) {
+        parser.handleUnknownOptions();
+        if (!posArgs.isEmpty()) parser.showError("Permission setup cannot be combined with a stream action");
+        parser.handleHelpAndVersionOptions();
+        return PermissionsSetupRequested;
+    }
+#endif
 
     if (posArgs.isEmpty()) {
         // This method will not return and terminates the process if --version
