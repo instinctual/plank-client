@@ -1,4 +1,4 @@
-## 1.1.016 — Permission setup before streaming
+## 1.1.016 — Permission setup and Mac Host settings
 
 ### Client
 
@@ -8,6 +8,8 @@
 ### Host
 
 - macOS: include system-audio consent in the Host app's permission setup before remote use.
+- macOS: optionally show the desktop username beside In Session; publication is off by default.
+- macOS: make the connection inactivity timeout configurable, with fully documented settings.
 
 ## 1.1.015 — Workstation session indicator
 
