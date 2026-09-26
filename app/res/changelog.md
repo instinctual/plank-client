@@ -1,3 +1,14 @@
+## 1.1.024 — Wacom focus and contact recovery
+
+### Client
+
+- macOS: follow the active stream window when switching Spaces, windows or applications, so tablet input can resume on focus return.
+
+### Host
+
+- Linux: release held tablet contact when forwarding pauses, without recreating the tablet or changing its identity.
+- Handle interrupted contact reads and partial release writes, and verify cleanup before reporting success.
+
 ## 1.1.023 — Host setup opens in front
 
 ### Host
