@@ -122,12 +122,8 @@ bool SdlInputHandler::hasMacStreamKeyboardFocus() const
 {
     // SDL focus notifications may still be queued. A local Qt dialog must
     // never inherit the stream's shortcut ownership or forward its typing.
-    for (const auto& output : m_PresentationLayout.outputs) {
-        if (MacWindow::hasKeyboardFocus(output.window)) return true;
-    }
-    if (m_PresentationLayout.outputs.isEmpty() && m_Window != nullptr)
-        return MacWindow::hasKeyboardFocus(m_Window);
-    return false;
+    return MacRawWacomFocus::streamHasFocus(
+                m_PresentationLayout.outputs, m_Window, MacWindow::hasKeyboardFocus);
 }
 #endif
 
@@ -671,13 +667,12 @@ void SdlInputHandler::refreshTabletFocus()
     // raw tablet lease while either presentation window owns native focus.
     const bool captureActive = isCaptureActive();
     const bool nativeFocus = hasMacStreamKeyboardFocus();
-    const bool active = captureActive && nativeFocus;
-    if (active == m_MacRawWacomFocusActive) return;
-    m_MacRawWacomFocusActive = active;
+    const auto active = m_MacRawWacomFocus.update(captureActive, nativeFocus);
+    if (!active) return;
     SDL_LogInfo(SDL_LOG_CATEGORY_INPUT,
                 "Mac Wacom stream focus: active=%d capture=%d native=%d",
-                active, captureActive, nativeFocus);
-    m_MacRawWacomInput->setActive(active);
+                *active, captureActive, nativeFocus);
+    m_MacRawWacomInput->setActive(*active);
 #endif
 }
 

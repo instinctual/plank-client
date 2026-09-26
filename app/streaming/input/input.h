@@ -4,6 +4,9 @@
 #include "backend/computermanager.h"
 #include "streaming/plankpresentation.h"
 #include "streaming/plankembeddedcursor.h"
+#ifdef Q_OS_MACOS
+#include "macrawwacomfocus.h"
+#endif
 
 #include <SDL3/SDL.h>
 
@@ -222,7 +225,7 @@ private:
 
 #ifdef HAVE_MAC_RAW_WACOM
     std::unique_ptr<MacRawWacomInput> m_MacRawWacomInput;
-    bool m_MacRawWacomFocusActive = false;
+    MacRawWacomFocus m_MacRawWacomFocus;
 #endif
 
 #ifdef HAVE_LIBINPUT_TABLET

@@ -1,6 +1,7 @@
 #include <QtTest>
 #include "macrawwacomasync.h"
 #include "macrawwacomlogic.h"
+#include "macrawwacomfocus.h"
 #include <memory>
 
 class TestMacRawWacom : public QObject {
@@ -15,7 +16,70 @@ private slots:
     void newerRequestsOverrideLateCompletion();
     void reconnectDoesNotRestoreLostFocus();
     void stopAndExitCannotResumeForwarding();
+    void nativeFocusReconciliation();
+    void focusRecoveryRespectsPendingRelease();
 };
+
+void TestMacRawWacom::nativeFocusReconciliation()
+{
+    struct Window { bool activeSpaceKey = false; } primary, secondary, dialog;
+    struct Output { Window* window; };
+    std::vector<Output> outputs;
+    auto hasFocus = [](Window* window) { return window->activeSpaceKey; };
+    MacRawWacomFocus focus;
+    auto poll = [&](bool capture) {
+        return focus.update(capture,
+            MacRawWacomFocus::streamHasFocus(outputs, &primary, hasFocus));
+    };
+    QVERIFY(!poll(true).has_value());
+    primary.activeSpaceKey = true;
+    QVERIFY(!poll(false).has_value()); // Native focus alone cannot grab a tablet.
+    QVERIFY(poll(true).value());       // Fallback before presentation exists.
+    QVERIFY(!poll(true).has_value()); // No repeated attach/logging.
+    outputs = {{&primary}, {&secondary}};
+    primary.activeSpaceKey = false;
+    secondary.activeSpaceKey = true;
+    QVERIFY(!poll(true).has_value()); // Stream-to-stream handoff retains lease.
+    secondary.activeSpaceKey = false;
+    dialog.activeSpaceKey = true;
+    QVERIFY(hasFocus(&dialog));
+    QVERIFY(!poll(true).value());     // Dialog/other app/Space is not a stream.
+    QVERIFY(!poll(true).has_value());
+    secondary.activeSpaceKey = true;
+    QVERIFY(poll(true).value());      // Poll recovers even without SDL events.
+    QVERIFY(!poll(false).value());    // Capture off wins over native focus.
+    QVERIFY(!poll(false).has_value());
+    outputs = {{nullptr}, {&secondary}};
+    QVERIFY(poll(true).value());
+    outputs = {{&primary}};
+    QVERIFY(!poll(true).value());     // Removed focused output is not eligible.
+    outputs.clear();
+    QVERIFY(!MacRawWacomFocus::streamHasFocus(outputs,
+        static_cast<Window*>(nullptr), hasFocus));
+}
+
+void TestMacRawWacom::focusRecoveryRespectsPendingRelease()
+{
+    MacRawWacomFocus focus;
+    MacWacomLifecycle lifecycle;
+    lifecycle.setActive(focus.update(true, true).value());
+    QVERIFY(lifecycle.canForward());
+    const auto release = lifecycle.setActive(focus.update(true, false).value());
+    lifecycle.setActive(focus.update(true, true).value());
+    QVERIFY(!lifecycle.canForward()); // No acquisition before worker completion.
+    lifecycle.complete(release);
+    QVERIFY(lifecycle.canForward());
+    const auto reconnect = lifecycle.beginReconnect();
+    QVERIFY(!focus.update(true, true).has_value());
+    QVERIFY(!lifecycle.canForward()); // Focus cache cannot bypass reconnect.
+    lifecycle.complete(reconnect);
+    const auto finish = lifecycle.finishReconnect();
+    lifecycle.complete(finish);
+    QVERIFY(lifecycle.canForward());
+    lifecycle.stop();
+    QVERIFY(!focus.update(true, true).has_value());
+    QVERIFY(!lifecycle.canForward());
+}
 
 static QByteArray frame(unsigned type, unsigned size)
 {

@@ -6,3 +6,4 @@ TARGET = macrawwacom
 INCLUDEPATH += ../../app/streaming/input ../../moonlight-common-c/moonlight-common-c/src
 SOURCES += test_macrawwacom.cpp
 HEADERS += ../../app/streaming/input/macrawwacomlogic.h ../../app/streaming/input/macrawwacomasync.h
+HEADERS += ../../app/streaming/input/macrawwacomfocus.h
