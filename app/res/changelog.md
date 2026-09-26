@@ -1,3 +1,10 @@
+## 1.1.023 — Host setup opens in front
+
+### Host
+
+- Bring macOS setup in front of Installer when it opens, without keeping it always-on-top.
+- Preserve the accepted centering behavior as the desktop resolution changes.
+
 ## 1.1.022 — Host setup follows display changes
 
 ### Host
