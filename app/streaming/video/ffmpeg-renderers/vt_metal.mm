@@ -451,7 +451,9 @@ public:
                 if (reduced && reduced.width == NSUInteger(target->videoSize.width()) &&
                         reduced.height == planesToDraw[i].height) continue;
                 [reduced release];
-                auto descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRG32Float
+                // Half floats retain all 10-bit code levels and are filterable
+                // on every supported Apple GPU; RG32Float filtering is optional.
+                auto descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRG16Float
                     width:target->videoSize.width() height:planesToDraw[i].height mipmapped:NO];
                 descriptor.storageMode = MTLStorageModePrivate;
                 descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
