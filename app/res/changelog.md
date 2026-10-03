@@ -1,3 +1,12 @@
+## 1.1.031 — Smoother Mac window scaling
+
+### Client
+- macOS: preserve fine lines and text when shrinking a session window.
+- Keep native-size video, enlargement, toolbar drawing and Linux presentation unchanged.
+
+### Host
+- No Host update is required for the scaling fix.
+
 ## 1.1.030 — Audio synchronization and mainline release
 
 ### Client
