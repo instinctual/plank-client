@@ -130,7 +130,12 @@ struct SettingsView: View {
 
             Section("About") {
                 LabeledContent("Client", value: "PLANK for Apple Vision Pro")
-                LabeledContent("Version", value: "0.1.0")
+                LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")
+                LabeledContent("Build", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown")
+                if let branch = Bundle.main.infoDictionary?["PLANKBuildBranch"] as? String,
+                   !branch.isEmpty, branch != "main" {
+                    LabeledContent("Branch", value: branch)
+                }
             }
         }
         .onChange(of: timingCapture) { _, enabled in

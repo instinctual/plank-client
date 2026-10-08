@@ -314,13 +314,19 @@ def application(inputs, args):
                f"-DPLANK_RELAY_SODIUM_PREFIX={prefix}", f"-DPLANK_OPUS_DIR={prefix}",
                f"-DPLANK_FFMPEG_DIR={prefix}"]
     if args.platform == "macos":
-        command += [f"-DPLANK_MANAGED_RELAY_SOURCE_DIR={args.work / 'git/managed'}"]
+        command += [f"-DPLANK_MANAGED_RELAY_SOURCE_DIR={args.work / 'git/managed'}",
+                    f"-DPLANK_APPLE_BUILD_NUMBER={args.build_number}",
+                    f"-DPLANK_BUILD_BRANCH={args.branch}"]
     else:
-        command += ["-DCMAKE_SYSTEM_NAME=visionOS"]
+        command += ["-DCMAKE_SYSTEM_NAME=visionOS",
+                    f"-DPLANK_VISION_BUILD_NUMBER={args.build_number}",
+                    f"-DPLANK_VISION_VERSION={args.version}",
+                    f"-DPLANK_VISION_BUNDLE_ID={args.bundle_id}",
+                    f"-DPLANK_BUILD_BRANCH={args.branch}"]
     run(command, env=env)
-    run(["cmake", "--build", build, "--config", "Debug", "--parallel", args.jobs,
+    run(["cmake", "--build", build, "--config", args.configuration, "--parallel", args.jobs,
          "--", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGN_IDENTITY=", "DEVELOPMENT_TEAM="], env=env)
-    app = build / ("Debug" if args.platform == "macos" else f"Debug-{sdk}") / (
+    app = build / (args.configuration if args.platform == "macos" else f"{args.configuration}-{sdk}") / (
         "PLANK Native Pilot.app" if args.platform == "macos" else "PLANK.app")
     require(app.is_dir(), "Expected app bundle is absent")
     executable = app / "Contents/MacOS/PLANK Native Pilot" if args.platform == "macos" else app / "PLANK"
@@ -335,7 +341,9 @@ def application(inputs, args):
     (args.work / "application.json").write_text(json.dumps({
         "client_commit": commit, "common_c_commit": common_commit,
         "manifest_sha256": digest(MANIFEST), "recipe_sha256": digest(Path(__file__)), "toolchain": versions,
-        "platform": args.platform, "signed": False, "executable_sha256": digest(executable)}, indent=2) + "\n")
+        "platform": args.platform, "configuration": args.configuration,
+        "build_number": args.build_number, "branch": args.branch,
+        "signed": False, "executable_sha256": digest(executable)}, indent=2) + "\n")
     print(f"Unsigned compile completed: {app}")
 
 
@@ -347,8 +355,18 @@ def main():
     parser.add_argument("--cache", type=Path, help="Reusable checksum-verified release archives")
     parser.add_argument("--client", type=Path, default=REPOSITORY)
     parser.add_argument("--jobs", type=int, default=8)
+    parser.add_argument("--configuration", choices=("Debug", "Release"), default="Debug")
+    parser.add_argument("--build-number", default="1")
+    parser.add_argument("--version", default="0.1.0")
+    parser.add_argument("--bundle-id", default="la.instinctual.PLANK.Vision")
+    parser.add_argument("--branch", default="local")
     args = parser.parse_args()
     require(args.jobs > 0, "jobs must be positive")
+    require(re.fullmatch(r"[1-9][0-9]{0,3}(\.[0-9]{1,2}){0,2}", args.build_number),
+            "Build number must fit Apple's numeric version fields")
+    require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", args.version), "Invalid marketing version")
+    require(re.fullmatch(r"[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+", args.bundle_id), "Invalid bundle identifier")
+    require(re.fullmatch(r"[a-z0-9][a-z0-9-]*", args.branch), "Use a lowercase kebab-case branch")
     args.work = args.work.expanduser().resolve()
     args.cache = args.cache.expanduser().resolve() if args.cache else args.work.parent / "downloads"
     inputs = json.loads(MANIFEST.read_text())

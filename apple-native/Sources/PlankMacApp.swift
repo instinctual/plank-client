@@ -28,6 +28,11 @@ struct PlankMacSettings: View {
             Text("Tablet selection applies on the next connection. USB capture requires macOS Input Monitoring permission.").font(.caption).foregroundStyle(.secondary)
             Toggle("Also play on workstation speakers", isOn: $speakers)
                 .onChange(of: speakers) { _, value in UserDefaults.standard.set(value, forKey: PlankAudioPreferences.playOnHostKey) }
+            LabeledContent("Build", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown")
+            if let branch = Bundle.main.infoDictionary?["PLANKBuildBranch"] as? String,
+               !branch.isEmpty, branch != "main" {
+                LabeledContent("Branch", value: branch)
+            }
         }.padding(24).frame(width: 460)
             .onAppear { NSCursor.arrow.set() }
     }
