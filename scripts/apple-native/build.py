@@ -301,7 +301,10 @@ def application(inputs, args):
     require(not build.exists(), "Use a fresh app build directory")
     prefix = args.work / "install"
     env = dict(os.environ, RUSTUP_TOOLCHAIN=inputs["toolchain"]["rust"], CARGO_NET_OFFLINE="true",
-               CARGO_HOME=str(args.work / "cargo"))
+               CARGO_HOME=str(args.work / "cargo"), CARGO_PROFILE_RELEASE_STRIP="none")
+    # SDK27's strip can make host proc-macro dylibs unloadable when targeting
+    # macOS15. A profile override also covers build-host crates when --target is
+    # explicit; target-only RUSTFLAGS alone does not. Match shipping Apple CI.
     for name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC", "RUSTC_WRAPPER",
                  "RUSTC_WORKSPACE_WRAPPER", "CARGO_BUILD_TARGET", "SDKROOT",
                  "CC", "CXX", "CFLAGS", "CPPFLAGS", "LDFLAGS", "LIBRARY_PATH", "CPATH"):

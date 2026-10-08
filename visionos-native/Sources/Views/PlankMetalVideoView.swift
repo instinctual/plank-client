@@ -165,10 +165,14 @@ final class PlankMetalVideoView: UIView {
                 succeeded: buffer.status == .completed
             )
         }
+        // The simulator Metal SDK omits presentation callbacks. Do not invent
+        // scanout timing from GPU completion; retain real-device measurements.
+#if !targetEnvironment(simulator)
         let submittedFrameID = frameID
         drawable.addPresentedHandler { shown in
             PlankTimingCapture.shared.presented(frameID: submittedFrameID, time: shown.presentedTime)
         }
+#endif
         command.present(drawable)
         PlankTimingCapture.shared.submitted()
         command.commit()
