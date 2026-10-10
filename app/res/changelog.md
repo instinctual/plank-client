@@ -1,3 +1,15 @@
+## 1.1.036 — Wacom recovery candidate
+
+### Client
+- Improve Linux tablet handling during focus changes and reconnects.
+- Keep tablet control requests from blocking pen input.
+- Distribute the Mac Client directly as a signed PKG, without a disk-image wrapper.
+
+### Host
+- Release held pen and button state reliably when a Linux session ends or is replaced.
+- Recover unhealthy forwarded tablet devices while preserving healthy device identities.
+- Handle short input bursts without immediately ending the connection.
+
 ## 1.1.035 — Consolidated mainline build
 
 ### Client
