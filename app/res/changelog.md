@@ -1,3 +1,14 @@
+## 1.1.037 — Client session recovery candidate
+
+### Client
+- Fix tablet-cursor cleanup that could crash the Linux client on Wayland.
+- Prevent late input callbacks from using a destroyed session input handler.
+- Handle failed toolbar/cursor allocations safely and improve stalled-callback diagnostics.
+- Retain all Wacom recovery changes from the previous candidate.
+
+### Host
+- No additional Host changes; retains the previous candidate's Wacom recovery fixes.
+
 ## 1.1.036 — Wacom recovery candidate
 
 ### Client
