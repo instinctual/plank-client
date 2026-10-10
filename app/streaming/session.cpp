@@ -289,8 +289,10 @@ void Session::clSetHdrMode(bool enabled)
 
 void Session::clRawHidControl(const unsigned char* data, unsigned int length)
 {
-    if (s_ActiveSession != nullptr && s_ActiveSession->m_InputHandler != nullptr) {
-        s_ActiveSession->m_InputHandler->handleRawHidControl(data, length);
+    if (s_ActiveSession != nullptr) {
+        s_ActiveSession->m_InputCallbacks.invoke([&](SdlInputHandler& input) {
+            input.handleRawHidControl(data, length);
+        });
     }
 }
 
@@ -316,28 +318,41 @@ void Session::clVideoBitrateApplied(
 
 void Session::clCursorChunk(const unsigned char* data, unsigned int length)
 {
-    if (s_ActiveSession == nullptr || s_ActiveSession->m_InputHandler == nullptr) {
+    if (s_ActiveSession == nullptr) {
         return;
     }
-    if (s_ActiveSession->m_InputHandler->handleRemoteCursorChunk(data, length)) {
-        SDL_Event event = {};
-        event.type = SDL_EVENT_USER;
-        event.user.code = SDL_CODE_PLANK_CURSOR;
-        SDL_PushEvent(&event);
-    }
+    s_ActiveSession->m_InputCallbacks.invoke([&](SdlInputHandler& input) {
+        if (input.handleRemoteCursorChunk(data, length)) {
+            SDL_Event event = {};
+            event.type = SDL_EVENT_USER;
+            event.user.code = SDL_CODE_PLANK_CURSOR;
+            SDL_PushEvent(&event);
+        }
+    });
 }
 
 void Session::clCursorPosition(const unsigned char* data, unsigned int length)
 {
-    if (s_ActiveSession == nullptr || s_ActiveSession->m_InputHandler == nullptr) {
+    if (s_ActiveSession == nullptr) {
         return;
     }
-    if (s_ActiveSession->m_InputHandler->handleRemoteCursorPosition(data, length)) {
-        SDL_Event event = {};
-        event.type = SDL_EVENT_USER;
-        event.user.code = SDL_CODE_PLANK_CURSOR_POSITION;
-        SDL_PushEvent(&event);
-    }
+    s_ActiveSession->m_InputCallbacks.invoke([&](SdlInputHandler& input) {
+        if (input.handleRemoteCursorPosition(data, length)) {
+            SDL_Event event = {};
+            event.type = SDL_EVENT_USER;
+            event.user.code = SDL_CODE_PLANK_CURSOR_POSITION;
+            SDL_PushEvent(&event);
+        }
+    });
+}
+
+void Session::destroyInputHandler()
+{
+    // Control callbacks keep running until deferred connection cleanup. Retire
+    // their borrowed target before destroying the input handler on this thread.
+    m_InputCallbacks.clear();
+    delete m_InputHandler;
+    m_InputHandler = nullptr;
 }
 
 void Session::postTabletCursorActivationEvent()
@@ -3831,6 +3846,7 @@ void Session::execInternal()
     m_InputHandler = new SdlInputHandler(*m_Preferences,
                                          m_StreamConfig.width,
                                          m_StreamConfig.height);
+    m_InputCallbacks.publish(m_InputHandler);
 
     m_ConnectionStartCancelled.store(false);
     AsyncConnectionStartThread asyncConnThread(this);
@@ -3862,8 +3878,7 @@ void Session::execInternal()
 
     // If the connection failed, clean up and abort the connection.
     if (!m_AsyncConnectionSuccess) {
-        delete m_InputHandler;
-        m_InputHandler = nullptr;
+        destroyInputHandler();
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
         QThreadPool::globalInstance()->start(new DeferredSessionCleanupTask(this));
         return;
@@ -3960,8 +3975,7 @@ void Session::execInternal()
                          "SDL_CreateWindow() failed: %s",
                          SDL_GetError());
 
-            delete m_InputHandler;
-            m_InputHandler = nullptr;
+            destroyInputHandler();
             SDL_QuitSubSystem(SDL_INIT_VIDEO);
             QThreadPool::globalInstance()->start(new DeferredSessionCleanupTask(this));
             return;
@@ -4015,8 +4029,7 @@ void Session::execInternal()
                 m_SecondaryWindows.clear();
                 SDL_DestroyWindow(m_Window);
                 m_Window = nullptr;
-                delete m_InputHandler;
-                m_InputHandler = nullptr;
+                destroyInputHandler();
                 SDL_QuitSubSystem(SDL_INIT_VIDEO);
                 QThreadPool::globalInstance()->start(
                             new DeferredSessionCleanupTask(this));
@@ -4035,8 +4048,7 @@ void Session::execInternal()
                 m_SecondaryWindows.clear();
                 SDL_DestroyWindow(m_Window);
                 m_Window = nullptr;
-                delete m_InputHandler;
-                m_InputHandler = nullptr;
+                destroyInputHandler();
                 SDL_QuitSubSystem(SDL_INIT_VIDEO);
                 QThreadPool::globalInstance()->start(
                             new DeferredSessionCleanupTask(this));
@@ -4976,8 +4988,7 @@ DispatchDeferredCleanup:
 
     // Destroy the input handler now. This must be destroyed
     // before allowing the UI to continue execution.
-    delete m_InputHandler;
-    m_InputHandler = nullptr;
+    destroyInputHandler();
     clearPlankReconnectCredentials();
     {
         QWriteLocker lock(&m_Computer->lock);
