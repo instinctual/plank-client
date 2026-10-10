@@ -2,6 +2,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -75,6 +77,9 @@ private:
                    std::uint32_t transactionId,
                    const unsigned char* payload, std::size_t payloadLength);
     void handlePhysicalReports();
+    void processControl(const unsigned char* data, unsigned int length);
+    void synchronizeSuspend();
+    void waitForWork(std::chrono::milliseconds delay);
     void queueReport(std::uint16_t type, std::uint16_t interfaceId,
                      std::uint32_t transactionId,
                      const unsigned char* payload, std::size_t payloadLength);
@@ -87,7 +92,15 @@ private:
     std::atomic<bool> m_Reconnecting;
     std::atomic<bool> m_AttachFailed;
     std::thread m_Thread;
-    std::recursive_mutex m_Mutex;
+    // Only run() owns HID handles/attachment state. Callbacks enqueue bounded
+    // control records; lifecycle callers wait for an acknowledged suspend.
+    std::mutex m_Mutex;
+    std::condition_variable m_Changed;
+    std::deque<std::vector<unsigned char>> m_Controls;
+    std::uint64_t m_SuspendRequested = 0;
+    std::uint64_t m_SuspendCompleted = 0;
+    bool m_Finished = false;
+    bool m_ControlOverflow = false;
     std::vector<HidInterface> m_Interfaces;
     std::vector<int> m_EventFds;
     std::uint16_t m_Generation;
