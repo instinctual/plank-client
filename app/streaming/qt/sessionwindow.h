@@ -42,6 +42,7 @@ public:
     void setPinned(bool pinned);
     void setWaiting(bool waiting);
     void setBitrateKbps(int kbps);
+    void cancelInput();
     Q_INVOKABLE void moveToolbar(qreal logicalLeft);
     Q_INVOKABLE void toggleFullscreen();
     Q_INVOKABLE void minimize();
@@ -87,6 +88,7 @@ private:
     void releaseRemoteInput();
     bool remoteKeyboard() const;
     static quint64 keyIdentity(const QKeyEvent* event);
+    QWindow* controlWindow();
 
     QtSessionGeometry m_Geometry;
     QPointer<QQuickItem> m_Toolbar;

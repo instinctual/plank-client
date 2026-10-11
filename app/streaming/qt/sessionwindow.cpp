@@ -106,9 +106,7 @@ void QtSessionWindow::setPinned(bool pinned)
 void QtSessionWindow::setWaiting(bool waiting)
 {
     if (m_Waiting == waiting) return;
-    releaseRemoteInput();
-    if (auto* grabber = mouseGrabberItem()) grabber->ungrabMouse();
-    m_LocalButtons = {};
+    cancelInput();
     m_Waiting = waiting;
     m_RevealTimer.stop();
     updateCursor();
@@ -140,15 +138,23 @@ void QtSessionWindow::moveToolbar(qreal logicalLeft)
 
 void QtSessionWindow::toggleFullscreen()
 {
-    releaseRemoteInput();
-    if (windowState() == Qt::WindowFullScreen) showNormal();
-    else showFullScreen();
+    cancelInput();
+    auto* window = controlWindow();
+    if (window->windowState() == Qt::WindowFullScreen) window->showNormal();
+    else window->showFullScreen();
 }
 
 void QtSessionWindow::minimize()
 {
-    releaseRemoteInput();
-    showMinimized();
+    cancelInput();
+    controlWindow()->showMinimized();
+}
+
+QWindow* QtSessionWindow::controlWindow()
+{
+    QWindow* window = this;
+    while (window->parent()) window = window->parent();
+    return window;
 }
 
 void QtSessionWindow::disconnectSession()
@@ -220,8 +226,7 @@ bool QtSessionWindow::event(QEvent* event)
         event->accept();
         return true;
     } else if (event->type() == QEvent::Hide) {
-        releaseRemoteInput();
-        m_RevealTimer.stop();
+        cancelInput();
     } else if (event->type() == QEvent::DevicePixelRatioChange) {
         releaseRemoteInput();
         m_Geometry = {};
@@ -371,14 +376,20 @@ void QtSessionWindow::releaseRemoteInput()
     for (const auto& key : keys) emit remoteKey(key.scanCode, key.key, false, false, key.modifiers);
 }
 
-void QtSessionWindow::focusOutEvent(QFocusEvent* event)
+void QtSessionWindow::cancelInput()
 {
+    Q_ASSERT(QThread::currentThread() == thread());
     releaseRemoteInput();
     if (auto* grabber = mouseGrabberItem()) grabber->ungrabMouse();
     m_LocalButtons = {};
     m_PointerPresent = false;
     m_RevealTimer.stop();
     scheduleHide();
+}
+
+void QtSessionWindow::focusOutEvent(QFocusEvent* event)
+{
+    cancelInput();
     QQuickView::focusOutEvent(event);
 }
 

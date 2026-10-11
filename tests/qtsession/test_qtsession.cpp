@@ -5,6 +5,7 @@
 #include <limits>
 
 #include "sessionwindow.h"
+#include "sessionshell.h"
 
 namespace {
 QtSessionGeometry fullFrame(const QSize& logical = {1280, 720}, qreal scale = 1.0)
@@ -347,6 +348,72 @@ private slots:
         mouse(*window, QEvent::MouseButtonPress, {500, 300}, Qt::LeftButton, Qt::LeftButton);
         window.reset();
         QCOMPARE(releases, 1);
+    }
+
+    void shellOwnsWindowStateAndGeometry()
+    {
+        QtSessionShell shell;
+        auto& scene = shell.surface();
+        shell.resize(1280, 720);
+        shell.show();
+        QTRY_COMPARE(scene.size(), shell.size());
+        QVERIFY(!scene.isTopLevel());
+        QCOMPARE(scene.parent(), &shell);
+        scene.setPinned(true);
+        scene.setRemoteInputEnabled(true);
+        scene.setPresentation(fullFrame(scene.size()));
+        QSignalSpy buttons(&scene, &QtSessionWindow::remoteButton);
+        mouse(scene, QEvent::MouseButtonPress, {500, 300}, Qt::LeftButton, Qt::LeftButton);
+        shell.resize(1100, 680);
+        QTRY_COMPARE(scene.size(), QSize(1100, 680));
+        QCOMPARE(buttons.count(), 2);
+
+        for (int round = 0; round < 3; ++round) {
+            const auto button = controlCenter(scene, "fullscreenButton");
+            mouse(scene, QEvent::MouseButtonPress, button, Qt::LeftButton, Qt::LeftButton);
+            mouse(scene, QEvent::MouseButtonRelease, button, Qt::LeftButton);
+            QTRY_COMPARE(shell.windowState(), Qt::WindowFullScreen);
+            QTRY_COMPARE(scene.size(), shell.size());
+            QCOMPARE(scene.windowState(), Qt::WindowNoState);
+            scene.toggleFullscreen();
+            QTRY_COMPARE(shell.windowState(), Qt::WindowNoState);
+            QTRY_COMPARE(scene.size(), shell.size());
+        }
+        scene.minimize();
+        QTRY_COMPARE(shell.windowState(), Qt::WindowMinimized);
+        shell.showNormal();
+        QTRY_COMPARE(shell.windowState(), Qt::WindowNoState);
+        QSignalSpy disconnect(&scene, &QtSessionWindow::disconnectRequested);
+        shell.close();
+        QCOMPARE(disconnect.count(), 1);
+    }
+
+    void shellCancelsInputAndRoutesKeyboard()
+    {
+        QtSessionShell shell;
+        auto& scene = shell.surface();
+        shell.resize(1280, 720);
+        shell.show();
+        QTRY_COMPARE(scene.size(), shell.size());
+        scene.setPresentation(fullFrame(scene.size()));
+        scene.setRemoteInputEnabled(true);
+        QSignalSpy buttons(&scene, &QtSessionWindow::remoteButton);
+        QSignalSpy keys(&scene, &QtSessionWindow::remoteKey);
+        mouse(scene, QEvent::MouseButtonPress, {500, 300}, Qt::LeftButton, Qt::LeftButton);
+        QKeyEvent down(QEvent::KeyPress, Qt::Key_A, {}, 38, 0, 0);
+        QCoreApplication::sendEvent(&shell, &down);
+        QCOMPARE(keys.count(), 1);
+        QEvent inactive(QEvent::WindowDeactivate);
+        QCoreApplication::sendEvent(&shell, &inactive);
+        QCOMPARE(buttons.count(), 2);
+        QCOMPARE(keys.count(), 2);
+        QVERIFY(!keys.last().at(2).toBool());
+        QKeyEvent up(QEvent::KeyRelease, Qt::Key_A, {}, 38, 0, 0);
+        QCoreApplication::sendEvent(&shell, &up);
+        QCOMPARE(keys.count(), 2);
+        scene.setWaiting(true);
+        QCoreApplication::sendEvent(&shell, &down);
+        QCOMPARE(keys.count(), 2);
     }
 };
 
