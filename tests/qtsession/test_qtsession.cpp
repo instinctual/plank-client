@@ -271,6 +271,83 @@ private slots:
         window.setBitrateKbps(-1);
         QCOMPARE(window.bitrateKbps(), 10000);
     }
+
+    void sliderDoesNotLeakButtonsOrWheel()
+    {
+        QtSessionWindow window;
+        prepare(window);
+        window.setPinned(true);
+        QSignalSpy buttons(&window, &QtSessionWindow::remoteButton);
+        QSignalSpy requested(&window, &QtSessionWindow::bitrateRequested);
+        QSignalSpy wheel(&window, &QtSessionWindow::remoteWheel);
+        const auto point = controlCenter(window, "bitrateSlider");
+        mouse(window, QEvent::MouseButtonPress, point, Qt::LeftButton, Qt::LeftButton);
+        mouse(window, QEvent::MouseMove, point + QPointF(30, 0), Qt::NoButton, Qt::LeftButton);
+        mouse(window, QEvent::MouseButtonRelease, point + QPointF(30, 0), Qt::LeftButton);
+        QVERIFY(requested.count() > 0);
+        QCOMPARE(buttons.count(), 0);
+        QWheelEvent scroll(point, point, {}, {0, 120}, {}, {}, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(&window, &scroll);
+        QCOMPARE(wheel.count(), 0);
+        QWheelEvent remoteScroll({640, 360}, {640, 360}, {}, {0, 120}, {}, {}, Qt::NoScrollPhase, true);
+        QCoreApplication::sendEvent(&window, &remoteScroll);
+        QCOMPARE(wheel.count(), 1);
+        QCOMPARE(wheel.last().at(0).toPoint(), QPoint(0, 120));
+        QVERIFY(wheel.last().at(2).toBool());
+    }
+
+    void ignoredSynthesizedMouse()
+    {
+        QtSessionWindow window;
+        prepare(window);
+        QSignalSpy buttons(&window, &QtSessionWindow::remoteButton);
+        QSignalSpy motion(&window, &QtSessionWindow::remoteMotion);
+        const QPointF p(500, 300);
+        QMouseEvent down(QEvent::MouseButtonPress, p, p, p, Qt::LeftButton,
+                         Qt::LeftButton, {}, Qt::MouseEventSynthesizedByQt);
+        QMouseEvent move(QEvent::MouseMove, p, p, p, Qt::NoButton,
+                         Qt::LeftButton, {}, Qt::MouseEventSynthesizedByQt);
+        QMouseEvent up(QEvent::MouseButtonRelease, p, p, p, Qt::LeftButton,
+                       {}, {}, Qt::MouseEventSynthesizedByQt);
+        QCoreApplication::sendEvent(&window, &down);
+        QCoreApplication::sendEvent(&window, &move);
+        QCoreApplication::sendEvent(&window, &up);
+        QCOMPARE(buttons.count(), 0);
+        QCOMPARE(motion.count(), 0);
+    }
+
+    void autoRepeatDoesNotLoseHeldKey()
+    {
+        QtSessionWindow window;
+        prepare(window);
+        QSignalSpy keys(&window, &QtSessionWindow::remoteKey);
+        QKeyEvent down(QEvent::KeyPress, Qt::Key_A, {}, 38, 0, 0);
+        QKeyEvent repeatUp(QEvent::KeyRelease, Qt::Key_A, {}, 38, 0, 0, {}, true);
+        QKeyEvent repeatDown(QEvent::KeyPress, Qt::Key_A, {}, 38, 0, 0, {}, true);
+        QCoreApplication::sendEvent(&window, &down);
+        QCoreApplication::sendEvent(&window, &repeatUp);
+        QCoreApplication::sendEvent(&window, &repeatDown);
+        QCOMPARE(keys.count(), 2);
+        QVERIFY(keys.last().at(3).toBool());
+        window.setRemoteInputEnabled(false);
+        QCOMPARE(keys.count(), 3);
+        QVERIFY(!keys.last().at(2).toBool());
+        window.setRemoteInputEnabled(true);
+        QCoreApplication::sendEvent(&window, &repeatDown);
+        QCOMPARE(keys.count(), 3);
+    }
+
+    void destroyReleasesHeldInput()
+    {
+        auto window = std::make_unique<QtSessionWindow>();
+        prepare(*window);
+        int releases = 0;
+        connect(window.get(), &QtSessionWindow::remoteButton, this,
+                [&releases](int, bool down, QPointF) { if (!down) ++releases; });
+        mouse(*window, QEvent::MouseButtonPress, {500, 300}, Qt::LeftButton, Qt::LeftButton);
+        window.reset();
+        QCOMPARE(releases, 1);
+    }
 };
 
 int main(int argc, char** argv)

@@ -8,6 +8,7 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QThread>
+#include <QTabletEvent>
 
 namespace {
 constexpr int EdgeDwellMs = 1000;
@@ -48,6 +49,13 @@ QtSessionWindow::QtSessionWindow(QWindow* parent) : QQuickView(parent),
             setToolbarVisible(false);
         }
     });
+}
+
+QtSessionWindow::~QtSessionWindow()
+{
+    releaseRemoteInput();
+    // Retire QML while the derived object's properties and context still exist.
+    setSource(QUrl());
 }
 
 QRectF QtSessionWindow::videoRect() const
@@ -99,6 +107,8 @@ void QtSessionWindow::setWaiting(bool waiting)
 {
     if (m_Waiting == waiting) return;
     releaseRemoteInput();
+    if (auto* grabber = mouseGrabberItem()) grabber->ungrabMouse();
+    m_LocalButtons = {};
     m_Waiting = waiting;
     m_RevealTimer.stop();
     updateCursor();
@@ -223,6 +233,7 @@ bool QtSessionWindow::event(QEvent* event)
 
 void QtSessionWindow::mouseMoveEvent(QMouseEvent* event)
 {
+    if (event->source() != Qt::MouseEventNotSynthesized) { event->accept(); return; }
     observePointer(event->position());
     QPointF position;
     if (m_RemoteInputEnabled && !m_Waiting && !localPointer(event->position()) &&
@@ -237,6 +248,7 @@ void QtSessionWindow::mouseMoveEvent(QMouseEvent* event)
 
 void QtSessionWindow::mousePressEvent(QMouseEvent* event)
 {
+    if (event->source() != Qt::MouseEventNotSynthesized) { event->accept(); return; }
     observePointer(event->position());
     QPointF position;
     if (m_RemoteInputEnabled && !m_Waiting && !localPointer(event->position()) &&
@@ -255,6 +267,7 @@ void QtSessionWindow::mousePressEvent(QMouseEvent* event)
 
 void QtSessionWindow::mouseDoubleClickEvent(QMouseEvent* event)
 {
+    if (event->source() != Qt::MouseEventNotSynthesized) { event->accept(); return; }
     // A double-click is also the second physical down, not a separate remote
     // command. Local controls still receive their ordinary Qt double-click.
     if (!localPointer(event->position()) && m_RemoteInputEnabled && !m_Waiting) {
@@ -266,6 +279,7 @@ void QtSessionWindow::mouseDoubleClickEvent(QMouseEvent* event)
 
 void QtSessionWindow::mouseReleaseEvent(QMouseEvent* event)
 {
+    if (event->source() != Qt::MouseEventNotSynthesized) { event->accept(); return; }
     observePointer(event->position());
     if (m_RemoteButtons.testFlag(event->button())) {
         QPointF position = m_LastRemotePosition;
@@ -360,6 +374,7 @@ void QtSessionWindow::releaseRemoteInput()
 void QtSessionWindow::focusOutEvent(QFocusEvent* event)
 {
     releaseRemoteInput();
+    if (auto* grabber = mouseGrabberItem()) grabber->ungrabMouse();
     m_LocalButtons = {};
     m_PointerPresent = false;
     m_RevealTimer.stop();
@@ -380,4 +395,11 @@ void QtSessionWindow::closeEvent(QCloseEvent* event)
 {
     disconnectSession();
     QQuickView::closeEvent(event);
+}
+
+void QtSessionWindow::tabletEvent(QTabletEvent* event)
+{
+    // Raw/normalized tablet integration is a later gate. Do not synthesize
+    // mouse input or claim Wacom support from this window/input prototype.
+    event->accept();
 }

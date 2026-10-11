@@ -24,6 +24,7 @@ class QtSessionWindow : public QQuickView
     Q_PROPERTY(QRectF videoRect READ videoRect NOTIFY presentationChanged)
 public:
     explicit QtSessionWindow(QWindow* parent = nullptr);
+    ~QtSessionWindow() override;
 
     bool toolbarVisible() const { return m_ToolbarVisible; }
     bool pinned() const { return m_Pinned; }
@@ -74,6 +75,7 @@ protected:
     void focusOutEvent(QFocusEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
+    void tabletEvent(QTabletEvent* event) override;
 
 private:
     bool overToolbar(const QPointF& position) const;
