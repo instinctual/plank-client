@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/qt-session">
+        <file>SessionSurface.qml</file>
+    </qresource>
+</RCC>

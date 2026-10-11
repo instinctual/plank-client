@@ -1,0 +1,383 @@
+#include "sessionwindow.h"
+#include "../../settings/streamingpreferences.h"
+
+#include <QCloseEvent>
+#include <QCoreApplication>
+#include <QFocusEvent>
+#include <QKeyEvent>
+#include <QQmlContext>
+#include <QQuickItem>
+#include <QThread>
+
+namespace {
+constexpr int EdgeDwellMs = 1000;
+constexpr int HideDelayMs = 5000;
+}
+
+QtSessionWindow::QtSessionWindow(QWindow* parent) : QQuickView(parent),
+    m_BitrateKbps(StreamingPreferences::PlankBitrateMinimumKbps)
+{
+    Q_ASSERT(thread() == QCoreApplication::instance()->thread());
+    setTitle(QStringLiteral("PLANK Qt session qualification"));
+    setResizeMode(QQuickView::SizeRootObjectToView);
+    setColor(Qt::black);
+    // A request only. The GPU integration gate must verify the actual swapchain.
+    QSurfaceFormat surface = format();
+    surface.setRedBufferSize(10);
+    surface.setGreenBufferSize(10);
+    surface.setBlueBufferSize(10);
+    setFormat(surface);
+    rootContext()->setContextProperty(QStringLiteral("sessionWindow"), this);
+    setSource(QUrl(QStringLiteral("qrc:/qt-session/SessionSurface.qml")));
+    if (rootObject()) {
+        m_Toolbar = rootObject()->findChild<QQuickItem*>(QStringLiteral("sessionToolbar"));
+    }
+    m_RevealTimer.setSingleShot(true);
+    m_RevealTimer.setInterval(EdgeDwellMs);
+    m_HideTimer.setSingleShot(true);
+    m_HideTimer.setInterval(HideDelayMs);
+    connect(&m_RevealTimer, &QTimer::timeout, this, [this] {
+        if (m_PointerPresent && !m_RemoteButtons && !m_LocalButtons) {
+            setToolbarVisible(true);
+            scheduleHide();
+        }
+    });
+    connect(&m_HideTimer, &QTimer::timeout, this, [this] {
+        if (!m_Pinned && !m_LocalButtons &&
+                (!m_PointerPresent || !overToolbar(m_Pointer))) {
+            setToolbarVisible(false);
+        }
+    });
+}
+
+QRectF QtSessionWindow::videoRect() const
+{
+    if (!m_Geometry.valid()) return {};
+    const qreal sx = qreal(width()) / m_Geometry.drawableSize.width();
+    const qreal sy = qreal(height()) / m_Geometry.drawableSize.height();
+    const auto& d = m_Geometry.destinationPixels;
+    return QRectF(d.x() * sx, d.y() * sy, d.width() * sx, d.height() * sy);
+}
+
+void QtSessionWindow::setPresentation(const QtSessionGeometry& geometry)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    releaseRemoteInput();
+    m_Geometry = geometry.valid() && geometry.logicalSize == size() ? geometry : QtSessionGeometry{};
+    emit presentationChanged();
+}
+
+void QtSessionWindow::setRemoteInputEnabled(bool enabled)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    if (!enabled) releaseRemoteInput();
+    m_RemoteInputEnabled = enabled;
+    updateCursor();
+}
+
+void QtSessionWindow::setRemoteCursor(const QCursor& cursor)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    m_RemoteCursor = cursor;
+    updateCursor();
+}
+
+void QtSessionWindow::setPinned(bool pinned)
+{
+    if (m_Pinned == pinned) return;
+    m_Pinned = pinned;
+    if (pinned) {
+        m_HideTimer.stop();
+        setToolbarVisible(true);
+    } else {
+        scheduleHide();
+    }
+    emit toolbarChanged();
+}
+
+void QtSessionWindow::setWaiting(bool waiting)
+{
+    if (m_Waiting == waiting) return;
+    releaseRemoteInput();
+    m_Waiting = waiting;
+    m_RevealTimer.stop();
+    updateCursor();
+    emit waitingChanged();
+}
+
+void QtSessionWindow::setBitrateKbps(int kbps)
+{
+    const int clamped = std::clamp(kbps, minimumBitrateKbps(), maximumBitrateKbps());
+    const int step = bitrateStepKbps();
+    const int quantized = ((clamped + step / 2) / step) * step;
+    if (quantized == m_BitrateKbps) return;
+    m_BitrateKbps = quantized;
+    emit bitrateChanged();
+    emit bitrateRequested(m_BitrateKbps);
+}
+
+int QtSessionWindow::minimumBitrateKbps() const { return StreamingPreferences::PlankBitrateMinimumKbps; }
+int QtSessionWindow::maximumBitrateKbps() const { return StreamingPreferences::PlankBitrateMaximumKbps; }
+int QtSessionWindow::bitrateStepKbps() const { return StreamingPreferences::PlankBitrateStepKbps; }
+
+void QtSessionWindow::moveToolbar(qreal logicalLeft)
+{
+    if (!m_Toolbar || !std::isfinite(logicalLeft)) return;
+    const qreal available = qMax(0.0, width() - m_Toolbar->width());
+    m_ToolbarPosition = available > 0 ? std::clamp(logicalLeft / available, 0.0, 1.0) : 0.5;
+    emit toolbarChanged();
+}
+
+void QtSessionWindow::toggleFullscreen()
+{
+    releaseRemoteInput();
+    if (windowState() == Qt::WindowFullScreen) showNormal();
+    else showFullScreen();
+}
+
+void QtSessionWindow::minimize()
+{
+    releaseRemoteInput();
+    showMinimized();
+}
+
+void QtSessionWindow::disconnectSession()
+{
+    setRemoteInputEnabled(false);
+    emit disconnectRequested();
+}
+
+void QtSessionWindow::keepWaiting()
+{
+    emit keepWaitingRequested();
+}
+
+bool QtSessionWindow::overToolbar(const QPointF& position) const
+{
+    return m_ToolbarVisible && m_Toolbar &&
+            m_Toolbar->contains(m_Toolbar->mapFromScene(position));
+}
+
+bool QtSessionWindow::localPointer(const QPointF& position) const
+{
+    return m_LocalButtons || (!m_RemoteButtons && overToolbar(position));
+}
+
+void QtSessionWindow::setToolbarVisible(bool visible)
+{
+    if (m_ToolbarVisible == visible) return;
+    m_ToolbarVisible = visible;
+    emit toolbarChanged();
+    updateCursor();
+}
+
+void QtSessionWindow::scheduleHide()
+{
+    if (m_Pinned || m_LocalButtons || (m_PointerPresent && overToolbar(m_Pointer))) {
+        m_HideTimer.stop();
+    } else if (m_ToolbarVisible && !m_HideTimer.isActive()) {
+        m_HideTimer.start();
+    }
+}
+
+void QtSessionWindow::observePointer(const QPointF& position)
+{
+    m_PointerPresent = true;
+    m_Pointer = position;
+    // The top edge of the *window*, including letterbox. Never Host pixels.
+    const bool edge = position.x() >= 0 && position.x() < width() &&
+            position.y() >= 0 && position.y() < 3 && !m_Waiting &&
+            !m_RemoteButtons && !m_LocalButtons;
+    if (!edge || m_ToolbarVisible) m_RevealTimer.stop();
+    else if (!m_RevealTimer.isActive()) m_RevealTimer.start();
+    scheduleHide();
+    updateCursor();
+}
+
+void QtSessionWindow::updateCursor()
+{
+    setCursor(!m_RemoteInputEnabled || m_Waiting || localPointer(m_Pointer)
+              ? QCursor(Qt::ArrowCursor) : m_RemoteCursor);
+}
+
+bool QtSessionWindow::event(QEvent* event)
+{
+    if (event->type() == QEvent::Leave) {
+        m_PointerPresent = false;
+        m_RevealTimer.stop();
+        scheduleHide();
+    } else if (event->type() == QEvent::ShortcutOverride && remoteKeyboard()) {
+        event->accept();
+        return true;
+    } else if (event->type() == QEvent::Hide) {
+        releaseRemoteInput();
+        m_RevealTimer.stop();
+    } else if (event->type() == QEvent::DevicePixelRatioChange) {
+        releaseRemoteInput();
+        m_Geometry = {};
+        emit presentationChanged();
+        emit surfaceSizeChanged();
+    }
+    return QQuickView::event(event);
+}
+
+void QtSessionWindow::mouseMoveEvent(QMouseEvent* event)
+{
+    observePointer(event->position());
+    QPointF position;
+    if (m_RemoteInputEnabled && !m_Waiting && !localPointer(event->position()) &&
+            m_Geometry.toStream(event->position(), position, bool(m_RemoteButtons))) {
+        m_LastRemotePosition = position;
+        emit remoteMotion(position);
+        event->accept();
+        return;
+    }
+    QQuickView::mouseMoveEvent(event);
+}
+
+void QtSessionWindow::mousePressEvent(QMouseEvent* event)
+{
+    observePointer(event->position());
+    QPointF position;
+    if (m_RemoteInputEnabled && !m_Waiting && !localPointer(event->position()) &&
+            m_Geometry.toStream(event->position(), position, bool(m_RemoteButtons))) {
+        m_RemoteButtons |= event->button();
+        m_LastRemotePosition = position;
+        emit remoteButton(event->button(), true, position);
+        event->accept();
+        return;
+    }
+    m_LocalButtons |= event->button();
+    m_RevealTimer.stop();
+    m_HideTimer.stop();
+    QQuickView::mousePressEvent(event);
+}
+
+void QtSessionWindow::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    // A double-click is also the second physical down, not a separate remote
+    // command. Local controls still receive their ordinary Qt double-click.
+    if (!localPointer(event->position()) && m_RemoteInputEnabled && !m_Waiting) {
+        mousePressEvent(event);
+    } else {
+        QQuickView::mouseDoubleClickEvent(event);
+    }
+}
+
+void QtSessionWindow::mouseReleaseEvent(QMouseEvent* event)
+{
+    observePointer(event->position());
+    if (m_RemoteButtons.testFlag(event->button())) {
+        QPointF position = m_LastRemotePosition;
+        m_Geometry.toStream(event->position(), position, true);
+        m_RemoteButtons &= ~event->button();
+        m_LastRemotePosition = position;
+        emit remoteButton(event->button(), false, position);
+        updateCursor();
+        event->accept();
+        return;
+    }
+    if (m_LocalButtons.testFlag(event->button())) {
+        m_LocalButtons &= ~event->button();
+        QQuickView::mouseReleaseEvent(event);
+    } else {
+        // A late release after focus/connection cancellation must not operate
+        // a newly focused local control or create an unmatched remote up.
+        event->accept();
+    }
+    scheduleHide();
+    updateCursor();
+}
+
+void QtSessionWindow::wheelEvent(QWheelEvent* event)
+{
+    observePointer(event->position());
+    QPointF position;
+    if (m_RemoteInputEnabled && !m_Waiting && !localPointer(event->position()) &&
+            m_Geometry.toStream(event->position(), position)) {
+        emit remoteMotion(position);
+        emit remoteWheel(event->angleDelta(), event->pixelDelta(), event->inverted());
+        event->accept();
+        return;
+    }
+    QQuickView::wheelEvent(event);
+}
+
+bool QtSessionWindow::remoteKeyboard() const
+{
+    // Toolbar controls explicitly use NoFocus. Recovery dialog keys remain local.
+    return m_RemoteInputEnabled && !m_Waiting;
+}
+
+quint64 QtSessionWindow::keyIdentity(const QKeyEvent* event)
+{
+    return event->nativeScanCode() ? (quint64(1) << 32) | event->nativeScanCode() : quint32(event->key());
+}
+
+void QtSessionWindow::keyPressEvent(QKeyEvent* event)
+{
+    if (!remoteKeyboard()) { QQuickView::keyPressEvent(event); return; }
+    const auto id = keyIdentity(event);
+    if (!m_RemoteKeys.contains(id) && event->isAutoRepeat()) {
+        event->accept();
+        return;
+    }
+    m_RemoteKeys.insert(id, {event->nativeScanCode(), event->key(), event->modifiers()});
+    emit remoteKey(event->nativeScanCode(), event->key(), true, event->isAutoRepeat(), event->modifiers());
+    event->accept();
+}
+
+void QtSessionWindow::keyReleaseEvent(QKeyEvent* event)
+{
+    const auto id = keyIdentity(event);
+    if (m_RemoteKeys.contains(id)) {
+        // X11 auto-repeat can synthesize release/press pairs; held ownership
+        // lasts until the real release on both X11 and Wayland.
+        if (!event->isAutoRepeat()) {
+            m_RemoteKeys.remove(id);
+            emit remoteKey(event->nativeScanCode(), event->key(), false, false, event->modifiers());
+        }
+        event->accept();
+    } else if (!remoteKeyboard()) {
+        QQuickView::keyReleaseEvent(event);
+    } else {
+        event->accept();
+    }
+}
+
+void QtSessionWindow::releaseRemoteInput()
+{
+    const auto buttons = m_RemoteButtons;
+    m_RemoteButtons = {};
+    for (unsigned bit = 1; bit <= unsigned(Qt::MaxMouseButton); bit <<= 1) {
+        if (buttons.testFlag(Qt::MouseButton(bit))) emit remoteButton(int(bit), false, m_LastRemotePosition);
+    }
+    const auto keys = std::move(m_RemoteKeys);
+    m_RemoteKeys.clear();
+    for (const auto& key : keys) emit remoteKey(key.scanCode, key.key, false, false, key.modifiers);
+}
+
+void QtSessionWindow::focusOutEvent(QFocusEvent* event)
+{
+    releaseRemoteInput();
+    m_LocalButtons = {};
+    m_PointerPresent = false;
+    m_RevealTimer.stop();
+    scheduleHide();
+    QQuickView::focusOutEvent(event);
+}
+
+void QtSessionWindow::resizeEvent(QResizeEvent* event)
+{
+    releaseRemoteInput();
+    m_Geometry = {};
+    QQuickView::resizeEvent(event);
+    emit presentationChanged();
+    emit surfaceSizeChanged();
+}
+
+void QtSessionWindow::closeEvent(QCloseEvent* event)
+{
+    disconnectSession();
+    QQuickView::closeEvent(event);
+}
