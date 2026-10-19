@@ -262,6 +262,52 @@ private slots:
         QCOMPARE(motion.count(), 1);
     }
 
+    void tabletCursorTextureReplacement()
+    {
+        QtSessionWindow window;
+        prepare(window);
+        QTRY_VERIFY(window.isExposed());
+        window.setTabletActive(true);
+        window.setHostCursorPosition({1500, 900});
+
+        const auto cursorPixel = [&window] {
+            // Host (1500, 900) maps to logical (500, 300). Sample inside the
+            // cursor, not on an antialiased edge, at any backing-pixel scale.
+            const QImage rendered = window.grabWindow();
+            if (rendered.isNull()) return QColor();
+            return rendered.pixelColor(qRound(505.0 * rendered.width() / window.width()),
+                                       qRound(305.0 * rendered.height() / window.height()));
+        };
+
+        // Render every replacement, rather than coalescing all shapes before
+        // the first frame. The old implementation double-deleted the first
+        // rendered texture when setTexture() replaced it on the next frame.
+        for (int i = 0; i < 24; ++i) {
+            const QColor color = i % 2 ? Qt::green : Qt::red;
+            QImage shape(i % 2 ? 90 : 60, 60, QImage::Format_ARGB32_Premultiplied);
+            shape.fill(color);
+            window.setCursorShape(shape, {3, 3}, true);
+            QCOMPARE(cursorPixel(), color);
+        }
+
+        // Clear/recreate and mouse/tablet ownership changes must also retire
+        // the old scene-graph node safely, then show the latest Host shape.
+        window.setCursorShape({}, {}, false);
+        QCOMPARE(cursorPixel(), QColor(Qt::black));
+        QImage shape(60, 60, QImage::Format_ARGB32_Premultiplied);
+        shape.fill(Qt::blue);
+        window.setCursorShape(shape, {}, true);
+        QCOMPARE(cursorPixel(), QColor(Qt::blue));
+        window.setTabletActive(false);
+        QCOMPARE(cursorPixel(), QColor(Qt::black));
+        shape.fill(Qt::red);
+        window.setCursorShape(shape, {}, true);
+        window.setTabletActive(true);
+        window.setHostCursorPosition({1500, 900});
+        QCOMPARE(cursorPixel(), QColor(Qt::red));
+        // Window destruction exercises final texture retirement too.
+    }
+
     void revealUsesWindowEdgeAndDwell()
     {
         QtSessionWindow window;

@@ -11,7 +11,8 @@ QSGNode* QtTabletCursorItem::updatePaintNode(QSGNode* old, UpdatePaintNodeData*)
     if (node->serial != m_Serial) {
         auto* texture = window()->createTextureFromImage(m_Image);
         if (!texture) { delete node; return nullptr; }
-        delete node->texture();
+        // The node owns its texture. setTexture() deletes the previous one;
+        // deleting it here as well crashes when a tablet cursor shape changes.
         node->setTexture(texture);
         node->serial = m_Serial;
         node->setFiltering(QSGTexture::Linear);
