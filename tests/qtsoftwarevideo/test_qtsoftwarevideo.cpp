@@ -130,17 +130,22 @@ private slots:
             }
         }
     }
-    void bt709FullRange_data()
+    void bt709Range_data()
     {
         QTest::addColumn<int>("format");
-        QTest::newRow("422-8") << int(AV_PIX_FMT_YUV422P);
-        QTest::newRow("422-10") << int(AV_PIX_FMT_YUV422P10LE);
-        QTest::newRow("444-10") << int(AV_PIX_FMT_YUV444P10LE);
-        QTest::newRow("420-10") << int(AV_PIX_FMT_YUV420P10LE);
+        QTest::addColumn<bool>("limited");
+        QTest::newRow("422-8-full") << int(AV_PIX_FMT_YUV422P) << false;
+        QTest::newRow("422-10-full") << int(AV_PIX_FMT_YUV422P10LE) << false;
+        QTest::newRow("444-10-full") << int(AV_PIX_FMT_YUV444P10LE) << false;
+        QTest::newRow("420-10-full") << int(AV_PIX_FMT_YUV420P10LE) << false;
+        QTest::newRow("420-8-limited") << int(AV_PIX_FMT_YUV420P) << true;
+        QTest::newRow("420-10-limited") << int(AV_PIX_FMT_YUV420P10LE) << true;
+        QTest::newRow("444-10-limited") << int(AV_PIX_FMT_YUV444P10LE) << true;
     }
-    void bt709FullRange()
+    void bt709Range()
     {
         QFETCH(int, format);
+        QFETCH(bool, limited);
         QtSoftwareVideoConverter converter(gpu(), m_Device);
         Context context(AV_CODEC_ID_H264); Frame frame;
         const auto pixelFormat = static_cast<AVPixelFormat>(format);
@@ -149,7 +154,8 @@ private slots:
         context.value->pix_fmt = pixelFormat;
         auto* f = frame.value;
         f->format = format; f->width = 1 << depth; f->height = 8;
-        f->colorspace = AVCOL_SPC_BT709; f->color_range = AVCOL_RANGE_JPEG;
+        f->colorspace = AVCOL_SPC_BT709;
+        f->color_range = limited ? AVCOL_RANGE_MPEG : AVCOL_RANGE_JPEG;
         QVERIFY(converter.framePool().getBuffer(context.value, f, 0) == 0);
         Texture out{gpu(), createOutput(f->width, f->height)};
         QVERIFY(out.value);
@@ -172,13 +178,16 @@ private slots:
             const auto pixels = readback(gpu(), out.value);
             QCOMPARE(pixels.size(), size_t(f->width * f->height));
             for (int y = 0; y < f->height; ++y) for (int x = 0; x < f->width; ++x) {
-                const double yf = double(x) / max, uf = double(u - center) / max, vf = double(v - center) / max;
+                const int shift = depth - 8;
+                const double yf = double(x - (limited ? 16 << shift : 0)) / (limited ? 219 << shift : max);
+                const double uf = double(u - center) / (limited ? 224 << shift : max);
+                const double vf = double(v - center) / (limited ? 224 << shift : max);
                 const double rgb[3] = {yf + 1.5748 * vf, yf - 0.1873242729 * uf - 0.4681242729 * vf, yf + 1.8556 * uf};
                 for (int channel = 0; channel < 3; ++channel) {
                     const int expected = qRound(std::clamp(rgb[channel], 0.0, 1.0) * 1023.0);
                     const int actual = (pixels[y * f->width + x] >> (10 * channel)) & 1023;
                     // Exactly represented native gray levels must not shift.
-                    if (!pass && depth == 10) QCOMPARE(actual, expected);
+                    if (!pass && depth == 10 && !limited) QCOMPARE(actual, expected);
                     else QVERIFY2(std::abs(actual - expected) <= 1, qPrintable(QString("BT709 code %1: %2 != %3").arg(x).arg(actual).arg(expected)));
                 }
             }

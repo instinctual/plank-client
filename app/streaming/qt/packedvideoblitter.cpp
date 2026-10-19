@@ -55,10 +55,15 @@ out vec4 color;
 void main() {
     vec3 sampleValue = texture(video, uv).rgb;
     if (mapping == 1) sampleValue = sampleValue.brg; // XR24 sampled Y,U,V -> R=V,G=Y,B=U
-    if (mapping == 3) {
+    if (mapping == 3 || mapping == 4) {
         float y = sampleValue.g;
         float u = sampleValue.b - 512.0 / 1023.0;
         float v = sampleValue.r - 512.0 / 1023.0;
+        if (mapping == 4) {
+            y = (sampleValue.g * 1023.0 - 64.0) / 876.0;
+            u *= 1023.0 / 896.0;
+            v *= 1023.0 / 896.0;
+        }
         sampleValue = vec3(y + 1.5748 * v, y - 0.1873242729 * u - 0.4681242729 * v, y + 1.8556 * u);
     }
     color = vec4(sampleValue, 1.0);

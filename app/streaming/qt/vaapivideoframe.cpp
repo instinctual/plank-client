@@ -51,7 +51,8 @@ uint32_t QtVaapiVideoFrame::importFormat() const
 {
     return PlankPackedVideo::importFormat(m_Descriptor.layers[0].drm_format,
         m_Mapping == PlankPackedVideo::Mapping::Identity8 || m_Mapping == PlankPackedVideo::Mapping::Identity10,
-        m_Mapping == PlankPackedVideo::Mapping::Bt709Full10);
+        m_Mapping == PlankPackedVideo::Mapping::Bt709Full10 ||
+        m_Mapping == PlankPackedVideo::Mapping::Bt709Limited10);
 }
 
 QtVaapiVideoFrame::Ptr QtVaapiVideoFrame::create(const AVFrame* frame, int expectedBits, QString& error)
@@ -70,8 +71,9 @@ QtVaapiVideoFrame::Ptr QtVaapiVideoFrame::create(const AVFrame* frame, int expec
     }
     const bool identity = frame->colorspace == AVCOL_SPC_RGB;
     const bool bt709 = frame->colorspace == AVCOL_SPC_BT709;
-    if ((!identity && !bt709) || frame->color_range != AVCOL_RANGE_JPEG) {
-        error = QStringLiteral("Qt packed video requires explicit full-range identity RGB or BT.709");
+    const bool fullRange = frame->color_range == AVCOL_RANGE_JPEG;
+    if ((!identity && !bt709) || (!fullRange && (identity || frame->color_range != AVCOL_RANGE_MPEG))) {
+        error = QStringLiteral("Qt packed video requires full-range identity RGB or explicit full/limited BT.709");
         return {};
     }
     auto lease = std::shared_ptr<QtVaapiVideoFrame>(new QtVaapiVideoFrame);
@@ -96,7 +98,7 @@ QtVaapiVideoFrame::Ptr QtVaapiVideoFrame::create(const AVFrame* frame, int expec
         error = QStringLiteral("VA-API DMA-BUF export failed (%1)").arg(int(exported));
         return {};
     }
-    if (!validate(lease->m_Descriptor, lease->m_Size, expectedBits, identity, bt709, true)) {
+    if (!validate(lease->m_Descriptor, lease->m_Size, expectedBits, identity, bt709, fullRange)) {
         error = QStringLiteral("VA-API surface does not match the selected packed video format");
         return {};
     }
@@ -107,6 +109,6 @@ QtVaapiVideoFrame::Ptr QtVaapiVideoFrame::create(const AVFrame* frame, int expec
         return {};
     }
     lease->m_Mapping = PlankPackedVideo::mapping(lease->m_Descriptor.layers[0].drm_format,
-                                              expectedBits, identity, bt709, true);
+                                              expectedBits, identity, bt709, fullRange);
     return lease;
 }

@@ -245,7 +245,17 @@ QtEglVideoItem::QtEglVideoItem(QQuickItem* parent) : QQuickItem(parent)
 {
     setFlag(ItemHasContents);
     setZ(-1);
-    connect(this, &QQuickItem::windowChanged, this, [this] { connectPresentationFeedback(); });
+    m_WindowConnection = connect(this, &QQuickItem::windowChanged, this,
+                                 [this] { connectPresentationFeedback(); });
+}
+
+QtEglVideoItem::~QtEglVideoItem()
+{
+    // QQuickItem's destructor detaches the item from its window and emits
+    // windowChanged before QObject disconnects its signals. Do not invoke a
+    // derived method after the derived object's lifetime has ended.
+    QObject::disconnect(m_WindowConnection);
+    QObject::disconnect(m_SwapConnection);
 }
 
 void QtEglVideoItem::setPrimaryOutput(bool primary)

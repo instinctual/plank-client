@@ -5,7 +5,7 @@
 // The storage interpretation used by both the established EGL renderer and
 // the Qt experiment. These are code values, not sRGB-linearized textures.
 namespace PlankPackedVideo {
-enum class Mapping { Unsupported, Identity8, Identity10, Bt709Full10 };
+enum class Mapping { Unsupported, Identity8, Identity10, Bt709Full10, Bt709Limited10 };
 
 constexpr uint32_t fourcc(char a, char b, char c, char d)
 {
@@ -27,9 +27,9 @@ constexpr uint32_t importFormat(uint32_t format, bool identity, bool bt709)
 
 constexpr Mapping mapping(uint32_t format, int bits, bool identity, bool bt709, bool fullRange)
 {
-    if (!fullRange || identity == bt709) return Mapping::Unsupported;
+    if ((!fullRange && identity) || identity == bt709) return Mapping::Unsupported;
     if (bits == 10 && format == fourcc('Y','4','1','0'))
-        return identity ? Mapping::Identity10 : Mapping::Bt709Full10;
+        return identity ? Mapping::Identity10 : fullRange ? Mapping::Bt709Full10 : Mapping::Bt709Limited10;
     if (identity && bits == 8 &&
             (format == fourcc('A','Y','U','V') || format == fourcc('X','Y','U','V')))
         return Mapping::Identity8;

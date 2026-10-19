@@ -62,12 +62,13 @@ bool QtSoftwareVideoConverter::convert(const AVFrame* frame, AVPixelFormat expec
         return false;
     }
     const bool rgb = descriptor->flags & AV_PIX_FMT_FLAG_RGB;
-    if (frame->color_range != AVCOL_RANGE_JPEG ||
+    const bool limited = frame->color_range == AVCOL_RANGE_MPEG;
+    if ((frame->color_range != AVCOL_RANGE_JPEG && !limited) || (rgb && limited) ||
             (rgb ? frame->colorspace != AVCOL_SPC_RGB : frame->colorspace != AVCOL_SPC_BT709) ||
             (frame->color_primaries != AVCOL_PRI_UNSPECIFIED && frame->color_primaries != AVCOL_PRI_BT709) ||
             (frame->color_trc != AVCOL_TRC_UNSPECIFIED && frame->color_trc != AVCOL_TRC_BT709 &&
              frame->color_trc != AVCOL_TRC_IEC61966_2_1)) {
-        error = QStringLiteral("Qt software video requires full-range identity RGB or BT.709 SDR");
+        error = QStringLiteral("Qt software video requires full-range identity RGB or explicit full/limited BT.709 SDR");
         return false;
     }
     pl_frame source{};
@@ -77,8 +78,8 @@ bool QtSoftwareVideoConverter::convert(const AVFrame* frame, AVPixelFormat expec
         error = QStringLiteral("Qt software video could not import the decoder's pooled planes");
         return false;
     }
-    // One explicit GPU pass: preserve RGB codes or apply the same full-range
-    // BT.709 matrix as our packed hardware path. A general-purpose color
+    // One explicit GPU pass: preserve RGB codes or apply the negotiated
+    // BT.709 range and matrix. A general-purpose color
     // renderer infers YCbCr's neutral point from the *storage* depth (16 for
     // 10-bit planes), which shifts gray. The decoded precision is authoritative.
     // No transfer functions, color management, dithering or extra resize pass.
@@ -123,11 +124,14 @@ bool QtSoftwareVideoConverter::convert(const AVFrame* frame, AVPixelFormat expec
     }
     if (rgb) body += QStringLiteral("color = vec4(samples, 1.0);\n");
     else body += QStringLiteral(
-                "float y = samples.x;\n"
-                "float u = samples.y - (%1.0 / %2.0);\n"
-                "float v = samples.z - (%1.0 / %2.0);\n"
+                "float y = (samples.x * %2.0 - %3.0) / %4.0;\n"
+                "float u = (samples.y * %2.0 - %1.0) / %5.0;\n"
+                "float v = (samples.z * %2.0 - %1.0) / %5.0;\n"
                 "color = vec4(y + 1.5748 * v, y - 0.1873242729 * u - 0.4681242729 * v, y + 1.8556 * u, 1.0);\n")
-                    .arg(1 << (depth - 1)).arg(maximum);
+                    .arg(1 << (depth - 1)).arg(maximum)
+                    .arg(limited ? 16 << (depth - 8) : 0)
+                    .arg(limited ? 219 << (depth - 8) : maximum)
+                    .arg(limited ? 224 << (depth - 8) : maximum);
     const auto text = body.toUtf8();
     pl_custom_shader custom{};
     custom.description = "PLANK exact planar to RGB10";

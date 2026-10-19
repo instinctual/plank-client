@@ -175,6 +175,14 @@ private slots:
         auto bt709 = QtVaapiVideoFrame::create(fixture.frame, 10, error);
         QVERIFY2(bt709, qPrintable(error));
         QCOMPARE(bt709->mapping(), PlankPackedVideo::Mapping::Bt709Full10);
+        fixture.frame->color_range = AVCOL_RANGE_MPEG;
+        auto limited = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        QVERIFY2(limited, qPrintable(error));
+        QCOMPARE(limited->mapping(), PlankPackedVideo::Mapping::Bt709Limited10);
+        QCOMPARE(limited->importFormat(), PlankPackedVideo::fourcc('X','R','3','0'));
+        fixture.frame->color_range = AVCOL_RANGE_UNSPECIFIED;
+        QVERIFY(!QtVaapiVideoFrame::create(fixture.frame, 10, error));
+        fixture.frame->color_range = AVCOL_RANGE_JPEG;
         fixture.frame->colorspace = AVCOL_SPC_RGB;
         sourceFormat = PlankPackedVideo::fourcc('X','Y','U','V');
         QVERIFY(!QtVaapiVideoFrame::create(fixture.frame, 10, error));

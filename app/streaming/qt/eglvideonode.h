@@ -29,6 +29,7 @@ class QtEglVideoItem final : public QQuickItem
 {
 public:
     explicit QtEglVideoItem(QQuickItem* parent = nullptr);
+    ~QtEglVideoItem() override;
     void setFrame(QtVideoFrame::Ptr frame);
     void setSoftwareDevice(QtSoftwareVideoDevice::Ptr device);
     void setPresentation(const QtSessionGeometry& geometry);
@@ -46,6 +47,7 @@ private:
     QtSessionGeometry m_Geometry;
     std::shared_ptr<QtEglVideoStatus> m_Status = std::make_shared<QtEglVideoStatus>();
     QMetaObject::Connection m_SwapConnection;
+    QMetaObject::Connection m_WindowConnection;
     bool m_PrimaryOutput = false;
     void connectPresentationFeedback();
 };
