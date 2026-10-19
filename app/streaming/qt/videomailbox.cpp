@@ -6,14 +6,14 @@
 struct QtVideoMailbox::State {
     std::mutex mutex;
     QtVideoMailbox* owner = nullptr; // only used while holding mutex
-    QtVaapiVideoFrame::Ptr pending;
+    QtVideoFrame::Ptr pending;
     uint64_t generation = 0;
     uint64_t submitted = 0;
     uint64_t replaced = 0;
     bool notificationQueued = false;
 };
 
-QtVideoMailbox::QtVideoMailbox(std::function<void(QtVaapiVideoFrame::Ptr)> consumer,
+QtVideoMailbox::QtVideoMailbox(std::function<void(QtVideoFrame::Ptr)> consumer,
                                QObject* parent)
     : QObject(parent), m_State(std::make_shared<State>()), m_Consumer(std::move(consumer))
 {
@@ -23,7 +23,7 @@ QtVideoMailbox::QtVideoMailbox(std::function<void(QtVaapiVideoFrame::Ptr)> consu
 QtVideoMailbox::~QtVideoMailbox()
 {
     Q_ASSERT(QThread::currentThread() == thread());
-    QtVaapiVideoFrame::Ptr retired;
+    QtVideoFrame::Ptr retired;
     {
         std::lock_guard<std::mutex> lock(m_State->mutex);
         m_State->owner = nullptr;
@@ -46,7 +46,7 @@ QtVideoMailbox::Producer QtVideoMailbox::startGeneration()
 void QtVideoMailbox::retire()
 {
     Q_ASSERT(QThread::currentThread() == thread());
-    QtVaapiVideoFrame::Ptr retired;
+    QtVideoFrame::Ptr retired;
     {
         std::lock_guard<std::mutex> lock(m_State->mutex);
         ++m_State->generation;
@@ -56,12 +56,12 @@ void QtVideoMailbox::retire()
     }
 }
 
-bool QtVideoMailbox::Producer::submit(QtVaapiVideoFrame::Ptr frame) const
+bool QtVideoMailbox::Producer::submit(QtVideoFrame::Ptr frame) const
 {
     if (!frame) return false;
     auto state = m_State.lock();
     if (!state) return false;
-    QtVaapiVideoFrame::Ptr retired;
+    QtVideoFrame::Ptr retired;
     {
         std::lock_guard<std::mutex> lock(state->mutex);
         if (!state->owner || state->generation != m_Generation) return false;
@@ -87,7 +87,7 @@ bool QtVideoMailbox::Producer::submit(QtVaapiVideoFrame::Ptr frame) const
 void QtVideoMailbox::drain()
 {
     Q_ASSERT(QThread::currentThread() == thread());
-    QtVaapiVideoFrame::Ptr frame;
+    QtVideoFrame::Ptr frame;
     {
         std::lock_guard<std::mutex> lock(m_State->mutex);
         m_State->notificationQueued = false;

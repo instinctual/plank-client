@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vaapivideoframe.h"
+#include "videoframe.h"
 #include <QObject>
 #include <functional>
 #include <memory>
@@ -15,7 +15,7 @@ class QtVideoMailbox final : public QObject
 public:
     class Producer {
     public:
-        bool submit(QtVaapiVideoFrame::Ptr frame) const;
+        bool submit(QtVideoFrame::Ptr frame) const;
     private:
         friend class QtVideoMailbox;
         std::weak_ptr<State> m_State;
@@ -23,7 +23,7 @@ public:
     };
 
     struct Stats { uint64_t submitted, replaced; bool pending; };
-    explicit QtVideoMailbox(std::function<void(QtVaapiVideoFrame::Ptr)> consumer,
+    explicit QtVideoMailbox(std::function<void(QtVideoFrame::Ptr)> consumer,
                             QObject* parent = nullptr);
     ~QtVideoMailbox() override;
     Producer startGeneration(); // GUI thread only; invalidates previous Producer copies
@@ -33,5 +33,5 @@ public:
 private:
     void drain();
     const std::shared_ptr<State> m_State;
-    const std::function<void(QtVaapiVideoFrame::Ptr)> m_Consumer;
+    const std::function<void(QtVideoFrame::Ptr)> m_Consumer;
 };

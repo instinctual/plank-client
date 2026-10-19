@@ -1,7 +1,8 @@
 #pragma once
 
 #include "sessiongeometry.h"
-#include "vaapivideoframe.h"
+#include "videoframe.h"
+#include "softwarevideodevice.h"
 
 #include <QQuickItem>
 #include <atomic>
@@ -21,7 +22,8 @@ class QtEglVideoItem final : public QQuickItem
 {
 public:
     explicit QtEglVideoItem(QQuickItem* parent = nullptr);
-    void setFrame(QtVaapiVideoFrame::Ptr frame);
+    void setFrame(QtVideoFrame::Ptr frame);
+    void setSoftwareDevice(QtSoftwareVideoDevice::Ptr device);
     void setPresentation(const QtSessionGeometry& geometry);
     std::shared_ptr<const QtEglVideoStatus> status() const { return m_Status; }
 
@@ -29,7 +31,8 @@ protected:
     QSGNode* updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) override;
 
 private:
-    QtVaapiVideoFrame::Ptr m_Frame;
+    QtVideoFrame::Ptr m_Frame;
+    QtSoftwareVideoDevice::Ptr m_SoftwareDevice;
     QtSessionGeometry m_Geometry;
     std::shared_ptr<QtEglVideoStatus> m_Status = std::make_shared<QtEglVideoStatus>();
 };

@@ -23,10 +23,12 @@ public:
     explicit VideoNode(std::shared_ptr<QtEglVideoStatus> status) : m_Status(std::move(status)) {}
     ~VideoNode() override { releaseResources(); }
 
-    void synchronize(QtVaapiVideoFrame::Ptr frame, const QtSessionGeometry& geometry)
+    void synchronize(QtVideoFrame::Ptr frame, const QtSessionGeometry& geometry,
+                     QtSoftwareVideoDevice::Ptr device)
     {
         m_Frame = std::move(frame);
         m_Geometry = geometry;
+        m_SoftwareDevice = std::move(device);
         markDirty(DirtyMaterial);
     }
 
@@ -42,6 +44,10 @@ public:
         auto* context = QOpenGLContext::currentContext();
         if (!context) { fail(QtEglVideoStatus::WrongBackend); return; }
         auto* gl = context->extraFunctions();
+        if (m_Frame && m_Frame->softwareFrame()) {
+            prepareSoftware();
+            return;
+        }
         // Retire only resources whose final sampling draw has completed. Never
         // wait for a fence during normal rendering and never grow without bound.
         m_Slots.erase(std::remove_if(m_Slots.begin(), m_Slots.end(), [&](auto& slot) {
@@ -53,11 +59,12 @@ public:
         if (!m_Frame) { m_Current = nullptr; return; }
         if (!m_Geometry.valid() || m_Frame->size() != m_Geometry.streamSize ||
                 m_Status->error.load() != QtEglVideoStatus::None ||
-                (m_Current && m_Current->frame == m_Frame) || m_Slots.size() >= 3)
+                (m_Current && m_Current->frame == m_Frame->hardwareFrame()) || m_Slots.size() >= 3)
             return;
 
         auto slot = std::make_unique<Slot>();
-        slot->frame = m_Frame;
+        slot->frame = m_Frame->hardwareFrame();
+        if (!slot->frame) { fail(QtEglVideoStatus::ImportFailed); return; }
         slot->display = eglGetCurrentDisplay();
         auto createImage = reinterpret_cast<PFNEGLCREATEIMAGEKHRPROC>(eglGetProcAddress("eglCreateImageKHR"));
         slot->destroyImage = reinterpret_cast<PFNEGLDESTROYIMAGEKHRPROC>(eglGetProcAddress("eglDestroyImageKHR"));
@@ -69,12 +76,12 @@ public:
                 !tokens.contains("EGL_EXT_image_dma_buf_import")) {
             fail(QtEglVideoStatus::ImportFailed); return;
         }
-        const auto& d = m_Frame->descriptor();
+        const auto& d = slot->frame->descriptor();
         const auto& p = d.layers[0];
         const auto& object = d.objects[0];
         std::vector<EGLint> attributes = {
             EGL_WIDTH, m_Frame->size().width(), EGL_HEIGHT, m_Frame->size().height(),
-            EGL_LINUX_DRM_FOURCC_EXT, EGLint(m_Frame->importFormat()),
+            EGL_LINUX_DRM_FOURCC_EXT, EGLint(slot->frame->importFormat()),
             EGL_DMA_BUF_PLANE0_FD_EXT, object.fd,
             EGL_DMA_BUF_PLANE0_OFFSET_EXT, EGLint(p.offset[0]),
             EGL_DMA_BUF_PLANE0_PITCH_EXT, EGLint(p.pitch[0])
@@ -105,6 +112,19 @@ public:
 
     void render(const RenderState*) override
     {
+        if (m_Frame && m_Frame->softwareFrame()) {
+            if (!m_SoftwareImage || m_Status->error.load() != QtEglVideoStatus::None ||
+                    !m_Geometry.valid() || m_Frame->size() != m_Geometry.streamSize) return;
+            QString error;
+            if (!m_Blitter.draw(m_SoftwareImage->glTexture(), GL_TEXTURE_2D,
+                                PlankPackedVideo::Mapping::Identity10, m_Geometry, error)) {
+                qWarning().noquote() << error;
+                fail(QtEglVideoStatus::PrecisionOrDrawFailed);
+                return;
+            }
+            ++m_Status->draws;
+            return;
+        }
         if (!m_Current || m_Status->error.load() != QtEglVideoStatus::None ||
                 !m_Geometry.valid() || m_Current->frame->size() != m_Geometry.streamSize)
             return;
@@ -131,10 +151,43 @@ public:
         }
         m_Slots.clear();
         m_Current = nullptr;
+        m_SoftwareImage.reset(); // final sampling drains only during teardown
+        m_ConvertedFrame.reset();
+        m_ImageDevice.reset();
         m_Blitter.release();
     }
 
 private:
+    void prepareSoftware()
+    {
+        if (m_Status->error.load() != QtEglVideoStatus::None || !m_Geometry.valid() ||
+                m_Frame->size() != m_Geometry.streamSize || m_Frame == m_ConvertedFrame) return;
+        if (!m_SoftwareDevice) { fail(QtEglVideoStatus::ImportFailed); return; }
+        if (m_ImageDevice != m_SoftwareDevice ||
+                (m_SoftwareImage && m_SoftwareImage->size() != m_Frame->size())) {
+            m_SoftwareImage.reset();
+            m_ConvertedFrame.reset();
+            m_ImageDevice = m_SoftwareDevice;
+        }
+        QString error;
+        if (!m_SoftwareImage) {
+            m_SoftwareImage = m_SoftwareDevice->createImage(m_Frame->size(), error);
+            if (!m_SoftwareImage) {
+                qWarning().noquote() << error;
+                fail(QtEglVideoStatus::ImportFailed); return;
+            }
+            ++m_Status->imports;
+        } else if (!m_SoftwareImage->releaseGl(error)) {
+            qWarning().noquote() << error;
+            fail(QtEglVideoStatus::FenceFailed); return;
+        }
+        if (!m_SoftwareDevice->convert(m_Frame->softwareFrame(), m_Frame->softwareFormat(),
+                                      *m_SoftwareImage, error)) {
+            qWarning().noquote() << error;
+            fail(QtEglVideoStatus::PrecisionOrDrawFailed); return;
+        }
+        m_ConvertedFrame = m_Frame;
+    }
     struct Slot {
         QtVaapiVideoFrame::Ptr frame;
         EGLDisplay display = EGL_NO_DISPLAY;
@@ -158,7 +211,10 @@ private:
         if (m_Status->error.compare_exchange_strong(expected, error))
             qWarning("Qt video stopped at the exact-format GPU gate (%d)", int(error));
     }
-    QtVaapiVideoFrame::Ptr m_Frame;
+    QtVideoFrame::Ptr m_Frame;
+    QtVideoFrame::Ptr m_ConvertedFrame;
+    QtSoftwareVideoDevice::Ptr m_SoftwareDevice, m_ImageDevice;
+    std::unique_ptr<QtVulkanGlImage> m_SoftwareImage;
     QtSessionGeometry m_Geometry;
     QtPackedVideoBlitter m_Blitter;
     std::shared_ptr<QtEglVideoStatus> m_Status;
@@ -173,10 +229,17 @@ QtEglVideoItem::QtEglVideoItem(QQuickItem* parent) : QQuickItem(parent)
     setZ(-1);
 }
 
-void QtEglVideoItem::setFrame(QtVaapiVideoFrame::Ptr frame)
+void QtEglVideoItem::setFrame(QtVideoFrame::Ptr frame)
 {
     Q_ASSERT(QThread::currentThread() == thread());
     m_Frame = std::move(frame);
+    update();
+}
+
+void QtEglVideoItem::setSoftwareDevice(QtSoftwareVideoDevice::Ptr device)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    m_SoftwareDevice = std::move(device);
     update();
 }
 
@@ -197,6 +260,6 @@ QSGNode* QtEglVideoItem::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*)
     }
     auto* node = static_cast<VideoNode*>(oldNode);
     if (!node) node = new VideoNode(m_Status);
-    node->synchronize(m_Frame, m_Geometry);
+    node->synchronize(m_Frame, m_Geometry, m_SoftwareDevice);
     return node;
 }

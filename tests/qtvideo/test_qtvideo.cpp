@@ -188,11 +188,11 @@ private slots:
     {
         FrameFixture fixture;
         QString error;
-        auto first = QtVaapiVideoFrame::create(fixture.frame, 10, error);
-        auto last = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        auto first = QtVideoFrame::hardware(QtVaapiVideoFrame::create(fixture.frame, 10, error));
+        auto last = QtVideoFrame::hardware(QtVaapiVideoFrame::create(fixture.frame, 10, error));
         QVERIFY(first && last);
         int deliveries = 0;
-        QtVaapiVideoFrame::Ptr received;
+        QtVideoFrame::Ptr received;
         QtVideoMailbox queue([&](auto frame) {
             QCOMPARE(QThread::currentThread(), thread());
             ++deliveries; received = std::move(frame);
@@ -219,11 +219,11 @@ private slots:
     {
         FrameFixture fixture;
         QString error;
-        auto first = QtVaapiVideoFrame::create(fixture.frame, 10, error);
-        auto last = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        auto first = QtVideoFrame::hardware(QtVaapiVideoFrame::create(fixture.frame, 10, error));
+        auto last = QtVideoFrame::hardware(QtVaapiVideoFrame::create(fixture.frame, 10, error));
         QVERIFY(first && last);
         int deliveries = 0;
-        QtVaapiVideoFrame::Ptr received;
+        QtVideoFrame::Ptr received;
         QtVideoMailbox queue([&](auto frame) { ++deliveries; received = std::move(frame); });
         const auto old = queue.startGeneration();
         QVERIFY(old.submit(first));
@@ -244,7 +244,7 @@ private slots:
     {
         FrameFixture fixture;
         QString error;
-        auto frame = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        auto frame = QtVideoFrame::hardware(QtVaapiVideoFrame::create(fixture.frame, 10, error));
         QVERIFY(frame);
         int deliveries = 0;
         for (int iteration = 0; iteration < 100; ++iteration) {
@@ -270,7 +270,7 @@ private slots:
     {
         FrameFixture fixture;
         QString error;
-        auto frame = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        auto frame = QtVideoFrame::hardware(QtVaapiVideoFrame::create(fixture.frame, 10, error));
         QVERIFY(frame);
         std::unique_ptr<QtVideoMailbox> queue;
         int completed = 0;
@@ -286,6 +286,32 @@ private slots:
         QCOMPARE(completed, 1);
         QVERIFY(!queue);
         QVERIFY(!producer.submit(frame));
+    }
+
+    void softwareDeliveryRetainsExactFrameWithoutPixelCopy()
+    {
+        AVFrame* source = av_frame_alloc();
+        QVERIFY(source);
+        source->format = AV_PIX_FMT_GBRP10LE;
+        source->width = 1024; source->height = 8;
+        QVERIFY(av_frame_get_buffer(source, 64) == 0);
+        QString error;
+        QVERIFY(!QtVideoFrame::software(source, AV_PIX_FMT_GBRP, error));
+        auto frame = QtVideoFrame::software(source, AV_PIX_FMT_GBRP10LE, error);
+        QVERIFY2(frame, qPrintable(error));
+        QCOMPARE(frame->size(), QSize(1024, 8));
+        QCOMPARE(frame->softwareFormat(), AV_PIX_FMT_GBRP10LE);
+        QCOMPARE(frame->softwareFrame()->data[0], source->data[0]);
+        QCOMPARE(av_buffer_get_ref_count(source->buf[0]), 2);
+        QtVideoFrame::Ptr received;
+        QtVideoMailbox mailbox([&](auto f) { received = std::move(f); });
+        auto producer = mailbox.startGeneration();
+        QVERIFY(producer.submit(frame));
+        av_frame_free(&source);
+        QCoreApplication::sendPostedEvents();
+        QCOMPARE(received, frame);
+        QVERIFY(!received->hardwareFrame());
+        QCOMPARE(av_buffer_get_ref_count(received->softwareFrame()->buf[0]), 1);
     }
 };
 QTEST_GUILESS_MAIN(QtVideoTest)
