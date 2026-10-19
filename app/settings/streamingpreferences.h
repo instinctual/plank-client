@@ -269,6 +269,8 @@ public:
     Q_PROPERTY(bool playAudioOnHost MEMBER playAudioOnHost NOTIFY playAudioOnHostChanged)
     Q_PROPERTY(bool enableMdns MEMBER enableMdns NOTIFY enableMdnsChanged)
     Q_PROPERTY(bool mdnsDiscoveryManaged MEMBER mdnsDiscoveryManaged CONSTANT)
+    Q_PROPERTY(QString policyConfigPath READ policyConfigPath CONSTANT)
+    QString policyConfigPath() const;
     Q_PROPERTY(bool connectionWarnings MEMBER connectionWarnings NOTIFY connectionWarningsChanged)
     Q_PROPERTY(int quicUdpPayloadMtu MEMBER quicUdpPayloadMtu NOTIFY quicUdpPayloadMtuChanged)
     Q_PROPERTY(int plankUnreachableTimeoutSeconds MEMBER plankUnreachableTimeoutSeconds NOTIFY plankUnreachableTimeoutChanged)

@@ -1046,7 +1046,7 @@ Flickable {
                     checked: StreamingPreferences.enableMdns
                     enabled: !StreamingPreferences.mdnsDiscoveryManaged
                     ToolTip.visible: hovered && StreamingPreferences.mdnsDiscoveryManaged
-                    ToolTip.text: qsTr("Managed by /etc/plank/client.conf")
+                    ToolTip.text: qsTr("Managed by %1").arg(StreamingPreferences.policyConfigPath)
                     onCheckedChanged: {
                         // This is called on init, so only do the work if we've
                         // actually changed the value.

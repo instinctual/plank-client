@@ -12,7 +12,7 @@ ApplicationWindow {
     property bool pollingActive: false
 
     id: window
-    title: qsTr("PLANK Client")
+    title: Qt.application.displayName
     width: 1280
     height: 1200
     minimumHeight: 900

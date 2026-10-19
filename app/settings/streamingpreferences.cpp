@@ -39,6 +39,11 @@ StreamingPreferences::StreamingPreferences(QQmlEngine *qmlEngine)
     reload();
 }
 
+QString StreamingPreferences::policyConfigPath() const
+{
+    return PlankClientPolicy::defaultConfigPath();
+}
+
 StreamingPreferences* StreamingPreferences::get(QQmlEngine *qmlEngine)
 {
     {
