@@ -53,15 +53,15 @@ uniform int mapping;
 in vec2 uv;
 out vec4 color;
 void main() {
-    vec3 packed = texture(video, uv).rgb;
-    if (mapping == 1) packed = packed.brg; // XR24 sampled Y,U,V -> R=V,G=Y,B=U
+    vec3 sampleValue = texture(video, uv).rgb;
+    if (mapping == 1) sampleValue = sampleValue.brg; // XR24 sampled Y,U,V -> R=V,G=Y,B=U
     if (mapping == 3) {
-        float y = packed.g;
-        float u = packed.b - 512.0 / 1023.0;
-        float v = packed.r - 512.0 / 1023.0;
-        packed = vec3(y + 1.5748 * v, y - 0.187324 * u - 0.468124 * v, y + 1.8556 * u);
+        float y = sampleValue.g;
+        float u = sampleValue.b - 512.0 / 1023.0;
+        float v = sampleValue.r - 512.0 / 1023.0;
+        sampleValue = vec3(y + 1.5748 * v, y - 0.1873242729 * u - 0.4681242729 * v, y + 1.8556 * u);
     }
-    color = vec4(packed, 1.0);
+    color = vec4(sampleValue, 1.0);
 }
 )glsl";
     m_Program = std::make_unique<QOpenGLShaderProgram>();
@@ -118,6 +118,7 @@ bool QtPackedVideoBlitter::draw(GLuint texture, GLenum target, PlankPackedVideo:
     gl->glViewport(0, 0, geometry.drawableSize.width(), geometry.drawableSize.height());
     gl->glBindVertexArray(m_Vao);
     gl->glActiveTexture(GL_TEXTURE0);
+    gl->glBindSampler(0, 0);
     gl->glBindTexture(target, texture);
     gl->glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     gl->glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
