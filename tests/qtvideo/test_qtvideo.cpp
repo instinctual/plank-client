@@ -1,0 +1,179 @@
+#include "vaapivideoframe.h"
+
+#include <QtTest>
+extern "C" {
+#include <libavutil/frame.h>
+#include <libavutil/hwcontext.h>
+#include <libavutil/hwcontext_vaapi.h>
+}
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
+
+namespace {
+VAStatus syncStatus = VA_STATUS_SUCCESS;
+VAStatus exportStatus = VA_STATUS_SUCCESS;
+uint32_t sourceFormat = PlankPackedVideo::fourcc('Y','4','1','0');
+int exportedFd = -1;
+int syncCalls = 0;
+uint64_t waitTimeout = 0;
+
+VADRMPRIMESurfaceDescriptor descriptor()
+{
+    VADRMPRIMESurfaceDescriptor d{};
+    d.width = 1024; d.height = 4; d.num_objects = 1; d.num_layers = 1;
+    d.objects[0].fd = 42; d.objects[0].size = 16384;
+    d.layers[0].drm_format = sourceFormat;
+    d.layers[0].num_planes = 1;
+    d.layers[0].pitch[0] = 4096;
+    return d;
+}
+
+struct FrameFixture {
+    AVVAAPIDeviceContext va{};
+    AVHWDeviceContext device{};
+    AVFrame* frame = av_frame_alloc();
+    FrameFixture()
+    {
+        device.type = AV_HWDEVICE_TYPE_VAAPI; device.hwctx = &va;
+        frame->format = AV_PIX_FMT_VAAPI;
+        frame->width = 1024; frame->height = 4;
+        frame->colorspace = AVCOL_SPC_RGB; frame->color_range = AVCOL_RANGE_JPEG;
+        frame->buf[0] = av_buffer_allocz(64);
+        frame->data[0] = frame->buf[0]->data;
+        frame->data[3] = reinterpret_cast<uint8_t*>(uintptr_t(7));
+        frame->hw_frames_ctx = av_buffer_allocz(sizeof(AVHWFramesContext));
+        auto* frames = reinterpret_cast<AVHWFramesContext*>(frame->hw_frames_ctx->data);
+        frames->device_ctx = &device;
+    }
+    ~FrameFixture() { av_frame_free(&frame); }
+};
+}
+
+extern "C" VAStatus __wrap_vaSyncSurface2(VADisplay, VASurfaceID, uint64_t timeout)
+{
+    ++syncCalls; waitTimeout = timeout; return syncStatus;
+}
+extern "C" VAStatus __wrap_vaExportSurfaceHandle(VADisplay, VASurfaceID, uint32_t type,
+                                                  uint32_t flags, void* output)
+{
+    if (type != VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2 ||
+            flags != (VA_EXPORT_SURFACE_READ_ONLY | VA_EXPORT_SURFACE_COMPOSED_LAYERS))
+        return VA_STATUS_ERROR_INVALID_PARAMETER;
+    if (exportStatus != VA_STATUS_SUCCESS) return exportStatus;
+    auto d = descriptor();
+    exportedFd = open("/dev/null", O_RDONLY);
+    d.objects[0].fd = exportedFd;
+    *static_cast<VADRMPRIMESurfaceDescriptor*>(output) = d;
+    return VA_STATUS_SUCCESS;
+}
+
+class QtVideoTest : public QObject
+{
+    Q_OBJECT
+private slots:
+    void init()
+    {
+        syncStatus = exportStatus = VA_STATUS_SUCCESS;
+        sourceFormat = PlankPackedVideo::fourcc('Y','4','1','0');
+        exportedFd = -1; syncCalls = 0; waitTimeout = 0;
+    }
+
+    void storageMapping()
+    {
+        using namespace PlankPackedVideo;
+        QCOMPARE(importFormat(fourcc('Y','4','1','0'), true, false), fourcc('X','R','3','0'));
+        QCOMPARE(importFormat(fourcc('Y','4','1','0'), false, true), fourcc('X','R','3','0'));
+        QCOMPARE(importFormat(fourcc('A','Y','U','V'), true, false), fourcc('X','R','2','4'));
+        QCOMPARE(importFormat(fourcc('X','Y','U','V'), true, false), fourcc('X','R','2','4'));
+        QCOMPARE(importFormat(fourcc('N','V','1','2'), true, false), fourcc('N','V','1','2'));
+        QCOMPARE(importFormat(fourcc('Y','4','1','0'), false, false), fourcc('Y','4','1','0'));
+        QCOMPARE(mapping(fourcc('Y','4','1','0'), 8, true, false, true), Mapping::Unsupported);
+        QCOMPARE(mapping(fourcc('Y','4','1','0'), 10, true, false, false), Mapping::Unsupported);
+    }
+
+    void rejectsMalformedLayout()
+    {
+        auto valid = [](const auto& d) { return QtVaapiVideoFrame::validate(d, {1024, 4}, 10, true, false, true); };
+        auto d = descriptor(); QVERIFY(valid(d));
+        d.num_objects = 5; QVERIFY(!valid(d)); d = descriptor();
+        d.num_layers = 0; QVERIFY(!valid(d)); d = descriptor();
+        d.layers[0].num_planes = 2; QVERIFY(!valid(d)); d = descriptor();
+        d.layers[0].object_index[0] = 1; QVERIFY(!valid(d)); d = descriptor();
+        d.layers[0].pitch[0] = 4095; QVERIFY(!valid(d)); d = descriptor();
+        d.layers[0].pitch[0] = UINT32_MAX; QVERIFY(!valid(d)); d = descriptor();
+        d.layers[0].offset[0] = d.objects[0].size; QVERIFY(!valid(d)); d = descriptor();
+        d.objects[0].fd = -1; QVERIFY(!valid(d)); d = descriptor();
+        d.width = 1023; QVERIFY(!valid(d)); d = descriptor();
+        QVERIFY(!QtVaapiVideoFrame::validate(d, {0, 4}, 10, true, false, true));
+        QVERIFY(!QtVaapiVideoFrame::validate(d, {1024, 4}, 10, true, false, false));
+        QVERIFY(!QtVaapiVideoFrame::validate(d, {1024, 4}, 8, true, false, true));
+    }
+
+    void ownsDecoderReferenceAndDescriptors()
+    {
+        FrameFixture fixture;
+        QString error;
+        auto lease = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        QVERIFY2(lease, qPrintable(error));
+        QCOMPARE(av_buffer_get_ref_count(fixture.frame->buf[0]), 2);
+        QCOMPARE(lease->mapping(), PlankPackedVideo::Mapping::Identity10);
+        QCOMPARE(lease->size(), QSize(1024, 4));
+        QVERIFY(fcntl(exportedFd, F_GETFD) & FD_CLOEXEC);
+        QCOMPARE(syncCalls, 1);
+        QCOMPARE(waitTimeout, uint64_t(100000000));
+        auto retained = lease;
+        lease.reset();
+        QCOMPARE(av_buffer_get_ref_count(fixture.frame->buf[0]), 2);
+        retained.reset();
+        QCOMPARE(av_buffer_get_ref_count(fixture.frame->buf[0]), 1);
+        QCOMPARE(fcntl(exportedFd, F_GETFD), -1);
+        QCOMPARE(errno, EBADF);
+    }
+
+    void rejectBeforeTouchingDevice()
+    {
+        FrameFixture fixture;
+        QString error;
+        QVERIFY(!QtVaapiVideoFrame::create(nullptr, 10, error));
+        fixture.frame->color_range = AVCOL_RANGE_MPEG;
+        QVERIFY(!QtVaapiVideoFrame::create(fixture.frame, 10, error));
+        fixture.frame->color_range = AVCOL_RANGE_JPEG;
+        fixture.frame->colorspace = AVCOL_SPC_UNSPECIFIED;
+        QVERIFY(!QtVaapiVideoFrame::create(fixture.frame, 10, error));
+        QCOMPARE(syncCalls, 0);
+    }
+
+    void rejectsAndReleasesFailedExport()
+    {
+        FrameFixture fixture;
+        QString error;
+        sourceFormat = PlankPackedVideo::fourcc('N','V','1','2');
+        QVERIFY(!QtVaapiVideoFrame::create(fixture.frame, 10, error));
+        QCOMPARE(fcntl(exportedFd, F_GETFD), -1);
+        QCOMPARE(errno, EBADF);
+        QCOMPARE(av_buffer_get_ref_count(fixture.frame->buf[0]), 1);
+        syncStatus = VA_STATUS_ERROR_TIMEDOUT;
+        QVERIFY(!QtVaapiVideoFrame::create(fixture.frame, 10, error));
+        QCOMPARE(av_buffer_get_ref_count(fixture.frame->buf[0]), 1);
+    }
+
+    void formatChangesAreExplicit()
+    {
+        FrameFixture fixture;
+        QString error;
+        fixture.frame->colorspace = AVCOL_SPC_BT709;
+        auto bt709 = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        QVERIFY2(bt709, qPrintable(error));
+        QCOMPARE(bt709->mapping(), PlankPackedVideo::Mapping::Bt709Full10);
+        fixture.frame->colorspace = AVCOL_SPC_RGB;
+        sourceFormat = PlankPackedVideo::fourcc('X','Y','U','V');
+        QVERIFY(!QtVaapiVideoFrame::create(fixture.frame, 10, error));
+        auto identity8 = QtVaapiVideoFrame::create(fixture.frame, 8, error);
+        QVERIFY2(identity8, qPrintable(error));
+        QCOMPARE(identity8->mapping(), PlankPackedVideo::Mapping::Identity8);
+        QCOMPARE(bt709->mapping(), PlankPackedVideo::Mapping::Bt709Full10);
+    }
+};
+QTEST_APPLESS_MAIN(QtVideoTest)
+#include "test_qtvideo.moc"

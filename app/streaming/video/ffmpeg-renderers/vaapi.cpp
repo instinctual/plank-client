@@ -5,6 +5,7 @@
 
 #include "vaapi.h"
 #include "../packedbt709.h"
+#include "../packedvideo.h"
 #include "utils.h"
 #include <streaming/streamutils.h>
 
@@ -1078,26 +1079,7 @@ uint32_t VAAPIRenderer::getEGLImportFormat(uint32_t drmFormat) {
 #define DRM_FORMAT_XRGB8888 VA_FOURCC('X', 'R', '2', '4')
 #endif
 
-    // AYUV and XYUV8888 store Y, U, and V in the same bit positions that XR24
-    // uses for R, G, and B. Intel's VA-API driver exports the 8-bit HEVC 4:4:4
-    // surface as XYUV8888 (FFmpeg VUYX). Import it as XR24 and let the opaque
-    // shader reorder R=V, G=Y, B=U without applying a YCbCr matrix or copy.
-    if (m_IdentityGbr &&
-            (drmFormat == DRM_FORMAT_AYUV ||
-             drmFormat == DRM_FORMAT_XYUV8888)) {
-        return DRM_FORMAT_XRGB8888;
-    }
-
-    // Y410 stores U, Y, and V in the same bit positions that XR30 uses for
-    // B, G, and R. The identity transport defines U=B, Y=G, V=R, so importing
-    // this surface as XR30 reverses the mapping without a color conversion.
-    // BT.709 uses the same packed storage, but the EGL shader must explicitly
-    // convert V:Y:U to RGB instead of displaying those channels as identity.
-    if ((m_IdentityGbr || m_PackedBt709) && drmFormat == DRM_FORMAT_Y410) {
-        return DRM_FORMAT_XRGB2101010;
-    }
-
-    return drmFormat;
+    return PlankPackedVideo::importFormat(drmFormat, m_IdentityGbr, m_PackedBt709);
 }
 
 bool

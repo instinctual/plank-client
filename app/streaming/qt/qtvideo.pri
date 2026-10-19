@@ -1,0 +1,6 @@
+!linux: error("The Qt video experiment is Ubuntu-only")
+QT += opengl quick
+CONFIG += c++17 link_pkgconfig
+PKGCONFIG += libavutil libva egl
+SOURCES += $$PWD/vaapivideoframe.cpp $$PWD/packedvideoblitter.cpp $$PWD/eglvideonode.cpp
+HEADERS += $$PWD/vaapivideoframe.h $$PWD/packedvideoblitter.h $$PWD/eglvideonode.h $$PWD/../video/packedvideo.h
