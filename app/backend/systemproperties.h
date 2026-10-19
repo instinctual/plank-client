@@ -14,6 +14,7 @@ public:
     SystemProperties();
 
     Q_PROPERTY(bool hasHardwareAcceleration MEMBER hasHardwareAcceleration CONSTANT)
+    Q_PROPERTY(bool hardwareCapabilityKnown MEMBER hardwareCapabilityKnown CONSTANT)
     Q_PROPERTY(bool rendererAlwaysFullScreen MEMBER rendererAlwaysFullScreen CONSTANT)
     Q_PROPERTY(bool isRunningWayland MEMBER isRunningWayland CONSTANT)
     Q_PROPERTY(bool isRunningXWayland MEMBER isRunningXWayland CONSTANT)
@@ -36,8 +37,9 @@ private:
     void querySdlVideoInfoInternal();
     void refreshDisplaysInternal();
 
-    bool hasHardwareAcceleration;
-    bool rendererAlwaysFullScreen;
+    bool hasHardwareAcceleration = false;
+    bool hardwareCapabilityKnown = true;
+    bool rendererAlwaysFullScreen = false;
     bool isRunningWayland;
     bool isRunningXWayland;
     bool isWow64;

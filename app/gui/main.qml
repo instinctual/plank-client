@@ -35,7 +35,7 @@ ApplicationWindow {
         if (SystemProperties.isWow64) {
             wow64Dialog.open()
         }
-        else if (!SystemProperties.hasHardwareAcceleration) {
+        else if (SystemProperties.hardwareCapabilityKnown && !SystemProperties.hasHardwareAcceleration) {
             if (SystemProperties.isRunningXWayland) {
                 xWaylandDialog.open()
             }

@@ -1,6 +1,7 @@
 #include <QGuiApplication>
 #ifdef PLANK_QT_CLIENT_EXPERIMENT
 #include <QQuickWindow>
+#include <QEvent>
 #endif
 #include <QStyleHints>
 #include <QQmlApplicationEngine>
@@ -364,11 +365,17 @@ int SDLCALL signalHandlerThread(void* data)
                 _Exit(1);
             }
 
+            // Qt owns dispatch throughout the experimental session. Its Quit
+            // filter keeps the event loop alive until asynchronous teardown.
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+            QCoreApplication::postEvent(QCoreApplication::instance(), new QEvent(QEvent::Quit));
+#else
             // Route termination through the normal client disconnect path.
             SDL_Event event = {};
             event.type = SDL_EVENT_QUIT;
             event.quit.timestamp = SDL_GetTicksNS();
             SDL_PushEvent(&event);
+#endif
             requestedQuit = true;
             break;
         }
@@ -1048,6 +1055,9 @@ int main(int argc, char *argv[])
         if (engine.rootObjects().isEmpty()) {
             return -1;
         }
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+        qInfo() << "Qt launcher ready; decoder qualification deferred to the stream surface";
+#endif
     }
 
     int err = app.exec();

@@ -4,9 +4,13 @@
 #include <QGuiApplication>
 #include <QFile>
 #include <QLibraryInfo>
+#include <QScreen>
+#include <QThread>
 
+#ifndef PLANK_QT_CLIENT_EXPERIMENT
 #include "streaming/session.h"
 #include "streaming/streamutils.h"
+#endif
 
 #ifndef PLANK_VERSION_STR
 #define PLANK_VERSION_STR "development"
@@ -62,11 +66,18 @@ SystemProperties::SystemProperties()
         friendlyNativeArchName = nativeArch.toUpper();
     }
 
-    // Assume we can probably launch a browser if we're in a GUI environment
-
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+    // The exact-profile decoder is qualified on the actual Qt session surface.
+    // A temporary SDL window would probe a different GPU/context and reintroduce
+    // the independent SDL Wayland connection this frontend deliberately avoids.
+    hardwareCapabilityKnown = false;
+    maximumResolution = QSize(8192, 8192);
+    refreshDisplays();
+#else
     // Populate data that requires talking to SDL. We do it all in one shot
     // and cache the results to speed up future queries on this data.
     querySdlVideoInfo();
+#endif
 
     Q_ASSERT(!monitorRefreshRates.isEmpty());
     Q_ASSERT(!monitorNativeResolutions.isEmpty());
@@ -98,6 +109,7 @@ int SystemProperties::getRefreshRate(int displayIndex)
     return monitorRefreshRates.value(displayIndex);
 }
 
+#ifndef PLANK_QT_CLIENT_EXPERIMENT
 class QuerySdlVideoThread : public QThread
 {
 public:
@@ -180,9 +192,13 @@ public:
 
     SystemProperties* m_Me;
 };
+#endif
 
 void SystemProperties::refreshDisplays()
 {
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+    refreshDisplaysInternal();
+#else
     if (WMUtils::isRunningX11() || WMUtils::isRunningWayland()) {
         // Use a separate thread to temporarily initialize SDL
         // video to avoid stomping on Qt's X11 and OGL state.
@@ -193,10 +209,25 @@ void SystemProperties::refreshDisplays()
     else {
         refreshDisplaysInternal();
     }
+#endif
 }
 
 void SystemProperties::refreshDisplaysInternal()
 {
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+    Q_ASSERT(QThread::currentThread() == qGuiApp->thread());
+    monitorNativeResolutions.clear();
+    monitorSafeAreaResolutions.clear();
+    monitorRefreshRates.clear();
+    for (auto* screen : QGuiApplication::screens()) {
+        const auto scale = screen->devicePixelRatio();
+        monitorNativeResolutions.append(QRect(QPoint(), screen->geometry().size() * scale));
+        monitorSafeAreaResolutions.append(QRect(QPoint(), screen->availableGeometry().size() * scale));
+        const auto refresh = screen->refreshRate();
+        monitorRefreshRates.append(refresh >= 58 && refresh <= 62 ? 60 :
+                                   refresh >= 28 && refresh <= 32 ? 30 : qRound(refresh));
+    }
+#else
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "SDL_InitSubSystem(SDL_INIT_VIDEO) failed: %s",
@@ -250,4 +281,5 @@ void SystemProperties::refreshDisplaysInternal()
     }
 
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
+#endif
 }
