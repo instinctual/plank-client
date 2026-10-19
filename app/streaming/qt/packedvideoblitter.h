@@ -13,13 +13,12 @@ class QtPackedVideoBlitter final
 {
 public:
     ~QtPackedVideoBlitter();
-    bool draw(GLuint texture, GLenum textureTarget, PlankPackedVideo::Mapping mapping,
+    bool draw(GLuint texture, PlankPackedVideo::Mapping mapping,
               const QtSessionGeometry& geometry, QString& error, GLuint chromaTexture = 0);
     void release();
 
 private:
-    bool initialize(GLenum textureTarget, QString& error);
+    bool initialize(QString& error);
     std::unique_ptr<QOpenGLShaderProgram> m_Program;
     GLuint m_Vao = 0;
-    GLenum m_TextureTarget = 0;
 };

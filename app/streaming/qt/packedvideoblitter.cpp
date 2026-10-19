@@ -3,10 +3,6 @@
 #include <QOpenGLContext>
 #include <QOpenGLExtraFunctions>
 
-#ifndef GL_TEXTURE_EXTERNAL_OES
-#define GL_TEXTURE_EXTERNAL_OES 0x8D65
-#endif
-
 QtPackedVideoBlitter::~QtPackedVideoBlitter() { release(); }
 
 void QtPackedVideoBlitter::release()
@@ -15,21 +11,18 @@ void QtPackedVideoBlitter::release()
         if (m_Vao) context->extraFunctions()->glDeleteVertexArrays(1, &m_Vao);
     m_Vao = 0;
     m_Program.reset();
-    m_TextureTarget = 0;
 }
 
-bool QtPackedVideoBlitter::initialize(GLenum target, QString& error)
+bool QtPackedVideoBlitter::initialize(QString& error)
 {
     auto* context = QOpenGLContext::currentContext();
-    if (!context || context->format().majorVersion() < 3 ||
-            (target != GL_TEXTURE_2D && target != GL_TEXTURE_EXTERNAL_OES)) {
+    if (!context || context->format().majorVersion() < 3) {
         error = QStringLiteral("Qt video requires a current OpenGL 3+ context and a supported texture");
         return false;
     }
-    if (m_Program && m_TextureTarget == target) return true;
+    if (m_Program) return true;
     release();
     const bool es = context->isOpenGLES();
-    const bool external = target == GL_TEXTURE_EXTERNAL_OES;
     const QByteArray header = es ? "#version 300 es\n" : "#version 330 core\n";
     const QByteArray vertex = header + R"glsl(
 uniform vec4 destination;
@@ -44,13 +37,10 @@ void main() {
 }
 )glsl";
     QByteArray fragment = header;
-    if (external) fragment += es ? "#extension GL_OES_EGL_image_external_essl3 : require\n" :
-                                  "#extension GL_OES_EGL_image_external : require\n";
     if (es) {
         fragment += "precision highp float;\nprecision highp sampler2D;\n";
-        if (external) fragment += "precision highp samplerExternalOES;\n";
     }
-    fragment += external ? "uniform samplerExternalOES video;\n" : "uniform sampler2D video;\n";
+    fragment += "uniform sampler2D video;\n";
     fragment += R"glsl(
 uniform int mapping;
 uniform bool p010;
@@ -89,21 +79,20 @@ void main() {
         return false;
     }
     context->extraFunctions()->glGenVertexArrays(1, &m_Vao);
-    m_TextureTarget = target;
     return m_Vao != 0;
 }
 
-bool QtPackedVideoBlitter::draw(GLuint texture, GLenum target, PlankPackedVideo::Mapping mapping,
+bool QtPackedVideoBlitter::draw(GLuint texture, PlankPackedVideo::Mapping mapping,
                                const QtSessionGeometry& geometry, QString& error, GLuint chromaTexture)
 {
     error.clear();
     if (!texture || !geometry.valid() || mapping == PlankPackedVideo::Mapping::Unsupported ||
-            (chromaTexture && (target != GL_TEXTURE_2D ||
-             (mapping != PlankPackedVideo::Mapping::Bt709Full10 && mapping != PlankPackedVideo::Mapping::Bt709Limited10)))) {
+            (chromaTexture && mapping != PlankPackedVideo::Mapping::Bt709Full10 &&
+             mapping != PlankPackedVideo::Mapping::Bt709Limited10)) {
         error = QStringLiteral("Invalid Qt video texture, format or presentation geometry");
         return false;
     }
-    if (!initialize(target, error)) return false;
+    if (!initialize(error)) return false;
     auto* context = QOpenGLContext::currentContext();
     auto* gl = context->extraFunctions();
     GLint framebuffer = 0;
@@ -138,11 +127,11 @@ bool QtPackedVideoBlitter::draw(GLuint texture, GLenum target, PlankPackedVideo:
     gl->glBindVertexArray(m_Vao);
     gl->glActiveTexture(GL_TEXTURE0);
     gl->glBindSampler(0, 0);
-    gl->glBindTexture(target, texture);
-    gl->glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    gl->glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    gl->glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    gl->glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    gl->glBindTexture(GL_TEXTURE_2D, texture);
+    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     if (chromaTexture) {
         gl->glActiveTexture(GL_TEXTURE1);
         gl->glBindSampler(1, 0);
@@ -172,7 +161,7 @@ bool QtPackedVideoBlitter::draw(GLuint texture, GLenum target, PlankPackedVideo:
         gl->glBindTexture(GL_TEXTURE_2D, 0);
         gl->glActiveTexture(GL_TEXTURE0);
     }
-    gl->glBindTexture(target, 0);
+    gl->glBindTexture(GL_TEXTURE_2D, 0);
     if (dither) gl->glEnable(GL_DITHER);
     if (srgb) gl->glEnable(GL_FRAMEBUFFER_SRGB);
     if (gl->glGetError() != GL_NO_ERROR) {
