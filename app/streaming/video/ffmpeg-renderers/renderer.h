@@ -134,7 +134,12 @@ public:
     // publish the A/V clock when a frame has merely been queued.
     virtual bool ownsPresentationScheduling() const { return false; }
     virtual void discardPendingFrames() {}
+    virtual bool resumePresentation() { return true; }
     virtual void collectPresentationStats(VIDEO_STATS&) {}
+    virtual bool usesCustomDecodeBuffers() const { return false; }
+    virtual int getDecodeBuffer(AVCodecContext* context, AVFrame* frame, int flags) {
+        return avcodec_default_get_buffer2(context, frame, flags);
+    }
 
     enum class InitFailureReason
     {

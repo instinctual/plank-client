@@ -16,6 +16,9 @@ public:
     class Producer {
     public:
         bool submit(QtVideoFrame::Ptr frame) const;
+        Producer restart() const; // decoder startup/reconnect; no GUI wait
+        void discard() const;     // retires this generation only
+        bool isCurrent() const;
     private:
         friend class QtVideoMailbox;
         std::weak_ptr<State> m_State;

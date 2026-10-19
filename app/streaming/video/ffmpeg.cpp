@@ -163,6 +163,8 @@ bool FFmpegVideoDecoder::resumeAfterReconnect()
         return false;
     }
 
+    if (!m_FrontendRenderer->resumePresentation()) return false;
+
     m_DecoderThread = SDL_CreateThread(FFmpegVideoDecoder::decoderThreadProcThunk,
                                        "FFDecoder", this);
     if (m_DecoderThread == nullptr) {
@@ -599,6 +601,12 @@ bool FFmpegVideoDecoder::completeInitialization(const AVCodec* decoder, enum AVP
     // Stash a pointer to this object in the context
     SDL_assert(m_VideoDecoderCtx->opaque == nullptr);
     m_VideoDecoderCtx->opaque = this;
+    if (m_BackendRenderer->usesCustomDecodeBuffers()) {
+        m_VideoDecoderCtx->get_buffer2 = [](AVCodecContext* context, AVFrame* frame, int flags) {
+            const auto decoder = static_cast<FFmpegVideoDecoder*>(context->opaque);
+            return decoder->m_BackendRenderer->getDecodeBuffer(context, frame, flags);
+        };
+    }
 
     int err = avcodec_open2(m_VideoDecoderCtx, decoder, &options);
     av_dict_free(&options);

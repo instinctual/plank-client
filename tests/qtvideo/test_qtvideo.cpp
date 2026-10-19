@@ -313,6 +313,58 @@ private slots:
         QVERIFY(!received->hardwareFrame());
         QCOMPARE(av_buffer_get_ref_count(received->softwareFrame()->buf[0]), 1);
     }
+
+    void presentationFeedbackIsOnceOnlyAndNeverAtSubmission()
+    {
+        FrameFixture fixture;
+        QString error;
+        auto lease = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        std::atomic<int> displayed{0}, dropped{0};
+        auto frame = QtVideoFrame::hardware(lease, [&](bool presented, uint64_t, uint64_t renderMs) {
+            if (presented) { QVERIFY(renderMs == 7); ++displayed; }
+            else ++dropped;
+        });
+        QtVideoFrame::Ptr retained;
+        QtVideoMailbox mailbox([&](auto delivered) { retained = std::move(delivered); });
+        QVERIFY(mailbox.startGeneration().submit(frame));
+        QCoreApplication::sendPostedEvents();
+        QCOMPARE(displayed.load(), 0);
+        std::thread first([frame] { frame->presented(7); });
+        std::thread second([frame] { frame->presented(7); });
+        first.join(); second.join();
+        QCOMPARE(displayed.load(), 1);
+        retained.reset(); frame.reset();
+        QCOMPARE(dropped.load(), 0);
+        auto discarded = QtVideoFrame::hardware(lease, [&](bool presented, uint64_t, uint64_t) {
+            QVERIFY(!presented); ++dropped;
+        });
+        discarded.reset();
+        QCOMPARE(dropped.load(), 1);
+    }
+
+    void decoderGenerationRetirementCannotDiscardReplacement()
+    {
+        FrameFixture fixture;
+        QString error;
+        auto frame = QtVideoFrame::hardware(QtVaapiVideoFrame::create(fixture.frame, 10, error));
+        int received = 0;
+        auto mailbox = std::make_unique<QtVideoMailbox>([&](auto) { ++received; });
+        auto old = mailbox->startGeneration();
+        QVERIFY(old.submit(frame));
+        QtVideoMailbox::Producer current;
+        std::thread restart([&] { current = old.restart(); old.discard(); });
+        restart.join();
+        QVERIFY(!old.isCurrent()); QVERIFY(current.isCurrent());
+        QVERIFY(!old.submit(frame)); QVERIFY(current.submit(frame));
+        QCoreApplication::sendPostedEvents();
+        QCOMPARE(received, 1);
+        current.discard();
+        QVERIFY(!current.isCurrent()); QVERIFY(!current.submit(frame));
+        auto resumed = current.restart();
+        QVERIFY(resumed.isCurrent());
+        mailbox.reset();
+        QVERIFY(!resumed.isCurrent()); QVERIFY(!resumed.restart().isCurrent());
+    }
 };
 QTEST_GUILESS_MAIN(QtVideoTest)
 #include "test_qtvideo.moc"

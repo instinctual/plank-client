@@ -6,6 +6,8 @@
 
 #include <QQuickItem>
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
 
 struct QtEglVideoStatus
 {
@@ -13,6 +15,11 @@ struct QtEglVideoStatus
     std::atomic<Error> error{None};
     std::atomic<uint64_t> draws{0};
     std::atomic<uint64_t> imports{0};
+    std::mutex presentationMutex;
+    std::condition_variable presentationChanged;
+    QtVideoFrame::Ptr drawnFrame;
+    std::weak_ptr<const QtVideoFrame> swappedFrame;
+    std::chrono::steady_clock::time_point drawStarted;
 };
 
 // A root-sized underlay, behind QML controls. Qt owns its native surface and
@@ -25,7 +32,10 @@ public:
     void setFrame(QtVideoFrame::Ptr frame);
     void setSoftwareDevice(QtSoftwareVideoDevice::Ptr device);
     void setPresentation(const QtSessionGeometry& geometry);
+    void setPrimaryOutput(bool primary);
+    void beginGeneration(std::shared_ptr<QtEglVideoStatus> status);
     std::shared_ptr<const QtEglVideoStatus> status() const { return m_Status; }
+    std::shared_ptr<QtEglVideoStatus> presentationFeedback() const { return m_Status; }
 
 protected:
     QSGNode* updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*) override;
@@ -35,4 +45,7 @@ private:
     QtSoftwareVideoDevice::Ptr m_SoftwareDevice;
     QtSessionGeometry m_Geometry;
     std::shared_ptr<QtEglVideoStatus> m_Status = std::make_shared<QtEglVideoStatus>();
+    QMetaObject::Connection m_SwapConnection;
+    bool m_PrimaryOutput = false;
+    void connectPresentationFeedback();
 };

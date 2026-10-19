@@ -3,15 +3,17 @@ extern "C" {
 #include <libavutil/pixdesc.h>
 }
 
-QtVideoFrame::Ptr QtVideoFrame::hardware(QtVaapiVideoFrame::Ptr frame)
+QtVideoFrame::Ptr QtVideoFrame::hardware(QtVaapiVideoFrame::Ptr frame, Feedback feedback)
 {
     if (!frame) return {};
     auto result = std::shared_ptr<QtVideoFrame>(new QtVideoFrame);
     result->m_Hardware = std::move(frame);
+    result->m_Feedback = std::move(feedback);
     return result;
 }
 
-QtVideoFrame::Ptr QtVideoFrame::software(const AVFrame* frame, AVPixelFormat expectedFormat, QString& error)
+QtVideoFrame::Ptr QtVideoFrame::software(const AVFrame* frame, AVPixelFormat expectedFormat, QString& error,
+                                       Feedback feedback)
 {
     error.clear();
     const auto* descriptor = av_pix_fmt_desc_get(expectedFormat);
@@ -30,7 +32,21 @@ QtVideoFrame::Ptr QtVideoFrame::software(const AVFrame* frame, AVPixelFormat exp
     if (!result->m_Software) {
         error = QStringLiteral("Could not retain the decoded Qt video frame"); return {};
     }
+    result->m_Feedback = std::move(feedback);
     return result;
 }
 
-QtVideoFrame::~QtVideoFrame() { av_frame_free(&m_Software); }
+void QtVideoFrame::presented(uint64_t renderMs) const
+{
+    if (!m_Presented.exchange(true) && m_Feedback) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - m_QueuedAt).count();
+        m_Feedback(true, uint64_t(elapsed), renderMs);
+    }
+}
+
+QtVideoFrame::~QtVideoFrame()
+{
+    if (!m_Presented.load() && m_Feedback) m_Feedback(false, 0, 0);
+    av_frame_free(&m_Software);
+}

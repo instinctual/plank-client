@@ -22,6 +22,7 @@ class VideoNode final : public QSGRenderNode
 public:
     explicit VideoNode(std::shared_ptr<QtEglVideoStatus> status) : m_Status(std::move(status)) {}
     ~VideoNode() override { releaseResources(); }
+    bool hasStatus(const std::shared_ptr<QtEglVideoStatus>& status) const { return m_Status == status; }
 
     void synchronize(QtVideoFrame::Ptr frame, const QtSessionGeometry& geometry,
                      QtSoftwareVideoDevice::Ptr device)
@@ -64,6 +65,7 @@ public:
 
         auto slot = std::make_unique<Slot>();
         slot->frame = m_Frame->hardwareFrame();
+        slot->delivery = m_Frame;
         if (!slot->frame) { fail(QtEglVideoStatus::ImportFailed); return; }
         slot->display = eglGetCurrentDisplay();
         auto createImage = reinterpret_cast<PFNEGLCREATEIMAGEKHRPROC>(eglGetProcAddress("eglCreateImageKHR"));
@@ -112,6 +114,7 @@ public:
 
     void render(const RenderState*) override
     {
+        const auto started = std::chrono::steady_clock::now();
         if (m_Frame && m_Frame->softwareFrame()) {
             if (!m_SoftwareImage || m_Status->error.load() != QtEglVideoStatus::None ||
                     !m_Geometry.valid() || m_Frame->size() != m_Geometry.streamSize) return;
@@ -123,6 +126,7 @@ public:
                 return;
             }
             ++m_Status->draws;
+            recordDraw(m_ConvertedFrame, started);
             return;
         }
         if (!m_Current || m_Status->error.load() != QtEglVideoStatus::None ||
@@ -140,6 +144,7 @@ public:
         m_Current->fence = gl->glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
         if (!m_Current->fence) { fail(QtEglVideoStatus::FenceFailed); return; }
         ++m_Status->draws;
+        recordDraw(m_Current->delivery, started);
     }
 
     void releaseResources() override
@@ -158,6 +163,16 @@ public:
     }
 
 private:
+    void recordDraw(QtVideoFrame::Ptr frame, std::chrono::steady_clock::time_point started)
+    {
+        QtVideoFrame::Ptr retired;
+        {
+            std::lock_guard<std::mutex> lock(m_Status->presentationMutex);
+            retired = std::move(m_Status->drawnFrame);
+            m_Status->drawnFrame = std::move(frame);
+            m_Status->drawStarted = started;
+        }
+    }
     void prepareSoftware()
     {
         if (m_Status->error.load() != QtEglVideoStatus::None || !m_Geometry.valid() ||
@@ -190,6 +205,7 @@ private:
     }
     struct Slot {
         QtVaapiVideoFrame::Ptr frame;
+        QtVideoFrame::Ptr delivery;
         EGLDisplay display = EGL_NO_DISPLAY;
         EGLImageKHR image = EGL_NO_IMAGE_KHR;
         PFNEGLDESTROYIMAGEKHRPROC destroyImage = nullptr;
@@ -210,6 +226,8 @@ private:
         auto expected = QtEglVideoStatus::None;
         if (m_Status->error.compare_exchange_strong(expected, error))
             qWarning("Qt video stopped at the exact-format GPU gate (%d)", int(error));
+        std::lock_guard<std::mutex> lock(m_Status->presentationMutex);
+        m_Status->presentationChanged.notify_all();
     }
     QtVideoFrame::Ptr m_Frame;
     QtVideoFrame::Ptr m_ConvertedFrame;
@@ -227,6 +245,50 @@ QtEglVideoItem::QtEglVideoItem(QQuickItem* parent) : QQuickItem(parent)
 {
     setFlag(ItemHasContents);
     setZ(-1);
+    connect(this, &QQuickItem::windowChanged, this, [this] { connectPresentationFeedback(); });
+}
+
+void QtEglVideoItem::setPrimaryOutput(bool primary)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    m_PrimaryOutput = primary;
+    connectPresentationFeedback();
+}
+
+void QtEglVideoItem::beginGeneration(std::shared_ptr<QtEglVideoStatus> status)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    if (!status || status == m_Status) return;
+    m_Status = std::move(status);
+    m_Frame.reset();
+    connectPresentationFeedback();
+    update();
+}
+
+void QtEglVideoItem::connectPresentationFeedback()
+{
+    QObject::disconnect(m_SwapConnection);
+    if (!window()) return;
+    const auto status = m_Status;
+    const bool primary = m_PrimaryOutput;
+    // Direct: frameSwapped comes from Qt's render thread. No queue of GUI
+    // events, no raw item/window capture, and one clock source for a span.
+    m_SwapConnection = connect(window(), &QQuickWindow::frameSwapped, this, [status, primary] {
+        QtVideoFrame::Ptr frame;
+        std::chrono::steady_clock::time_point started;
+        {
+            std::lock_guard<std::mutex> lock(status->presentationMutex);
+            frame = std::move(status->drawnFrame);
+            started = status->drawStarted;
+            if (frame) status->swappedFrame = frame;
+            status->presentationChanged.notify_all();
+        }
+        if (frame && primary) {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - started).count();
+            frame->presented(uint64_t(elapsed));
+        }
+    }, Qt::DirectConnection);
 }
 
 void QtEglVideoItem::setFrame(QtVideoFrame::Ptr frame)
@@ -259,6 +321,7 @@ QSGNode* QtEglVideoItem::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*)
         return nullptr;
     }
     auto* node = static_cast<VideoNode*>(oldNode);
+    if (node && !node->hasStatus(m_Status)) { delete node; node = nullptr; }
     if (!node) node = new VideoNode(m_Status);
     node->synchronize(m_Frame, m_Geometry, m_SoftwareDevice);
     return node;

@@ -84,6 +84,43 @@ bool QtVideoMailbox::Producer::submit(QtVideoFrame::Ptr frame) const
     return true;
 }
 
+QtVideoMailbox::Producer QtVideoMailbox::Producer::restart() const
+{
+    Producer next;
+    const auto state = m_State.lock();
+    if (!state) return next;
+    QtVideoFrame::Ptr retired;
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        if (!state->owner) return next;
+        retired = std::move(state->pending);
+        next.m_State = state;
+        next.m_Generation = ++state->generation;
+    }
+    return next;
+}
+
+void QtVideoMailbox::Producer::discard() const
+{
+    const auto state = m_State.lock();
+    if (!state) return;
+    QtVideoFrame::Ptr retired;
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        if (state->generation != m_Generation) return;
+        ++state->generation;
+        retired = std::move(state->pending);
+    }
+}
+
+bool QtVideoMailbox::Producer::isCurrent() const
+{
+    const auto state = m_State.lock();
+    if (!state) return false;
+    std::lock_guard<std::mutex> lock(state->mutex);
+    return state->owner && state->generation == m_Generation;
+}
+
 void QtVideoMailbox::drain()
 {
     Q_ASSERT(QThread::currentThread() == thread());
