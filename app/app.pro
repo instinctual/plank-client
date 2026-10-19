@@ -47,6 +47,14 @@ unix:contains(CONFIG, plank-transport) {
 }
 
 TARGET = plank-client
+PLANK_PRIVATE_LIB_NAME = plank
+contains(CONFIG, plank-qt-session) {
+    !linux: error("The Qt session experiment is Ubuntu-only")
+    TARGET = plank-client-qt
+    PLANK_PRIVATE_LIB_NAME = plank-client-qt
+    DEFINES += PLANK_QT_CLIENT_EXPERIMENT
+}
+HEADERS += clientidentity.h
 
 include(../globaldefs.pri)
 
@@ -614,7 +622,7 @@ unix:!macx: {
     # FFmpeg runtime remains private to PLANK under /usr/lib/plank. Resolve
     # those libraries relative to the executable instead of relying on a
     # launcher-provided LD_LIBRARY_PATH.
-    QMAKE_LFLAGS += "-Wl,-rpath,'\$$ORIGIN/../lib/plank'"
+    QMAKE_LFLAGS += "-Wl,-rpath,'\$$ORIGIN/../lib/$$PLANK_PRIVATE_LIB_NAME'"
 
     isEmpty(PREFIX) {
         PREFIX = /usr/local
@@ -638,6 +646,11 @@ unix:!macx: {
     appstream.path = $$PREFIX/$$DATADIR/metainfo/
 
     INSTALLS += target desktop icons appstream
+    contains(CONFIG, plank-qt-session) {
+        # Experimental metadata is installed by the co-installable DEB
+        # packager, never by overwriting production files via make install.
+        INSTALLS -= desktop icons appstream
+    }
 }
 win32 {
     RC_ICONS = moonlight.ico

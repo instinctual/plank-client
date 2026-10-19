@@ -1,4 +1,5 @@
 #include "path.h"
+#include "clientidentity.h"
 
 #include <QtDebug>
 #include <QDir>
@@ -121,7 +122,7 @@ void Path::initialize(bool portable)
         if (stateHome.isEmpty() || !QDir::isAbsolutePath(stateHome)) {
             stateHome = QDir::homePath() + "/.local/state";
         }
-        s_LogDir = QDir(stateHome).filePath("plank/logs");
+        s_LogDir = QDir(stateHome).filePath(QString::fromLatin1(PlankClientIdentity::logDirectory));
 #else
         s_LogDir = QDir::tempPath();
 #endif

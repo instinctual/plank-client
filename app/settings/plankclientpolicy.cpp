@@ -1,4 +1,5 @@
 #include "plankclientpolicy.h"
+#include "../clientidentity.h"
 
 #include <QSettings>
 #include <QtDebug>
@@ -10,7 +11,7 @@ PlankClientPolicy::PlankClientPolicy(const QString& configPath)
 
 QString PlankClientPolicy::defaultConfigPath()
 {
-    return QStringLiteral("/etc/plank/client.conf");
+    return QString::fromLatin1(PlankClientIdentity::configPath);
 }
 
 bool PlankClientPolicy::managedBoolean(const QString& key, bool* value) const
