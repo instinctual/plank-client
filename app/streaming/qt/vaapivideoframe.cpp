@@ -20,16 +20,37 @@ QtVaapiVideoFrame::~QtVaapiVideoFrame()
 
 bool QtVaapiVideoFrame::validate(const VADRMPRIMESurfaceDescriptor& d,
                                 const QSize& size, int bits, bool identity,
-                                bool bt709, bool fullRange)
+                                bool bt709, bool fullRange, bool allowP010)
 {
     // Qualified packed path only. Do not silently reinterpret another format,
     // bit depth, range, compressed auxiliary plane or chroma arrangement.
     if (size.width() <= 0 || size.height() <= 0 || size.width() > 16384 || size.height() > 16384 ||
             d.width < uint32_t(size.width()) || d.height < uint32_t(size.height()) ||
-            d.num_objects != 1 || d.num_layers != 1 || d.layers[0].num_planes != 1 ||
-            d.layers[0].object_index[0] != 0 || d.objects[0].fd < 0)
+            d.num_objects < 1 || d.num_objects > 2 || d.num_layers != 1)
         return false;
     const auto& plane = d.layers[0];
+    if (plane.drm_format == DRM_FORMAT_P010) {
+        if (!allowP010 || bits != 10 || identity || !bt709 || plane.num_planes != 2) return false;
+        bool used[2] = {};
+        for (unsigned index = 0; index < 2; ++index) {
+            if (plane.object_index[index] >= d.num_objects) return false;
+            used[plane.object_index[index]] = true;
+            const auto& object = d.objects[plane.object_index[index]];
+            const unsigned widthBytes = index ? ((size.width() + 1) / 2) * 4 : size.width() * 2;
+            const unsigned height = index ? (size.height() + 1) / 2 : size.height();
+            if (object.fd < 0 || plane.pitch[index] < widthBytes || plane.pitch[index] > INT_MAX ||
+                    plane.offset[index] > INT_MAX || object.size <= plane.offset[index]) return false;
+            if (object.drm_format_modifier == DRM_FORMAT_MOD_LINEAR &&
+                    uint64_t(plane.offset[index]) + uint64_t(plane.pitch[index]) * (height - 1) + widthBytes > object.size)
+                return false;
+        }
+        // Auxiliary/compression objects are not a second color plane.
+        for (unsigned index = 0; index < d.num_objects; ++index) if (!used[index]) return false;
+        return true;
+    }
+    if (d.num_objects != 1 || plane.num_planes != 1 ||
+            d.layers[0].object_index[0] != 0 || d.objects[0].fd < 0)
+        return false;
     const auto& object = d.objects[0];
     if (PlankPackedVideo::mapping(plane.drm_format, bits, identity, bt709, fullRange) ==
             PlankPackedVideo::Mapping::Unsupported)
@@ -47,15 +68,21 @@ bool QtVaapiVideoFrame::validate(const VADRMPRIMESurfaceDescriptor& d,
     return true;
 }
 
-uint32_t QtVaapiVideoFrame::importFormat() const
+QSize QtVaapiVideoFrame::planeSize(unsigned plane) const
 {
+    return m_Planar && plane ? QSize((m_Size.width() + 1) / 2, (m_Size.height() + 1) / 2) : m_Size;
+}
+
+uint32_t QtVaapiVideoFrame::importFormat(unsigned plane) const
+{
+    if (m_Planar) return plane ? DRM_FORMAT_GR1616 : DRM_FORMAT_R16;
     return PlankPackedVideo::importFormat(m_Descriptor.layers[0].drm_format,
         m_Mapping == PlankPackedVideo::Mapping::Identity8 || m_Mapping == PlankPackedVideo::Mapping::Identity10,
         m_Mapping == PlankPackedVideo::Mapping::Bt709Full10 ||
         m_Mapping == PlankPackedVideo::Mapping::Bt709Limited10);
 }
 
-QtVaapiVideoFrame::Ptr QtVaapiVideoFrame::create(const AVFrame* frame, int expectedBits, QString& error)
+QtVaapiVideoFrame::Ptr QtVaapiVideoFrame::create(const AVFrame* frame, int expectedBits, QString& error, bool allowP010)
 {
     error.clear();
     if (!frame || frame->format != AV_PIX_FMT_VAAPI || !frame->hw_frames_ctx ||
@@ -98,17 +125,22 @@ QtVaapiVideoFrame::Ptr QtVaapiVideoFrame::create(const AVFrame* frame, int expec
         error = QStringLiteral("VA-API DMA-BUF export failed (%1)").arg(int(exported));
         return {};
     }
-    if (!validate(lease->m_Descriptor, lease->m_Size, expectedBits, identity, bt709, fullRange)) {
+    lease->m_Planar = lease->m_Descriptor.layers[0].drm_format == DRM_FORMAT_P010;
+    if (!validate(lease->m_Descriptor, lease->m_Size, expectedBits, identity, bt709, fullRange, allowP010) ||
+            (lease->m_Planar && frames->sw_format != AV_PIX_FMT_P010LE)) {
         error = QStringLiteral("VA-API surface does not match the selected packed video format");
         return {};
     }
-    const int fd = lease->m_Descriptor.objects[0].fd;
-    const int flags = fcntl(fd, F_GETFD);
-    if (flags < 0 || fcntl(fd, F_SETFD, flags | FD_CLOEXEC) < 0) {
-        error = QStringLiteral("Could not secure the exported video descriptor");
-        return {};
+    for (unsigned index = 0; index < lease->m_Descriptor.num_objects; ++index) {
+        const int fd = lease->m_Descriptor.objects[index].fd;
+        const int flags = fcntl(fd, F_GETFD);
+        if (flags < 0 || fcntl(fd, F_SETFD, flags | FD_CLOEXEC) < 0) {
+            error = QStringLiteral("Could not secure the exported video descriptor");
+            return {};
+        }
     }
-    lease->m_Mapping = PlankPackedVideo::mapping(lease->m_Descriptor.layers[0].drm_format,
-                                              expectedBits, identity, bt709, fullRange);
+    lease->m_Mapping = lease->m_Planar ?
+        (fullRange ? PlankPackedVideo::Mapping::Bt709Full10 : PlankPackedVideo::Mapping::Bt709Limited10) :
+        PlankPackedVideo::mapping(lease->m_Descriptor.layers[0].drm_format, expectedBits, identity, bt709, fullRange);
     return lease;
 }

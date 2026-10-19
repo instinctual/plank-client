@@ -37,7 +37,7 @@ public:
         m_VideoFormat = params->videoFormat;
         m_Identity = params->enableIdentityGbr;
         m_Delivery = m_Open();
-        if (!m_Delivery.submit || !m_Delivery.qualify || !m_Delivery.discard) return false;
+        if (!m_Delivery.submit || !m_Delivery.qualify || !m_Delivery.discard || !m_Delivery.fail) return false;
         if (m_Hardware) {
             // Derived from the Qt EGL device, never a guessed card index.
             if (m_RenderNode.isEmpty()) return false;
@@ -91,6 +91,7 @@ public:
 
     void renderFrame(AVFrame* frame) override
     {
+        if (m_FrameRejected) return;
         const auto stats = m_Stats;
         const int64_t mediaPts = frame->pts;
         QString error;
@@ -111,7 +112,8 @@ public:
             }
         }, error);
         if (!retained) {
-            qWarning().noquote() << "Qt rejected a decoded frame:" << error;
+            m_FrameRejected = true;
+            m_Delivery.fail(QStringLiteral("Qt could not retain the selected video format: %1").arg(error));
             std::lock_guard<std::mutex> lock(stats->mutex);
             if (stats->active) ++stats->dropped;
             return;
@@ -133,8 +135,9 @@ public:
         // The decoder is stopped while this generation changes. Old frame
         // feedback retains the retired counters, never the new audio clock.
         m_Stats = std::make_shared<PresentationStats>();
+        m_FrameRejected = false;
         m_Delivery = m_Open();
-        return m_Delivery.submit && m_Delivery.qualify && m_Delivery.discard;
+        return m_Delivery.submit && m_Delivery.qualify && m_Delivery.discard && m_Delivery.fail;
     }
 
     void collectPresentationStats(VIDEO_STATS& out) override
@@ -164,7 +167,9 @@ private:
             return {};
         }
         if (m_Hardware) {
-            auto surface = QtVaapiVideoFrame::create(frame, (m_VideoFormat & VIDEO_FORMAT_MASK_10BIT) ? 10 : 8, error);
+            const bool allowP010 = !m_Identity && (m_VideoFormat & VIDEO_FORMAT_MASK_10BIT) &&
+                !(m_VideoFormat & (VIDEO_FORMAT_MASK_YUV444 | VIDEO_FORMAT_MASK_YUV422));
+            auto surface = QtVaapiVideoFrame::create(frame, (m_VideoFormat & VIDEO_FORMAT_MASK_10BIT) ? 10 : 8, error, allowP010);
             return QtVideoFrame::hardware(std::move(surface), std::move(feedback));
         }
         const auto format = getPreferredPixelFormat(m_VideoFormat);
@@ -180,6 +185,7 @@ private:
     std::shared_ptr<PresentationStats> m_Stats = std::make_shared<PresentationStats>();
     int m_VideoFormat = 0;
     bool m_Identity = false;
+    bool m_FrameRejected = false;
 };
 }
 

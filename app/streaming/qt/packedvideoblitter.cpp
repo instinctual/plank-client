@@ -46,14 +46,25 @@ void main() {
     QByteArray fragment = header;
     if (external) fragment += es ? "#extension GL_OES_EGL_image_external_essl3 : require\n" :
                                   "#extension GL_OES_EGL_image_external : require\n";
-    if (es) fragment += "precision highp float;\n";
+    if (es) {
+        fragment += "precision highp float;\nprecision highp sampler2D;\n";
+        if (external) fragment += "precision highp samplerExternalOES;\n";
+    }
     fragment += external ? "uniform samplerExternalOES video;\n" : "uniform sampler2D video;\n";
     fragment += R"glsl(
 uniform int mapping;
+uniform bool p010;
+uniform sampler2D chroma;
 in vec2 uv;
 out vec4 color;
 void main() {
     vec3 sampleValue = texture(video, uv).rgb;
+    if (p010) {
+        // Plane imports are normalized R16/GR1616, not implicit YUV-to-RGB.
+        // P010 stores ten significant bits in the high bits of each word.
+        vec2 chromaValue = texture(chroma, uv).rg;
+        sampleValue = vec3(chromaValue.g, sampleValue.r, chromaValue.r) * (65535.0 / 65472.0);
+    }
     if (mapping == 1) sampleValue = sampleValue.brg; // XR24 sampled Y,U,V -> R=V,G=Y,B=U
     if (mapping == 3 || mapping == 4) {
         float y = sampleValue.g;
@@ -83,10 +94,12 @@ void main() {
 }
 
 bool QtPackedVideoBlitter::draw(GLuint texture, GLenum target, PlankPackedVideo::Mapping mapping,
-                               const QtSessionGeometry& geometry, QString& error)
+                               const QtSessionGeometry& geometry, QString& error, GLuint chromaTexture)
 {
     error.clear();
-    if (!texture || !geometry.valid() || mapping == PlankPackedVideo::Mapping::Unsupported) {
+    if (!texture || !geometry.valid() || mapping == PlankPackedVideo::Mapping::Unsupported ||
+            (chromaTexture && (target != GL_TEXTURE_2D ||
+             (mapping != PlankPackedVideo::Mapping::Bt709Full10 && mapping != PlankPackedVideo::Mapping::Bt709Limited10)))) {
         error = QStringLiteral("Invalid Qt video texture, format or presentation geometry");
         return false;
     }
@@ -130,9 +143,20 @@ bool QtPackedVideoBlitter::draw(GLuint texture, GLenum target, PlankPackedVideo:
     gl->glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     gl->glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     gl->glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    if (chromaTexture) {
+        gl->glActiveTexture(GL_TEXTURE1);
+        gl->glBindSampler(1, 0);
+        gl->glBindTexture(GL_TEXTURE_2D, chromaTexture);
+        gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
     m_Program->bind();
     m_Program->setUniformValue("video", 0);
     m_Program->setUniformValue("mapping", int(mapping));
+    m_Program->setUniformValue("p010", chromaTexture != 0);
+    m_Program->setUniformValue("chroma", 1);
     const auto& d = geometry.destinationPixels;
     const auto& s = geometry.sourcePixels;
     m_Program->setUniformValue("destination", QVector4D(
@@ -144,6 +168,10 @@ bool QtPackedVideoBlitter::draw(GLuint texture, GLenum target, PlankPackedVideo:
     gl->glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     m_Program->release();
     gl->glBindVertexArray(0);
+    if (chromaTexture) {
+        gl->glBindTexture(GL_TEXTURE_2D, 0);
+        gl->glActiveTexture(GL_TEXTURE0);
+    }
     gl->glBindTexture(target, 0);
     if (dither) gl->glEnable(GL_DITHER);
     if (srgb) gl->glEnable(GL_FRAMEBUFFER_SRGB);

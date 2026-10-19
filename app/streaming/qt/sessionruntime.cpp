@@ -16,8 +16,16 @@ QtSessionRuntime::QtSessionRuntime(Session* session) : QObject(session), m_Sessi
     m_Input = std::make_unique<QtSessionInput>();
     m_WindowGuard = std::make_unique<QtWaylandSessionGuard>();
     m_TargetBitrate = session->m_PlankBitrateKbps;
+    m_CapturePolicy = session->m_Preferences->captureSysKeysMode;
+    m_Fullscreen = session->m_IsFullScreen;
     m_RecoveryBitrate.store(m_TargetBitrate);
-    connect(QGuiApplication::instance(), &QGuiApplication::focusWindowChanged, this, [this] { updateFocus(); });
+    connect(qGuiApp, &QGuiApplication::focusWindowChanged, this, [this] { updateFocus(); });
+    connect(qGuiApp, &QGuiApplication::screenRemoved, this, [this](QScreen* removed) {
+        if (m_Screens.contains(removed)) {
+            emit m_Session->displayLaunchError(tr("A session display was disconnected. Reconnect using the current Client display layout."));
+            stop(); return;
+        }
+    });
     connect(m_Input.get(), &QtSessionInput::shortcutRequested, this, &QtSessionRuntime::handleShortcut);
     connect(session, &Session::qtStatisticsUpdated, this, [this](const QString& text) {
         for (auto& shell : m_Windows) shell->surface().setStatisticsText(text);
@@ -31,7 +39,7 @@ QtSessionRuntime::QtSessionRuntime(Session* session) : QObject(session), m_Sessi
     connect(session, &Session::connectionStarted, this, [this] {
         if (m_Stop.load()) return;
         for (size_t i = 0; i < m_Windows.size(); ++i) {
-            if (m_Session->m_IsFullScreen) m_Windows[i]->showFullScreen();
+            if (m_Fullscreen) m_Windows[i]->showFullScreen();
             else if (!i) m_Windows[i]->show();
         }
     });
@@ -127,6 +135,7 @@ void QtSessionRuntime::start(QWindow* launcher)
         if (!primary && !m_Session->m_MultiDisplayPresentationAvailable) continue;
         auto shell = std::make_unique<QtSessionShell>();
         shell->setScreen(screens[int(display.displayId) - 1]);
+        m_Screens.append(shell->screen());
         shell->setTitle(m_Session->m_Computer->name + QStringLiteral(" — PLANK Client Qt"));
         const auto available = shell->screen()->availableGeometry();
         shell->setGeometry(QRect(available.center() - QPoint(480, 300), QSize(960, 600)).intersected(available));
@@ -136,6 +145,17 @@ void QtSessionRuntime::start(QWindow* launcher)
         surface.setBitrateKbps(m_Session->m_PlankBitrateKbps);
         surface.setPinned(m_Session->m_Preferences->plankToolbarPinned);
         surface.setStatisticsVisible(m_Session->m_Preferences->showPerformanceOverlay);
+        surface.setDragMapper([this, &surface](QPointF logical, QPointF& stream) {
+            if (!m_Fullscreen || m_Windows.size() < 2 || !surface.screen())
+                return surface.presentation().toStream(logical, stream, true);
+            QVector<QtSessionOutputGeometry> outputs;
+            for (const auto& window : m_Windows) {
+                if (window->isVisible() && window->screen())
+                    outputs.append({QRectF(window->screen()->geometry().topLeft(), window->surface().size()),
+                                    window->surface().presentation()});
+            }
+            return qtMapDraggedPointer(outputs, QPointF(surface.screen()->geometry().topLeft()) + logical, stream);
+        });
         connect(&surface, &QtSessionWindow::physicalMouseActivity, m_Input.get(), &QtSessionInput::activateMouse);
         connect(&surface, &QtSessionWindow::remoteMotion, m_Input.get(), &QtSessionInput::mouseMotion);
         connect(&surface, &QtSessionWindow::remoteButton, m_Input.get(), &QtSessionInput::mouseButton);
@@ -164,6 +184,13 @@ void QtSessionRuntime::start(QWindow* launcher)
             m_Session->m_CameraRequested.store(!m_Session->m_CameraRequested.load());
         });
         connect(&surface, &QtSessionWindow::disconnectRequested, this, &QtSessionRuntime::stop);
+        connect(&surface, &QtSessionWindow::fullscreenRequested, this, &QtSessionRuntime::toggleFullscreen);
+        connect(&surface, &QtSessionWindow::minimizeRequested, this, &QtSessionRuntime::minimize);
+        connect(&surface, &QtSessionWindow::inputRecaptureRequested, this, [this] {
+            if (!m_Streaming || m_Stop.load() || m_ReconnectDeadline) return;
+            m_InputGrabbed = true;
+            setInputEnabled(true);
+        });
         connect(&surface, &QtSessionWindow::keepWaitingRequested, this, &QtSessionRuntime::keepWaiting);
         connect(&surface, &QtSessionWindow::surfaceSizeChanged, this, &QtSessionRuntime::updateGeometry);
         connect(shell.get(), &QWindow::windowStateChanged, this, [this] { updateGeometry(); });
@@ -188,10 +215,11 @@ void QtSessionRuntime::start(QWindow* launcher)
         emit m_Session->displayLaunchError(reason); stop();
     });
     for (size_t i = 0; i < m_Windows.size(); ++i) {
-        if (m_Session->m_IsFullScreen) m_Windows[i]->showFullScreen();
+        if (m_Fullscreen) m_Windows[i]->showFullScreen();
         else if (!i) m_Windows[i]->show();
     }
     m_Tick.start();
+    m_WindowGuard->setIdleWindow(&m_Windows.front()->surface());
     m_StartupDeadline.start();
     m_Presenter->initializeDevice();
 }
@@ -230,6 +258,7 @@ void QtSessionRuntime::stop()
     m_StartupDeadline.stop();
     m_Tick.stop();
     setInputEnabled(false);
+    m_WindowGuard->setIdleWindow(nullptr);
     for (auto& shell : m_Windows) shell->hide();
     if (m_Presenter) m_Presenter->stop(); // also wakes test-frame qualification
     m_CommandChanged.notify_all();
@@ -326,6 +355,7 @@ void QtSessionRuntime::workerMain()
     // active-session token or allowing another session to start.
     s.m_CanReconnect.store(false);
     s.m_ReconnectCancelled.store(true);
+    QMetaObject::invokeMethod(this, [this] { m_Streaming = false; setInputEnabled(false); }, Qt::QueuedConnection);
     m_Input->shutdown();
     s.m_QtInputCallbacks.clear();
     s.stopPlankTransportMediaReceivers();
@@ -354,6 +384,7 @@ void QtSessionRuntime::finishWorker()
     m_Stop.store(true);
     m_StartupDeadline.stop(); m_Tick.stop();
     setInputEnabled(false);
+    m_WindowGuard->setIdleWindow(nullptr);
     delete m_Worker; m_Worker = nullptr;
     if (m_Presenter) m_Presenter->stop();
     m_Factory.reset();
@@ -400,10 +431,24 @@ void QtSessionRuntime::updateGeometry()
         updateFocus();
         return;
     }
-    QSize canvas;
-    if (multi) for (const auto& display : m_Session->m_ClientDisplays) {
-        canvas.setWidth(qMax(canvas.width(), display.canvasRect.right() + 1));
-        canvas.setHeight(qMax(canvas.height(), display.canvasRect.bottom() + 1));
+    QSize canvas(0, 0);
+    QMap<QtSessionShell*, QRect> outputRects;
+    if (multi) {
+        std::vector<QtSessionShell*> ordered;
+        for (const auto& shell : m_Windows) {
+            if (!shell->screen()) return; // screenRemoved owns controlled teardown
+            ordered.push_back(shell.get());
+        }
+        std::stable_sort(ordered.begin(), ordered.end(), [](const auto* a, const auto* b) {
+            return a->screen()->geometry().x() < b->screen()->geometry().x();
+        });
+        for (auto* shell : ordered) {
+            const auto& surface = shell->surface();
+            const QSize pixels(qRound(surface.width() * surface.devicePixelRatio()), qRound(surface.height() * surface.devicePixelRatio()));
+            outputRects.insert(shell, QRect(QPoint(canvas.width(), 0), pixels));
+            canvas.rwidth() += pixels.width();
+            canvas.setHeight(qMax(canvas.height(), pixels.height()));
+        }
     }
     for (size_t index = 0; index < m_Windows.size(); ++index) {
         auto& shell = *m_Windows[index];
@@ -413,10 +458,7 @@ void QtSessionRuntime::updateGeometry()
         const QSize drawable(qRound(surface.width() * surface.devicePixelRatio()), qRound(surface.height() * surface.devicePixelRatio()));
         if (!drawable.isValid()) continue;
         QRect output(QPoint(), drawable);
-        if (multi) for (const auto& display : m_Session->m_ClientDisplays) {
-            const auto& b = display.logicalBounds;
-            if (shell.screen() && shell.screen()->geometry() == QRect(b.x, b.y, b.w, b.h)) output = display.canvasRect;
-        }
+        if (multi) output = outputRects.value(&shell);
         const auto slice = PlankPresentation::sliceForDrawable(m_StreamSize, multi ? canvas : drawable, output, drawable);
         const QtSessionGeometry geometry{m_StreamSize, slice.sourceRect, slice.destinationRect, drawable, surface.size()};
         surface.setPresentation(geometry);
@@ -451,9 +493,9 @@ void QtSessionRuntime::updateFocus()
     for (const auto& shell : m_Windows)
         active |= focused == shell.get() || focused == &shell->surface();
     m_Input->setFocused(active && !m_Stop.load());
-    const auto policy = m_Session->m_Preferences->captureSysKeysMode;
+    const auto policy = m_CapturePolicy;
     const bool fullscreen = !m_Windows.empty() && m_Windows.front()->windowState() == Qt::WindowFullScreen;
-    const bool grab = active && m_Streaming && m_InputGrabbed && m_CaptureSystemKeys &&
+    const bool grab = active && m_Streaming && m_InputGrabbed && !m_Stop.load() &&
         (policy == StreamingPreferences::CSK_ALWAYS || (policy == StreamingPreferences::CSK_FULLSCREEN && fullscreen));
     m_Input->setSystemKeys(grab);
     QtSessionShell* focusedShell = nullptr;
@@ -465,7 +507,27 @@ void QtSessionRuntime::updateFocus()
     // The Wayland shortcut inhibitor is attached separately to Qt's surface.
     // XCB implements this public Qt API directly.
     if (QGuiApplication::platformName() != QStringLiteral("wayland"))
-        for (auto& shell : m_Windows) shell->setKeyboardGrabEnabled(grab && shell.get() == focused);
+        for (auto& shell : m_Windows) shell->setKeyboardGrabEnabled(grab && shell.get() == focusedShell);
+}
+
+void QtSessionRuntime::toggleFullscreen()
+{
+    if (m_Windows.empty()) return;
+    m_Fullscreen = !m_Fullscreen;
+    for (size_t i = 0; i < m_Windows.size(); ++i) {
+        m_Windows[i]->surface().cancelInput();
+        if (m_Fullscreen) m_Windows[i]->showFullScreen();
+        else if (!i) m_Windows[i]->showNormal();
+        else m_Windows[i]->hide();
+    }
+    updateGeometry();
+}
+
+void QtSessionRuntime::minimize()
+{
+    for (auto& shell : m_Windows) shell->surface().cancelInput();
+    if (!m_Windows.empty()) m_Windows.front()->showMinimized();
+    for (size_t i = 1; i < m_Windows.size(); ++i) m_Windows[i]->hide();
 }
 
 void QtSessionRuntime::handleShortcut(int key)
@@ -484,7 +546,10 @@ void QtSessionRuntime::handleShortcut(int key)
     }
     case Qt::Key_D: surface.minimize(); break;
     case Qt::Key_V: m_Input->pasteText(); break;
-    case Qt::Key_K: m_CaptureSystemKeys = !m_CaptureSystemKeys; updateFocus(); break;
+    case Qt::Key_K:
+        m_CapturePolicy = m_CapturePolicy == StreamingPreferences::CSK_OFF ?
+            StreamingPreferences::CSK_ALWAYS : StreamingPreferences::CSK_OFF;
+        updateFocus(); break;
     case Qt::Key_L: m_ConfinePointer = !m_ConfinePointer; updateFocus(); break;
     default: break;
     }

@@ -30,6 +30,12 @@ VADRMPRIMESurfaceDescriptor descriptor()
     d.layers[0].drm_format = sourceFormat;
     d.layers[0].num_planes = 1;
     d.layers[0].pitch[0] = 4096;
+    if (sourceFormat == DRM_FORMAT_P010) {
+        d.layers[0].num_planes = 2;
+        d.layers[0].pitch[0] = d.layers[0].pitch[1] = 2048;
+        d.layers[0].offset[1] = 8192;
+        d.objects[0].size = 12288;
+    }
     return d;
 }
 
@@ -138,6 +144,42 @@ private slots:
         QCOMPARE(av_buffer_get_ref_count(fixture.frame->buf[0]), 1);
         QCOMPARE(fcntl(exportedFd, F_GETFD), -1);
         QCOMPARE(errno, EBADF);
+    }
+
+    void p010RequiresExactTenBit420AndPlaneBounds()
+    {
+        sourceFormat = DRM_FORMAT_P010;
+        auto valid = [](const auto& d) { return QtVaapiVideoFrame::validate(d, {1024, 4}, 10, false, true, true, true); };
+        auto d = descriptor(); QVERIFY(valid(d));
+        QVERIFY(!QtVaapiVideoFrame::validate(d, {1024, 4}, 10, false, true, true));
+        QVERIFY(!QtVaapiVideoFrame::validate(d, {1024, 4}, 8, false, true, true, true));
+        QVERIFY(!QtVaapiVideoFrame::validate(d, {1024, 4}, 10, true, false, true, true));
+        d.layers[0].num_planes = 3; QVERIFY(!valid(d)); d = descriptor();
+        d.layers[0].pitch[1] = 2047; QVERIFY(!valid(d)); d = descriptor();
+        d.layers[0].object_index[1] = 2; QVERIFY(!valid(d)); d = descriptor();
+        d.layers[0].offset[1]++; QVERIFY(!valid(d)); d = descriptor();
+        d.num_objects = 2; QVERIFY(!valid(d));
+        d.objects[1] = d.objects[0]; d.objects[1].size = 4096;
+        d.layers[0].object_index[1] = 1; d.layers[0].offset[1] = 0;
+        QVERIFY(valid(d));
+        d.objects[1].size--; QVERIFY(!valid(d));
+
+        FrameFixture fixture;
+        fixture.frame->colorspace = AVCOL_SPC_BT709;
+        QString error;
+        QVERIFY(!QtVaapiVideoFrame::create(fixture.frame, 10, error, true));
+        reinterpret_cast<AVHWFramesContext*>(fixture.frame->hw_frames_ctx->data)->sw_format = AV_PIX_FMT_P010LE;
+        auto lease = QtVaapiVideoFrame::create(fixture.frame, 10, error, true);
+        QVERIFY2(lease, qPrintable(error));
+        QVERIFY(lease->planar());
+        QCOMPARE(lease->mapping(), PlankPackedVideo::Mapping::Bt709Full10);
+        QCOMPARE(lease->importFormat(), uint32_t(DRM_FORMAT_R16));
+        QCOMPARE(lease->importFormat(1), uint32_t(DRM_FORMAT_GR1616));
+        QCOMPARE(lease->planeSize(1), QSize(512, 2));
+        QVERIFY(fcntl(exportedFd, F_GETFD) & FD_CLOEXEC);
+        lease.reset();
+        QCOMPARE(fcntl(exportedFd, F_GETFD), -1);
+        QCOMPARE(av_buffer_get_ref_count(fixture.frame->buf[0]), 1);
     }
 
     void rejectBeforeTouchingDevice()
@@ -372,6 +414,26 @@ private slots:
         QVERIFY(resumed.isCurrent());
         mailbox.reset();
         QVERIFY(!resumed.isCurrent()); QVERIFY(!resumed.restart().isCurrent());
+    }
+
+    void claimedFrameKeepsItsOriginalGeneration()
+    {
+        FrameFixture fixture;
+        QString error;
+        auto frame = QtVideoFrame::hardware(QtVaapiVideoFrame::create(fixture.frame, 10, error));
+        QtVideoMailbox::Producer next;
+        bool checked = false;
+        QtVideoMailbox mailbox([&](QtVideoFrame::Ptr received, QtVideoMailbox::Producer claimed) {
+            QCOMPARE(received, frame);
+            QVERIFY(claimed.isCurrent());
+            next = claimed.restart();
+            QVERIFY(!claimed.isCurrent());
+            QVERIFY(next.isCurrent());
+            checked = true;
+        });
+        QVERIFY(mailbox.startGeneration().submit(frame));
+        QCoreApplication::sendPostedEvents();
+        QVERIFY(checked);
     }
 };
 QTEST_GUILESS_MAIN(QtVideoTest)

@@ -97,6 +97,27 @@ private slots:
         QCOMPARE(position, QPointF(1920, 1080));
     }
 
+    void dragAcrossOutputsUsesEachViewport()
+    {
+        const QSize stream(5120, 2160);
+        const QtSessionGeometry left{stream, {0, 0, 3840, 2160}, {0, 0, 3840, 2160},
+                                     {3840, 2160}, {3072, 1728}};
+        const QtSessionGeometry right{stream, {3840, 0, 1280, 2160}, {0, 0, 1280, 2160},
+                                      {1280, 2160}, {1280, 2160}};
+        const QVector<QtSessionOutputGeometry> outputs{{{0, 0, 3072, 1728}, left}, {{3072, 0, 1280, 2160}, right}};
+        QPointF position;
+        QVERIFY(qtMapDraggedPointer(outputs, {3072, 864}, position));
+        QCOMPARE(position, QPointF(3840, 864));
+        QVERIFY(qtMapDraggedPointer(outputs, {3712, 1080}, position));
+        QCOMPARE(position, QPointF(4480, 1080));
+        QVERIFY(qtMapDraggedPointer(outputs, {1536, 864}, position));
+        QCOMPARE(position, QPointF(1920, 1080));
+        QVERIFY(qtMapDraggedPointer(outputs, {9000, 9000}, position));
+        QCOMPARE(position, QPointF(5119, 2159));
+        QVERIFY(!qtMapDraggedPointer(outputs, {qQNaN(), 0}, position));
+        QVERIFY(!qtMapDraggedPointer({}, {}, position));
+    }
+
     void invalidGeometry()
     {
         QPointF position;
@@ -414,6 +435,38 @@ private slots:
         scene.setWaiting(true);
         QCoreApplication::sendEvent(&shell, &down);
         QCOMPARE(keys.count(), 2);
+    }
+
+    void releasedInputCanBeRecapturedWithoutAClickLeak()
+    {
+        QtSessionWindow scene;
+        prepare(scene);
+        scene.setLiveSession(true);
+        scene.setRemoteInputEnabled(false);
+        QSignalSpy recapture(&scene, &QtSessionWindow::inputRecaptureRequested);
+        QSignalSpy buttons(&scene, &QtSessionWindow::remoteButton);
+        connect(&scene, &QtSessionWindow::inputRecaptureRequested, &scene, [&scene] { scene.setRemoteInputEnabled(true); });
+        mouse(scene, QEvent::MouseButtonPress, {500, 300}, Qt::LeftButton, Qt::LeftButton);
+        mouse(scene, QEvent::MouseButtonRelease, {500, 300}, Qt::LeftButton);
+        QCOMPARE(recapture.count(), 1); QVERIFY(buttons.isEmpty());
+        scene.setRemoteInputEnabled(false);
+        QKeyEvent resume(QEvent::KeyPress, Qt::Key_Z, Qt::ControlModifier | Qt::AltModifier | Qt::ShiftModifier);
+        QCoreApplication::sendEvent(&scene, &resume);
+        QCOMPARE(recapture.count(), 2);
+        scene.setRemoteInputEnabled(false); scene.setWaiting(true);
+        QCoreApplication::sendEvent(&scene, &resume);
+        QCOMPARE(recapture.count(), 2);
+    }
+
+    void liveWindowControlsAreSessionWideRequests()
+    {
+        QtSessionShell shell;
+        shell.surface().setLiveSession(true);
+        QSignalSpy fullscreen(&shell.surface(), &QtSessionWindow::fullscreenRequested);
+        QSignalSpy minimize(&shell.surface(), &QtSessionWindow::minimizeRequested);
+        shell.surface().toggleFullscreen(); shell.surface().minimize();
+        QCOMPARE(fullscreen.count(), 1); QCOMPARE(minimize.count(), 1);
+        QCOMPARE(shell.windowState(), Qt::WindowNoState);
     }
 };
 

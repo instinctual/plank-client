@@ -97,6 +97,23 @@ private slots:
         QVERIFY(!factory().submit);
         delivery.discard();
     }
+
+    void retiredFailureCannotStopANewDecoder()
+    {
+        QQuickWindow window;
+        QtVideoPresenter presenter;
+        presenter.addOutput(&window, {}, true);
+        QSignalSpy failures(&presenter, &QtVideoPresenter::presentationFailed);
+        auto retired = presenter.deliveryFactory()();
+        retired.fail(QStringLiteral("old decoder"));
+        auto current = presenter.deliveryFactory()();
+        QCoreApplication::processEvents();
+        QCOMPARE(failures.size(), 0);
+        current.fail(QStringLiteral("current decoder"));
+        QTRY_COMPARE(failures.size(), 1);
+        QCOMPARE(failures[0][0].toString(), QStringLiteral("current decoder"));
+        QVERIFY(!current.submit(frame()));
+    }
 };
 QTEST_MAIN(QtPresenterTest)
 #include "test_qtpresenter.moc"

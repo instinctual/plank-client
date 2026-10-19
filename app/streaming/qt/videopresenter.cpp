@@ -12,6 +12,10 @@ struct QtVideoPresenter::State {
     QtVideoPresenter* owner = nullptr; // posting/retirement serialized by mutex
     QtVideoMailbox::Producer producer;
     std::shared_ptr<QtEglVideoStatus> primary;
+    std::vector<std::shared_ptr<QtEglVideoStatus>> outputs;
+    std::vector<bool> required;
+    size_t primaryIndex = 0;
+    bool probeDelivered = false;
     std::weak_ptr<const QtVideoFrame> probeFrame;
     bool live = false;
 };
@@ -41,7 +45,7 @@ void wakeQualification(const std::shared_ptr<QtEglVideoStatus>& status)
 
 QtVideoPresenter::QtVideoPresenter(QObject* parent)
     : QObject(parent), m_State(std::make_shared<State>()),
-      m_Mailbox([this](QtVideoFrame::Ptr frame) { deliver(std::move(frame)); })
+      m_Mailbox([this](QtVideoFrame::Ptr frame, QtVideoMailbox::Producer producer) { deliver(std::move(frame), producer); })
 {
     m_State->owner = this;
     m_State->producer = m_Mailbox.startGeneration();
@@ -49,7 +53,8 @@ QtVideoPresenter::QtVideoPresenter(QObject* parent)
     m_ErrorTimer.setInterval(100);
     connect(&m_ErrorTimer, &QTimer::timeout, this, [this] {
         for (const auto& output : m_Outputs) {
-            if (output.item && output.item->status()->error.load() != QtEglVideoStatus::None) {
+            if (output.window && output.window->isVisible() && output.item &&
+                    output.item->status()->error.load() != QtEglVideoStatus::None) {
                 // Qualification reports failure to the decoder so it can try
                 // the exact software format. Only a live failure ends output.
                 std::unique_lock<std::mutex> lock(m_State->mutex);
@@ -79,7 +84,12 @@ void QtVideoPresenter::addOutput(QQuickWindow* window, const QtSessionGeometry& 
     item->setPresentation(geometry);
     item->setPrimaryOutput(primary);
     m_Outputs.push_back({window, item, geometry, primary});
-    if (primary) m_State->primary = item->presentationFeedback();
+    m_State->outputs.push_back(item->presentationFeedback());
+    m_State->required.push_back(false);
+    if (primary) {
+        m_State->primary = item->presentationFeedback();
+        m_State->primaryIndex = m_Outputs.size() - 1;
+    }
 }
 
 void QtVideoPresenter::setGeometry(QQuickWindow* window, const QtSessionGeometry& geometry)
@@ -144,9 +154,12 @@ std::function<QtDecodedVideoDelivery()> QtVideoPresenter::deliveryFactory() cons
             producer = state->producer.restart();
             state->producer = producer;
             state->live = false;
+            state->probeDelivered = false;
             state->probeFrame.reset();
             retired = std::move(state->primary);
-            status = state->primary = std::make_shared<QtEglVideoStatus>();
+            for (auto& output : state->outputs) output = std::make_shared<QtEglVideoStatus>();
+            std::fill(state->required.begin(), state->required.end(), false);
+            status = state->primary = state->outputs[state->primaryIndex];
         }
         wakeQualification(retired);
         delivery.submit = [producer, weak](QtVideoFrame::Ptr frame) {
@@ -162,6 +175,18 @@ std::function<QtDecodedVideoDelivery()> QtVideoPresenter::deliveryFactory() cons
             producer.discard();
             wakeQualification(status);
         };
+        delivery.fail = [producer, weak](QString reason) {
+            const auto state = weak.lock();
+            if (!state) return;
+            std::lock_guard<std::mutex> lock(state->mutex);
+            if (!state->owner || !producer.isCurrent()) return;
+            auto* owner = state->owner;
+            QMetaObject::invokeMethod(owner, [owner, producer, reason] {
+                if (!producer.isCurrent()) return;
+                owner->stop();
+                emit owner->presentationFailed(reason);
+            }, Qt::QueuedConnection);
+        };
         delivery.qualify = [producer, status, weak](QtVideoFrame::Ptr frame, QString& error) {
             if (QThread::currentThread() == QCoreApplication::instance()->thread()) {
                 error = QStringLiteral("Decoder qualification must not block Qt's GUI thread"); return false;
@@ -173,34 +198,60 @@ std::function<QtDecodedVideoDelivery()> QtVideoPresenter::deliveryFactory() cons
                 state->probeFrame = frame;
             }
             if (!producer.submit(frame)) return false;
-            std::unique_lock<std::mutex> lock(status->presentationMutex);
-            const bool signalled = status->presentationChanged.wait_for(lock, std::chrono::seconds(2), [&] {
-                return !producer.isCurrent() || status->error.load() != QtEglVideoStatus::None ||
-                       status->swappedFrame.lock() == frame;
-            });
-            const bool accepted = signalled && producer.isCurrent() &&
-                status->error.load() == QtEglVideoStatus::None && status->swappedFrame.lock() == frame;
-            if (!accepted) error = QStringLiteral("Qt exact-format draw was cancelled, failed or exceeded two seconds");
-            return accepted;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (std::chrono::steady_clock::now() < deadline) {
+                bool accepted = true, failed = false;
+                {
+                    std::lock_guard<std::mutex> lock(state->mutex);
+                    if (!producer.isCurrent() || !state->owner) break;
+                    accepted = state->probeDelivered;
+                    for (size_t index = 0; index < state->outputs.size(); ++index) {
+                        if (!state->required[index]) continue;
+                        const auto& output = state->outputs[index];
+                        std::lock_guard<std::mutex> feedbackLock(output->presentationMutex);
+                        failed |= output->error.load() != QtEglVideoStatus::None;
+                        accepted &= output->swappedFrame.lock() == frame;
+                    }
+                }
+                if (failed) break;
+                if (accepted) return true;
+                // Each output owns its feedback lock. Poll their bounded set
+                // only during startup qualification, never during playback.
+                std::unique_lock<std::mutex> lock(status->presentationMutex);
+                status->presentationChanged.wait_for(lock, std::chrono::milliseconds(10));
+            }
+            error = QStringLiteral("Qt exact-format draw on a visible output was cancelled, failed or exceeded two seconds");
+            return false;
         };
         return delivery;
     };
 }
 
-void QtVideoPresenter::deliver(QtVideoFrame::Ptr frame)
+void QtVideoPresenter::deliver(QtVideoFrame::Ptr frame, const QtVideoMailbox::Producer& producer)
 {
     bool probe;
     std::shared_ptr<QtEglVideoStatus> generation;
+    std::vector<std::shared_ptr<QtEglVideoStatus>> outputs;
     {
         std::lock_guard<std::mutex> lock(m_State->mutex);
-        if (!m_State->owner) return;
+        // The mailbox may have claimed an old frame immediately before the
+        // decoder restarted it. Never relabel that frame as the new generation.
+        if (!m_State->owner || !producer.isCurrent()) return;
         probe = m_State->probeFrame.lock() == frame;
         generation = m_State->primary;
+        outputs = m_State->outputs;
+        if (probe) {
+            m_State->probeDelivered = true;
+            for (size_t index = 0; index < m_Outputs.size(); ++index)
+                m_State->required[index] = m_Outputs[index].primary ||
+                    (m_Outputs[index].window && m_Outputs[index].window->isVisible());
+        }
     }
-    for (auto& output : m_Outputs) {
+    for (size_t index = 0; index < m_Outputs.size(); ++index) {
+        auto& output = m_Outputs[index];
         if (!output.item || !output.window) continue;
         if (generation != m_DisplayedGeneration) {
-            output.item->beginGeneration(output.primary ? generation : std::make_shared<QtEglVideoStatus>());
+            output.item->beginGeneration(outputs[index]);
         }
         auto geometry = output.geometry;
         if (probe) {

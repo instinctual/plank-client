@@ -16,13 +16,17 @@ public:
     ~QtWaylandSessionGuard() override;
     void setWindows(QWindow* keyboard, QWindow* pointer);
     void setPolicy(bool captureKeys, bool confinePointer);
+    void setIdleWindow(QWindow* window);
 protected:
     bool eventFilter(QObject* object, QEvent* event) override;
 private:
     void refresh();
     void release();
+    void watchWindows();
     struct Impl;
     std::unique_ptr<Impl> m_Impl;
     QPointer<QWindow> m_KeyboardWindow, m_PointerWindow;
+    QPointer<QWindow> m_IdleWindow;
+    QList<QPointer<QWindow>> m_Watched;
     bool m_CaptureKeys = false, m_Confine = false;
 };

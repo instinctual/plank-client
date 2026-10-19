@@ -3,9 +3,11 @@
 #include <QPointF>
 #include <QRectF>
 #include <QSize>
+#include <QVector>
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 // The presenter supplies this slice. UI code must not calculate an independent
 // video aspect ratio, use the Host dimensions as a window size, or read a
@@ -69,3 +71,36 @@ struct QtSessionGeometry
         return true;
     }
 };
+
+struct QtSessionOutputGeometry
+{
+    QRectF desktopLogical;
+    QtSessionGeometry presentation;
+};
+
+// Route a grabbed mouse event through the same per-output slices used to draw
+// video. The position comes from the event's local coordinates plus its known
+// output origin, not a second polling/warping cursor coordinate system.
+inline bool qtMapDraggedPointer(const QVector<QtSessionOutputGeometry>& outputs,
+                                QPointF desktopLogical, QPointF& stream)
+{
+    if (!std::isfinite(desktopLogical.x()) || !std::isfinite(desktopLogical.y())) return false;
+    const QtSessionOutputGeometry* nearest = nullptr;
+    qreal distance = std::numeric_limits<qreal>::max();
+    for (const auto& output : outputs) {
+        const auto& rect = output.desktopLogical;
+        if (!rect.isValid() || !output.presentation.valid()) continue;
+        const auto x = std::clamp(desktopLogical.x(), rect.left(), rect.right());
+        const auto y = std::clamp(desktopLogical.y(), rect.top(), rect.bottom());
+        const qreal dx = desktopLogical.x() - x, dy = desktopLogical.y() - y;
+        const qreal candidate = dx * dx + dy * dy;
+        if (desktopLogical.x() >= rect.left() && desktopLogical.x() < rect.right() &&
+                desktopLogical.y() >= rect.top() && desktopLogical.y() < rect.bottom()) {
+            nearest = &output;
+            break;
+        }
+        if (candidate < distance) { distance = candidate; nearest = &output; }
+    }
+    if (!nearest) return false;
+    return nearest->presentation.toStream(desktopLogical - nearest->desktopLogical.topLeft(), stream, true);
+}

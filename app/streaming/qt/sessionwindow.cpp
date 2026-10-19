@@ -57,6 +57,7 @@ QtSessionWindow::~QtSessionWindow()
 {
     releaseRemoteInput();
     // Retire QML while the derived object's properties and context still exist.
+    m_TabletCursor = nullptr;
     setSource(QUrl());
 }
 
@@ -180,6 +181,7 @@ void QtSessionWindow::moveToolbar(qreal logicalLeft)
 void QtSessionWindow::toggleFullscreen()
 {
     cancelInput();
+    if (m_LiveSession) { emit fullscreenRequested(); return; }
     auto* window = controlWindow();
     if (window->windowState() == Qt::WindowFullScreen) window->showNormal();
     else window->showFullScreen();
@@ -188,6 +190,7 @@ void QtSessionWindow::toggleFullscreen()
 void QtSessionWindow::minimize()
 {
     cancelInput();
+    if (m_LiveSession) { emit minimizeRequested(); return; }
     controlWindow()->showMinimized();
 }
 
@@ -288,7 +291,7 @@ void QtSessionWindow::mouseMoveEvent(QMouseEvent* event)
     observePointer(event->position());
     QPointF position;
     if (m_RemoteInputEnabled && !m_Waiting && !localPointer(event->position()) &&
-            m_Geometry.toStream(event->position(), position, bool(m_RemoteButtons))) {
+            mapPointer(event->position(), position, bool(m_RemoteButtons))) {
         m_LastRemotePosition = position;
         emit remoteMotion(position);
         event->accept();
@@ -302,6 +305,13 @@ void QtSessionWindow::mousePressEvent(QMouseEvent* event)
     if (event->source() != Qt::MouseEventNotSynthesized) { event->accept(); return; }
     observePointer(event->position());
     QPointF position;
+    if (!m_RemoteInputEnabled && !m_Waiting && !localPointer(event->position()) &&
+            m_Geometry.toStream(event->position(), position)) {
+        // Recapturing is local: never forward this initial click to the Host.
+        emit inputRecaptureRequested();
+        event->accept();
+        return;
+    }
     if (m_RemoteInputEnabled && !m_Waiting && !localPointer(event->position()) &&
             m_Geometry.toStream(event->position(), position, bool(m_RemoteButtons))) {
         m_RemoteButtons |= event->button();
@@ -334,7 +344,7 @@ void QtSessionWindow::mouseReleaseEvent(QMouseEvent* event)
     observePointer(event->position());
     if (m_RemoteButtons.testFlag(event->button())) {
         QPointF position = m_LastRemotePosition;
-        m_Geometry.toStream(event->position(), position, true);
+        mapPointer(event->position(), position, true);
         m_RemoteButtons &= ~event->button();
         m_LastRemotePosition = position;
         emit remoteButton(event->button(), false, position);
@@ -381,6 +391,14 @@ quint64 QtSessionWindow::keyIdentity(const QKeyEvent* event)
 
 void QtSessionWindow::keyPressEvent(QKeyEvent* event)
 {
+    if (!m_RemoteInputEnabled && !m_Waiting && !event->isAutoRepeat() &&
+            event->key() == Qt::Key_Z &&
+            (event->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::ShiftModifier)) ==
+            (Qt::ControlModifier | Qt::AltModifier | Qt::ShiftModifier)) {
+        emit inputRecaptureRequested();
+        event->accept();
+        return;
+    }
     if (!remoteKeyboard()) { QQuickView::keyPressEvent(event); return; }
     const auto id = keyIdentity(event);
     if (!m_RemoteKeys.contains(id) && event->isAutoRepeat()) {
@@ -456,7 +474,13 @@ void QtSessionWindow::closeEvent(QCloseEvent* event)
 
 void QtSessionWindow::tabletEvent(QTabletEvent* event)
 {
-    // Raw/normalized tablet integration is a later gate. Do not synthesize
-    // mouse input or claim Wacom support from this window/input prototype.
+    // The existing raw-HID/normalized readers own tablet forwarding. Qt's
+    // tablet event must not synthesize a duplicate mouse click or pressure.
     event->accept();
+}
+
+bool QtSessionWindow::mapPointer(QPointF logical, QPointF& stream, bool drag) const
+{
+    if (drag && m_DragMapper) return m_DragMapper(logical, stream);
+    return m_Geometry.toStream(logical, stream, drag);
 }

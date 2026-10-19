@@ -7,13 +7,13 @@
 #include <algorithm>
 #include <climits>
 #include <memory>
+#include <utility>
 
 QtSessionInput::QtSessionInput(QObject* parent) : QObject(parent) {}
 QtSessionInput::~QtSessionInput() { Q_ASSERT(!m_TabletThread.joinable()); }
 
 void QtSessionInput::startTablets(unsigned hostFeatures)
 {
-    m_LocalCursor.store((hostFeatures & LI_FF_LOCAL_CURSOR) != 0);
     m_TabletThread = std::thread([this, hostFeatures] { tabletMain(hostFeatures); });
 }
 

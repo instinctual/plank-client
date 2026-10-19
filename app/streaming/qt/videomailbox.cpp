@@ -15,6 +15,12 @@ struct QtVideoMailbox::State {
 
 QtVideoMailbox::QtVideoMailbox(std::function<void(QtVideoFrame::Ptr)> consumer,
                                QObject* parent)
+    : QtVideoMailbox([consumer = std::move(consumer)](QtVideoFrame::Ptr frame, Producer) {
+        if (consumer) consumer(std::move(frame));
+    }, parent) {}
+
+QtVideoMailbox::QtVideoMailbox(std::function<void(QtVideoFrame::Ptr, Producer)> consumer,
+                               QObject* parent)
     : QObject(parent), m_State(std::make_shared<State>()), m_Consumer(std::move(consumer))
 {
     m_State->owner = this;
@@ -125,15 +131,18 @@ void QtVideoMailbox::drain()
 {
     Q_ASSERT(QThread::currentThread() == thread());
     QtVideoFrame::Ptr frame;
+    Producer producer;
     {
         std::lock_guard<std::mutex> lock(m_State->mutex);
         m_State->notificationQueued = false;
         frame = std::move(m_State->pending);
+        producer.m_State = m_State;
+        producer.m_Generation = m_State->generation;
     }
     // Delivery may synchronously close its session and delete this mailbox.
     // Keep the callable alive independently and do not touch this afterward.
     const auto consumer = m_Consumer;
-    if (frame && consumer) consumer(std::move(frame));
+    if (frame && consumer) consumer(std::move(frame), producer);
 }
 
 QtVideoMailbox::Stats QtVideoMailbox::stats() const

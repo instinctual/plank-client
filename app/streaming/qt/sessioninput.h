@@ -63,7 +63,6 @@ private:
     PlankCallbackTarget<LinuxRawWacomInput> m_RawControl;
     std::atomic<std::uint64_t> m_StreamSize{0};
     std::atomic_bool m_ActivityPending{false};
-    std::atomic_bool m_LocalCursor{false};
     QMap<quint32, QtLinuxRemoteKey> m_Keys;
     QSet<int> m_Buttons;
     QSet<quint32> m_ShortcutKeys;

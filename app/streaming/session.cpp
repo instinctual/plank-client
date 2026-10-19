@@ -880,7 +880,11 @@ bool Session::startPlankTransportDataPlane(quint16 port,
         result = plank_transport_native_endpoint_start(endpoint);
     }
     if (result == PLANK_TRANSPORT_OK) {
-        result = plank_transport_native_endpoint_wait_ready(endpoint, 12000);
+        const auto deadline = SDL_GetTicks() + 12000;
+        do {
+            if (m_ConnectionStartCancelled.load()) { result = PLANK_TRANSPORT_ERROR_INVALID_STATE; break; }
+            result = plank_transport_native_endpoint_wait_ready(endpoint, 100);
+        } while (result == PLANK_TRANSPORT_TIMEOUT && SDL_GetTicks() < deadline);
     }
     if (result == PLANK_TRANSPORT_OK && m_MicrophoneNegotiated) {
         result = plank_transport_native_microphone_enable_version(endpoint, m_MicrophoneSchema);
@@ -1026,9 +1030,14 @@ bool Session::negotiatePlankTransportSession(quint16 sessionPort, QString& error
 
     packet.resize(PLANK_TRANSPORT_SETUP_MAX_PACKET_SIZE);
     packetSize = 0;
-    if (plank_transport_native_data_receive(
-                m_PlankTransportEndpoint, packet.data(), packet.size(),
-                &packetSize, 12000) != PLANK_TRANSPORT_OK) {
+    const auto deadline = SDL_GetTicks() + 12000;
+    int receiveResult;
+    do {
+        if (m_ConnectionStartCancelled.load()) { receiveResult = PLANK_TRANSPORT_ERROR_INVALID_STATE; break; }
+        receiveResult = plank_transport_native_data_receive(
+                    m_PlankTransportEndpoint, packet.data(), packet.size(), &packetSize, 100);
+    } while (receiveResult == PLANK_TRANSPORT_TIMEOUT && SDL_GetTicks() < deadline);
+    if (receiveResult != PLANK_TRANSPORT_OK) {
         errorMessage = tr("The host did not complete native session negotiation.");
         return false;
     }
@@ -1894,7 +1903,7 @@ void Session::emitLaunchWarning(QString text)
     // This wait is a little longer than the actual toast timeout (3 seconds)
     // to allow it to transition off the screen before continuing.
     const Uint64 start = SDL_GetTicks();
-    while (SDL_GetTicks() < start + 3500) {
+    while (!m_ConnectionStartCancelled.load() && SDL_GetTicks() < start + 3500) {
         SDL_Delay(5);
 
         if (!m_ThreadedExec) {
@@ -2827,7 +2836,10 @@ bool Session::startConnectionAsync(bool reconnecting,
     // Wait 1.5 seconds before connecting to let the user
     // have time to read any messages present on the segue
     if (!reconnecting && !takeOverActiveSession) {
-        SDL_Delay(1500);
+        for (int elapsed = 0; elapsed < 1500; elapsed += 50) {
+            if (m_ConnectionStartCancelled.load()) return false;
+            SDL_Delay(50);
+        }
     }
 
     // PLANK never terminates a host application remotely. Only resume

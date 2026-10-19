@@ -80,33 +80,37 @@ public:
         }
         const auto& d = slot->frame->descriptor();
         const auto& p = d.layers[0];
-        const auto& object = d.objects[0];
-        std::vector<EGLint> attributes = {
-            EGL_WIDTH, m_Frame->size().width(), EGL_HEIGHT, m_Frame->size().height(),
-            EGL_LINUX_DRM_FOURCC_EXT, EGLint(slot->frame->importFormat()),
-            EGL_DMA_BUF_PLANE0_FD_EXT, object.fd,
-            EGL_DMA_BUF_PLANE0_OFFSET_EXT, EGLint(p.offset[0]),
-            EGL_DMA_BUF_PLANE0_PITCH_EXT, EGLint(p.pitch[0])
-        };
-        // INVALID means an implicit layout, not a numeric modifier to import.
-        if (object.drm_format_modifier != DRM_FORMAT_MOD_INVALID) {
-            if (tokens.contains("EGL_EXT_image_dma_buf_import_modifiers")) {
-                attributes.insert(attributes.end(), {
-                    EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, EGLint(object.drm_format_modifier & 0xffffffff),
-                    EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, EGLint(object.drm_format_modifier >> 32)});
-            } else if (object.drm_format_modifier != DRM_FORMAT_MOD_LINEAR) {
-                fail(QtEglVideoStatus::ImportFailed); return;
+        slot->target = slot->frame->planar() ? GL_TEXTURE_2D : GL_TEXTURE_EXTERNAL_OES;
+        for (unsigned index = 0; index < p.num_planes; ++index) {
+            const auto& object = d.objects[p.object_index[index]];
+            const auto size = slot->frame->planeSize(index);
+            std::vector<EGLint> attributes = {
+                EGL_WIDTH, size.width(), EGL_HEIGHT, size.height(),
+                EGL_LINUX_DRM_FOURCC_EXT, EGLint(slot->frame->importFormat(index)),
+                EGL_DMA_BUF_PLANE0_FD_EXT, object.fd,
+                EGL_DMA_BUF_PLANE0_OFFSET_EXT, EGLint(p.offset[index]),
+                EGL_DMA_BUF_PLANE0_PITCH_EXT, EGLint(p.pitch[index])
+            };
+            // INVALID means an implicit layout, not a numeric modifier to import.
+            if (object.drm_format_modifier != DRM_FORMAT_MOD_INVALID) {
+                if (tokens.contains("EGL_EXT_image_dma_buf_import_modifiers")) {
+                    attributes.insert(attributes.end(), {
+                        EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, EGLint(object.drm_format_modifier & 0xffffffff),
+                        EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, EGLint(object.drm_format_modifier >> 32)});
+                } else if (object.drm_format_modifier != DRM_FORMAT_MOD_LINEAR) {
+                    fail(QtEglVideoStatus::ImportFailed); return;
+                }
             }
+            attributes.push_back(EGL_NONE);
+            slot->images[index] = createImage(slot->display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, attributes.data());
+            if (slot->images[index] == EGL_NO_IMAGE_KHR) { fail(QtEglVideoStatus::ImportFailed); return; }
+            gl->glGenTextures(1, &slot->textures[index]);
+            gl->glActiveTexture(GL_TEXTURE0);
+            gl->glBindTexture(slot->target, slot->textures[index]);
+            bindImage(slot->target, slot->images[index]);
+            gl->glBindTexture(slot->target, 0);
+            if (!slot->textures[index] || gl->glGetError() != GL_NO_ERROR) { fail(QtEglVideoStatus::ImportFailed); return; }
         }
-        attributes.push_back(EGL_NONE);
-        slot->image = createImage(slot->display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, attributes.data());
-        if (slot->image == EGL_NO_IMAGE_KHR) { fail(QtEglVideoStatus::ImportFailed); return; }
-        gl->glGenTextures(1, &slot->texture);
-        gl->glActiveTexture(GL_TEXTURE0);
-        gl->glBindTexture(GL_TEXTURE_EXTERNAL_OES, slot->texture);
-        bindImage(GL_TEXTURE_EXTERNAL_OES, slot->image);
-        gl->glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
-        if (!slot->texture || gl->glGetError() != GL_NO_ERROR) { fail(QtEglVideoStatus::ImportFailed); return; }
         m_Current = slot.get();
         m_Slots.push_back(std::move(slot));
         ++m_Status->imports;
@@ -133,8 +137,8 @@ public:
                 !m_Geometry.valid() || m_Current->frame->size() != m_Geometry.streamSize)
             return;
         QString error;
-        if (!m_Blitter.draw(m_Current->texture, GL_TEXTURE_EXTERNAL_OES,
-                            m_Current->frame->mapping(), m_Geometry, error)) {
+        if (!m_Blitter.draw(m_Current->textures[0], m_Current->target,
+                            m_Current->frame->mapping(), m_Geometry, error, m_Current->textures[1])) {
             qWarning().noquote() << error;
             fail(QtEglVideoStatus::PrecisionOrDrawFailed);
             return;
@@ -207,18 +211,20 @@ private:
         QtVaapiVideoFrame::Ptr frame;
         QtVideoFrame::Ptr delivery;
         EGLDisplay display = EGL_NO_DISPLAY;
-        EGLImageKHR image = EGL_NO_IMAGE_KHR;
+        EGLImageKHR images[2] = {EGL_NO_IMAGE_KHR, EGL_NO_IMAGE_KHR};
         PFNEGLDESTROYIMAGEKHRPROC destroyImage = nullptr;
-        GLuint texture = 0;
+        GLuint textures[2] = {};
+        GLenum target = GL_TEXTURE_EXTERNAL_OES;
         GLsync fence = nullptr;
         ~Slot()
         {
             if (auto* context = QOpenGLContext::currentContext()) {
                 auto* gl = context->extraFunctions();
                 if (fence) gl->glDeleteSync(fence);
-                if (texture) gl->glDeleteTextures(1, &texture);
+                gl->glDeleteTextures(2, textures);
             }
-            if (image != EGL_NO_IMAGE_KHR && destroyImage) destroyImage(display, image);
+            for (auto image : images)
+                if (image != EGL_NO_IMAGE_KHR && destroyImage) destroyImage(display, image);
         }
     };
     void fail(QtEglVideoStatus::Error error)

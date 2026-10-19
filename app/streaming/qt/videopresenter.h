@@ -36,7 +36,7 @@ private:
         QtSessionGeometry geometry;
         bool primary;
     };
-    void deliver(QtVideoFrame::Ptr frame);
+    void deliver(QtVideoFrame::Ptr frame, const QtVideoMailbox::Producer& producer);
     void finishDevice(QtSoftwareVideoDevice::Ptr device, QString node, QString error);
     std::shared_ptr<State> m_State;
     QtVideoMailbox m_Mailbox;

@@ -46,10 +46,13 @@ private:
     void updateFocus();
     void setInputEnabled(bool enabled);
     void handleShortcut(int key);
+    void toggleFullscreen();
+    void minimize();
 
     Session* const m_Session;
     QPointer<QWindow> m_Launcher;
     std::vector<std::unique_ptr<QtSessionShell>> m_Windows;
+    QList<QPointer<QScreen>> m_Screens;
     std::unique_ptr<QtVideoPresenter> m_Presenter;
     std::unique_ptr<QtDecodedVideoRendererFactory> m_Factory;
     std::unique_ptr<QtSessionInput> m_Input;
@@ -74,6 +77,7 @@ private:
     int m_TargetBitrate = 0;
     std::atomic_int m_RecoveryBitrate{0};
     bool m_InputGrabbed = true;
-    bool m_CaptureSystemKeys = true;
+    int m_CapturePolicy = 0;
+    bool m_Fullscreen = true;
     bool m_ConfinePointer = true;
 };

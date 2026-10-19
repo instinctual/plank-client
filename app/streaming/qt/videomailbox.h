@@ -28,6 +28,8 @@ public:
     struct Stats { uint64_t submitted, replaced; bool pending; };
     explicit QtVideoMailbox(std::function<void(QtVideoFrame::Ptr)> consumer,
                             QObject* parent = nullptr);
+    explicit QtVideoMailbox(std::function<void(QtVideoFrame::Ptr, Producer)> consumer,
+                            QObject* parent = nullptr);
     ~QtVideoMailbox() override;
     Producer startGeneration(); // GUI thread only; invalidates previous Producer copies
     void retire();              // GUI thread only; does not wait for a decoder
@@ -36,5 +38,5 @@ public:
 private:
     void drain();
     const std::shared_ptr<State> m_State;
-    const std::function<void(QtVideoFrame::Ptr)> m_Consumer;
+    const std::function<void(QtVideoFrame::Ptr, Producer)> m_Consumer;
 };

@@ -17,20 +17,22 @@ class QtVaapiVideoFrame final
 {
 public:
     using Ptr = std::shared_ptr<const QtVaapiVideoFrame>;
-    static Ptr create(const AVFrame* frame, int expectedBits, QString& error);
+    static Ptr create(const AVFrame* frame, int expectedBits, QString& error, bool allowP010 = false);
     ~QtVaapiVideoFrame();
     QtVaapiVideoFrame(const QtVaapiVideoFrame&) = delete;
     QtVaapiVideoFrame& operator=(const QtVaapiVideoFrame&) = delete;
 
     QSize size() const { return m_Size; }
     PlankPackedVideo::Mapping mapping() const { return m_Mapping; }
-    uint32_t importFormat() const;
+    bool planar() const { return m_Planar; }
+    uint32_t importFormat(unsigned plane = 0) const;
+    QSize planeSize(unsigned plane = 0) const;
     const VADRMPRIMESurfaceDescriptor& descriptor() const { return m_Descriptor; }
 
     // Also exercised independently with malformed/export-layout fixtures.
     static bool validate(const VADRMPRIMESurfaceDescriptor& descriptor,
                          const QSize& size, int bits, bool identity, bool bt709,
-                         bool fullRange);
+                         bool fullRange, bool allowP010 = false);
 
 private:
     QtVaapiVideoFrame() = default;
@@ -38,4 +40,5 @@ private:
     VADRMPRIMESurfaceDescriptor m_Descriptor = {};
     QSize m_Size;
     PlankPackedVideo::Mapping m_Mapping = PlankPackedVideo::Mapping::Unsupported;
+    bool m_Planar = false;
 };

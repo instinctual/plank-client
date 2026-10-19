@@ -9,8 +9,9 @@
 #include <QQuickView>
 #include <QTimer>
 #include <QVariantMap>
+#include <functional>
 
-// Ubuntu prototype. Not enabled by shipping app.pro. No SDL window, native
+// Opt-in Ubuntu Qt frontend. No SDL window, native
 // Wayland proxy, network call or decoder is owned by this GUI-thread component.
 class QtSessionWindow : public QQuickView
 {
@@ -58,6 +59,10 @@ public:
     void setEmbeddedCursor(bool embedded);
 
     void setPresentation(const QtSessionGeometry& geometry);
+    const QtSessionGeometry& presentation() const { return m_Geometry; }
+    // During a compositor mouse grab, coordinates can leave this window. The
+    // session maps that event through the visible outputs' existing viewports.
+    void setDragMapper(std::function<bool(QPointF, QPointF&)> mapper) { m_DragMapper = std::move(mapper); }
     void setRemoteInputEnabled(bool enabled);
     void setRemoteCursor(const QCursor& cursor);
     void setPinned(bool pinned);
@@ -78,6 +83,9 @@ signals:
     void telemetryChanged();
     void statisticsChanged();
     void physicalMouseActivity();
+    void inputRecaptureRequested();
+    void fullscreenRequested();
+    void minimizeRequested();
     void microphoneRequested();
     void cameraRequested();
     void toolbarChanged();
@@ -120,8 +128,10 @@ private:
     bool remoteKeyboard() const;
     static quint64 keyIdentity(const QKeyEvent* event);
     QWindow* controlWindow();
+    bool mapPointer(QPointF logical, QPointF& stream, bool drag) const;
 
     QtSessionGeometry m_Geometry;
+    std::function<bool(QPointF, QPointF&)> m_DragMapper;
     QPointer<QQuickItem> m_Toolbar;
     QTimer m_RevealTimer;
     QTimer m_HideTimer;

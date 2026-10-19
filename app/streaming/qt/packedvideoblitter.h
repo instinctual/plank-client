@@ -14,7 +14,7 @@ class QtPackedVideoBlitter final
 public:
     ~QtPackedVideoBlitter();
     bool draw(GLuint texture, GLenum textureTarget, PlankPackedVideo::Mapping mapping,
-              const QtSessionGeometry& geometry, QString& error);
+              const QtSessionGeometry& geometry, QString& error, GLuint chromaTexture = 0);
     void release();
 
 private:

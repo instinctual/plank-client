@@ -11,4 +11,5 @@ struct QtDecodedVideoDelivery
     std::function<bool(QtVideoFrame::Ptr)> submit;
     std::function<bool(QtVideoFrame::Ptr, QString&)> qualify;
     std::function<void()> discard;
+    std::function<void(QString)> fail;
 };
