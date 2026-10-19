@@ -1,4 +1,5 @@
 #include "plvk.h"
+#include "plvkframepool.h"
 #include "../ffmpeg.h"
 
 #include "streaming/session.h"
@@ -19,8 +20,6 @@ extern "C" {
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
-#include <new>
-#include <numeric>
 #include <vector>
 #include <set>
 
@@ -90,51 +89,6 @@ static void pl_log_cb(void*, enum pl_log_level level, const char *msg)
     }
 }
 
-namespace {
-
-constexpr uint64_t kImportedHostAllocationMagic = UINT64_C(0x535443484f535449);
-
-struct ImportedHostAllocation {
-    uint64_t magic = kImportedHostAllocationMagic;
-    pl_gpu gpu = nullptr;
-    pl_buf buffer = nullptr;
-    void* base = nullptr;
-};
-
-void freeImportedHostAllocation(void* opaque, uint8_t*)
-{
-    auto allocation = static_cast<ImportedHostAllocation*>(opaque);
-    SDL_assert(allocation != nullptr);
-    SDL_assert(allocation->magic == kImportedHostAllocationMagic);
-
-    pl_buf_destroy(allocation->gpu, &allocation->buffer);
-    SDL_aligned_free(allocation->base);
-    delete allocation;
-}
-
-ImportedHostAllocation* getImportedHostAllocation(const AVFrame* frame, int plane)
-{
-    AVBufferRef* buffer = av_frame_get_plane_buffer(const_cast<AVFrame*>(frame), plane);
-    if (buffer == nullptr) {
-        return nullptr;
-    }
-
-    auto allocation = static_cast<ImportedHostAllocation*>(
-        av_buffer_pool_buffer_get_opaque(buffer));
-    if (allocation == nullptr || allocation->magic != kImportedHostAllocationMagic) {
-        return nullptr;
-    }
-
-    return allocation;
-}
-
-size_t alignUp(size_t value, size_t alignment)
-{
-    SDL_assert(alignment != 0);
-    return (value + alignment - 1) & ~(alignment - 1);
-}
-
-} // namespace
 
 void PlVkRenderer::lockQueue(struct AVHWDeviceContext *dev_ctx, uint32_t queue_family, uint32_t index)
 {
@@ -166,134 +120,11 @@ int PlVkRenderer::getMappedBuffer(AVCodecContext *context, AVFrame *frame, int f
     return pl_get_buffer2(&mappedContext, frame, flags);
 }
 
-AVBufferRef* PlVkRenderer::allocateImportedHostBuffer(void* opaque, size_t size)
-{
-    auto renderer = static_cast<PlVkRenderer*>(opaque);
-    pl_gpu gpu = renderer->m_Vulkan->gpu;
-    const size_t hostAlignment = std::max<size_t>({
-        gpu->limits.align_host_ptr,
-        alignof(void*),
-        static_cast<size_t>(64),
-    });
-    void* base = SDL_aligned_alloc(hostAlignment, size);
-    if (base == nullptr) {
-        return nullptr;
-    }
-
-    auto allocation = new (std::nothrow) ImportedHostAllocation;
-    if (allocation == nullptr) {
-        SDL_aligned_free(base);
-        return nullptr;
-    }
-
-    allocation->gpu = gpu;
-    allocation->base = base;
-    pl_buf_params bufferParams = {};
-    bufferParams.size = size;
-    bufferParams.import_handle = PL_HANDLE_HOST_PTR;
-    bufferParams.shared_mem.handle.ptr = base;
-    bufferParams.shared_mem.size = size;
-    allocation->buffer = pl_buf_create(gpu, &bufferParams);
-    if (allocation->buffer == nullptr) {
-        SDL_aligned_free(base);
-        delete allocation;
-        return nullptr;
-    }
-
-    AVBufferRef* buffer = av_buffer_create(static_cast<uint8_t*>(base), size,
-                                           freeImportedHostAllocation, allocation, 0);
-    if (buffer == nullptr) {
-        pl_buf_destroy(gpu, &allocation->buffer);
-        SDL_aligned_free(base);
-        delete allocation;
-    }
-    return buffer;
-}
-
-AVBufferRef* PlVkRenderer::getImportedHostBufferRef(size_t size)
-{
-    std::lock_guard<std::mutex> lock(m_ImportedHostPoolMutex);
-    AVBufferPool*& pool = m_ImportedHostPools[size];
-    if (pool == nullptr) {
-        pool = av_buffer_pool_init2(size, this, allocateImportedHostBuffer, nullptr);
-        if (pool == nullptr) {
-            m_ImportedHostPools.erase(size);
-            return nullptr;
-        }
-    }
-    return av_buffer_pool_get(pool);
-}
-
 int PlVkRenderer::getImportedHostBuffer(AVCodecContext *context, AVFrame *frame, int flags)
 {
     auto decoder = static_cast<FFmpegVideoDecoder*>(context->opaque);
     auto renderer = static_cast<PlVkRenderer*>(decoder->getBackendRenderer());
-    pl_gpu gpu = renderer->m_Vulkan->gpu;
-    const AVPixelFormat pixelFormat = static_cast<AVPixelFormat>(frame->format);
-
-    if (!(context->codec->capabilities & AV_CODEC_CAP_DR1)) {
-        return avcodec_default_get_buffer2(context, frame, flags);
-    }
-
-    pl_plane_data planeData[4] = {};
-    const int planeCount = pl_plane_data_from_pixfmt(planeData, nullptr, pixelFormat);
-    if (planeCount <= 0) {
-        return avcodec_default_get_buffer2(context, frame, flags);
-    }
-
-    int alignment[AV_NUM_DATA_POINTERS] = {};
-    int width = frame->width;
-    int height = frame->height;
-    size_t planeSizes[4] = {};
-
-    std::memset(frame->data, 0, sizeof(frame->data));
-    std::memset(frame->linesize, 0, sizeof(frame->linesize));
-    std::memset(frame->buf, 0, sizeof(frame->buf));
-    frame->extended_data = frame->data;
-    frame->extended_buf = nullptr;
-
-    avcodec_align_dimensions2(context, &width, &height, alignment);
-    int result = av_image_fill_linesizes(frame->linesize, pixelFormat, width);
-    if (result < 0) {
-        return result;
-    }
-
-    for (int plane = 0; plane < planeCount; plane++) {
-        alignment[plane] = std::lcm(alignment[plane],
-                                    static_cast<int>(gpu->limits.align_tex_xfer_pitch));
-        alignment[plane] = std::lcm(alignment[plane],
-                                    static_cast<int>(gpu->limits.align_tex_xfer_offset));
-        alignment[plane] = std::lcm(alignment[plane],
-                                    static_cast<int>(planeData[plane].pixel_stride));
-        frame->linesize[plane] = static_cast<int>(alignUp(frame->linesize[plane],
-                                                          alignment[plane]));
-    }
-
-    const ptrdiff_t lineSizes[4] = {
-        frame->linesize[0], frame->linesize[1], frame->linesize[2], frame->linesize[3],
-    };
-    result = av_image_fill_plane_sizes(planeSizes, pixelFormat, height, lineSizes);
-    if (result < 0) {
-        return result;
-    }
-
-    const size_t hostAlignment = std::max<size_t>({
-        gpu->limits.align_host_ptr,
-        alignof(void*),
-        static_cast<size_t>(64),
-    });
-
-    for (int plane = 0; plane < planeCount; plane++) {
-        const size_t allocationSize = alignUp(planeSizes[plane], hostAlignment);
-        frame->buf[plane] = renderer->getImportedHostBufferRef(allocationSize);
-        if (frame->buf[plane] == nullptr) {
-            av_frame_unref(frame);
-            return AVERROR(ENOMEM);
-        }
-        frame->data[plane] = frame->buf[plane]->data;
-    }
-
-    return 0;
+    return renderer->m_ImportedHostPool->getBuffer(context, frame, flags);
 }
 
 PlVkRenderer::PlVkRenderer(bool hwaccel, IFFmpegRenderer *backendRenderer) :
@@ -323,13 +154,7 @@ PlVkRenderer::~PlVkRenderer()
         SDL_assert(!target.hasPendingSwapchainFrame);
     }
 
-    {
-        std::lock_guard<std::mutex> lock(m_ImportedHostPoolMutex);
-        for (auto& entry : m_ImportedHostPools) {
-            av_buffer_pool_uninit(&entry.second);
-        }
-        m_ImportedHostPools.clear();
-    }
+    m_ImportedHostPool.reset();
 
     if (m_Vulkan != nullptr) {
         for (int i = 0; i < (int)SDL_arraysize(m_Overlays); i++) {
@@ -820,9 +645,7 @@ bool PlVkRenderer::prepareDecoderContext(AVCodecContext *context, AVDictionary *
         const pl_gpu_limits& limits = m_Vulkan->gpu->limits;
         const bool canUseMappedVulkan = limits.thread_safe &&
             limits.max_mapped_size && limits.host_cached;
-        const bool canImportHostMemory = limits.thread_safe && limits.buf_transfer &&
-            limits.align_host_ptr &&
-            (m_Vulkan->gpu->import_caps.buf & PL_HANDLE_HOST_PTR);
+        const bool canImportHostMemory = PlVkFramePool::supported(m_Vulkan->gpu);
 
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                     "Vulkan software-frame capabilities: mapped=%s host-import=%s "
@@ -895,65 +718,22 @@ bool PlVkRenderer::prepareDecoderContext(AVCodecContext *context, AVDictionary *
                         requestedAllocator.constData());
         }
 
+        if (m_SoftwareFrameAllocator == SoftwareFrameAllocator::ImportedHost) {
+            m_ImportedHostPool = std::make_unique<PlVkFramePool>(m_Vulkan->gpu);
+        }
     }
 
     return true;
 }
 
 bool PlVkRenderer::mapImportedHostFrameToPlacebo(const AVFrame *frame,
-                                                  pl_frame* mappedFrame)
+                                                pl_frame* mappedFrame)
 {
-    const AVPixelFormat pixelFormat = static_cast<AVPixelFormat>(frame->format);
-    const AVPixFmtDescriptor* descriptor = av_pix_fmt_desc_get(pixelFormat);
-    pl_plane_data planeData[4] = {};
-
-    pl_frame_from_avframe(mappedFrame, frame);
-    mappedFrame->user_data = nullptr;
-
-    const int planeCount = pl_plane_data_from_pixfmt(planeData,
-                                                      &mappedFrame->repr.bits,
-                                                      pixelFormat);
-    if (planeCount <= 0) {
+    if (!m_ImportedHostPool->upload(frame, mappedFrame, m_Textures)) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                     "pl_plane_data_from_pixfmt() failed for imported host frame");
+                     "Failed mapping imported software frame into Vulkan");
         return false;
     }
-
-    for (int plane = 0; plane < planeCount; plane++) {
-        ImportedHostAllocation* allocation = getImportedHostAllocation(frame, plane);
-        if (allocation == nullptr) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                         "Imported host frame is missing plane %d allocation metadata",
-                         plane);
-            return false;
-        }
-
-        const bool isChroma = plane == 1 || plane == 2;
-        planeData[plane].width = AV_CEIL_RSHIFT(
-            frame->width, isChroma ? descriptor->log2_chroma_w : 0);
-        planeData[plane].height = AV_CEIL_RSHIFT(
-            frame->height, isChroma ? descriptor->log2_chroma_h : 0);
-        planeData[plane].row_stride = static_cast<size_t>(std::abs(frame->linesize[plane]));
-        planeData[plane].buf = allocation->buffer;
-        planeData[plane].buf_offset = static_cast<size_t>(
-            frame->data[plane] - static_cast<uint8_t*>(allocation->base));
-
-        if (frame->linesize[plane] < 0) {
-            planeData[plane].buf_offset += planeData[plane].row_stride *
-                (planeData[plane].height - 1);
-            mappedFrame->planes[plane].flipped = true;
-        }
-
-        if (!pl_upload_plane(m_Vulkan->gpu, &mappedFrame->planes[plane],
-                             &m_Textures[plane], &planeData[plane])) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                         "pl_upload_plane() failed for imported host plane %d",
-                         plane);
-            return false;
-        }
-        mappedFrame->planes[plane].texture = m_Textures[plane];
-    }
-
     return true;
 }
 

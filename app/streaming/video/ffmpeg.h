@@ -134,20 +134,5 @@ private:
     // Data buffers in the queued DU are not valid
     QQueue<DECODE_UNIT> m_FrameInfoQueue;
 
-    static const uint8_t k_H264TestFrame[];
-    static const uint8_t k_H264High8_422TestFrame[];
-    static const uint8_t k_H264High10_422TestFrame[];
-    static const uint8_t k_HEVCMainTestFrame[];
-    static const uint8_t k_HEVCMain10TestFrame[];
-    static const uint8_t k_AV1Main8TestFrame[];
-    static const uint8_t k_AV1Main10TestFrame[];
-    static const uint8_t k_h264High_444TestFrame[];
-    static const uint8_t k_h264High10_444TestFrame[];
-    static const uint8_t k_HEVCRExt8_444TestFrame[];
-    static const uint8_t k_HEVCRExt8_444IdentityGbrTestFrame[];
-    static const uint8_t k_HEVCRExt10_444TestFrame[];
-    static const uint8_t k_HEVCRExt10_444IdentityGbrTestFrame[];
-    static const uint8_t k_AV1High8_444TestFrame[];
-    static const uint8_t k_AV1High10_444TestFrame[];
 
 };

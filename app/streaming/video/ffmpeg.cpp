@@ -55,7 +55,7 @@ extern "C" {
 #endif
 
 // This is gross but it allows us to use sizeof()
-#include "ffmpeg_videosamples.cpp"
+#include "ffmpeg-testframes.h"
 
 #define MAX_DECODER_PASS 2
 
@@ -611,20 +611,20 @@ bool FFmpegVideoDecoder::completeInitialization(const AVCodec* decoder, enum AVP
     if (testFrame) {
         switch (params->videoFormat) {
         case VIDEO_FORMAT_H264:
-            m_Pkt->data = (uint8_t*)k_H264TestFrame;
-            m_Pkt->size = sizeof(k_H264TestFrame);
+            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_H264TestFrame;
+            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_H264TestFrame);
             break;
         case VIDEO_FORMAT_H264_HIGH8_422:
-            m_Pkt->data = (uint8_t*)k_H264High8_422TestFrame;
-            m_Pkt->size = sizeof(k_H264High8_422TestFrame);
+            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_H264High8_422TestFrame;
+            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_H264High8_422TestFrame);
             break;
         case VIDEO_FORMAT_H264_HIGH10_422:
-            m_Pkt->data = (uint8_t*)k_H264High10_422TestFrame;
-            m_Pkt->size = sizeof(k_H264High10_422TestFrame);
+            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_H264High10_422TestFrame;
+            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_H264High10_422TestFrame);
             break;
         case VIDEO_FORMAT_H265:
-            m_Pkt->data = (uint8_t*)k_HEVCMainTestFrame;
-            m_Pkt->size = sizeof(k_HEVCMainTestFrame);
+            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_HEVCMainTestFrame;
+            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_HEVCMainTestFrame);
             break;
         case VIDEO_FORMAT_H265_MAIN10:
             if (params->captureSource == DecoderCaptureSource::ScreenCaptureKit) {
@@ -632,34 +632,34 @@ bool FFmpegVideoDecoder::completeInitialization(const AVCodec* decoder, enum AVP
                 m_Pkt->size = k_AppleHEVCMain10TestFrameSize;
             }
             else {
-                m_Pkt->data = (uint8_t*)k_HEVCMain10TestFrame;
-                m_Pkt->size = sizeof(k_HEVCMain10TestFrame);
+                m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_HEVCMain10TestFrame;
+                m_Pkt->size = sizeof(PlankDecoderTestFrames::k_HEVCMain10TestFrame);
             }
             break;
         case VIDEO_FORMAT_AV1_MAIN8:
-            m_Pkt->data = (uint8_t*)k_AV1Main8TestFrame;
-            m_Pkt->size = sizeof(k_AV1Main8TestFrame);
+            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_AV1Main8TestFrame;
+            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_AV1Main8TestFrame);
             break;
         case VIDEO_FORMAT_AV1_MAIN10:
-            m_Pkt->data = (uint8_t*)k_AV1Main10TestFrame;
-            m_Pkt->size = sizeof(k_AV1Main10TestFrame);
+            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_AV1Main10TestFrame;
+            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_AV1Main10TestFrame);
             break;
         case VIDEO_FORMAT_H264_HIGH8_444:
-            m_Pkt->data = (uint8_t*)k_h264High_444TestFrame;
-            m_Pkt->size = sizeof(k_h264High_444TestFrame);
+            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_h264High_444TestFrame;
+            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_h264High_444TestFrame);
             break;
         case VIDEO_FORMAT_H264_HIGH10_444:
-            m_Pkt->data = (uint8_t*)k_h264High10_444TestFrame;
-            m_Pkt->size = sizeof(k_h264High10_444TestFrame);
+            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_h264High10_444TestFrame;
+            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_h264High10_444TestFrame);
             break;
         case VIDEO_FORMAT_H265_REXT8_444:
             if (params->enableIdentityGbr) {
-                m_Pkt->data = (uint8_t*)k_HEVCRExt8_444IdentityGbrTestFrame;
-                m_Pkt->size = sizeof(k_HEVCRExt8_444IdentityGbrTestFrame);
+                m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_HEVCRExt8_444IdentityGbrTestFrame;
+                m_Pkt->size = sizeof(PlankDecoderTestFrames::k_HEVCRExt8_444IdentityGbrTestFrame);
             }
             else {
-                m_Pkt->data = (uint8_t*)k_HEVCRExt8_444TestFrame;
-                m_Pkt->size = sizeof(k_HEVCRExt8_444TestFrame);
+                m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_HEVCRExt8_444TestFrame;
+                m_Pkt->size = sizeof(PlankDecoderTestFrames::k_HEVCRExt8_444TestFrame);
             }
             break;
         case VIDEO_FORMAT_H265_REXT10_444:
@@ -668,21 +668,21 @@ bool FFmpegVideoDecoder::completeInitialization(const AVCodec* decoder, enum AVP
                 m_Pkt->size = k_AppleHEVCRext10TestFrameSize;
             }
             else if (params->enableIdentityGbr) {
-                m_Pkt->data = (uint8_t*)k_HEVCRExt10_444IdentityGbrTestFrame;
-                m_Pkt->size = sizeof(k_HEVCRExt10_444IdentityGbrTestFrame);
+                m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_HEVCRExt10_444IdentityGbrTestFrame;
+                m_Pkt->size = sizeof(PlankDecoderTestFrames::k_HEVCRExt10_444IdentityGbrTestFrame);
             }
             else {
-                m_Pkt->data = (uint8_t*)k_HEVCRExt10_444TestFrame;
-                m_Pkt->size = sizeof(k_HEVCRExt10_444TestFrame);
+                m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_HEVCRExt10_444TestFrame;
+                m_Pkt->size = sizeof(PlankDecoderTestFrames::k_HEVCRExt10_444TestFrame);
             }
             break;
         case VIDEO_FORMAT_AV1_HIGH8_444:
-            m_Pkt->data = (uint8_t*)k_AV1High8_444TestFrame;
-            m_Pkt->size = sizeof(k_AV1High8_444TestFrame);
+            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_AV1High8_444TestFrame;
+            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_AV1High8_444TestFrame);
             break;
         case VIDEO_FORMAT_AV1_HIGH10_444:
-            m_Pkt->data = (uint8_t*)k_AV1High10_444TestFrame;
-            m_Pkt->size = sizeof(k_AV1High10_444TestFrame);
+            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_AV1High10_444TestFrame;
+            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_AV1High10_444TestFrame);
             break;
         default:
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
