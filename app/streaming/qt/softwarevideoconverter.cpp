@@ -97,7 +97,10 @@ bool QtSoftwareVideoConverter::convert(const AVFrame* frame, AVPixelFormat expec
                 pf->component_depth[0] != (depth == 8 ? 8 : 16) ||
                 !(pf->caps & PL_FMT_CAP_LINEAR) || plane.component_mapping[0] < 0 ||
                 plane.component_mapping[0] > 2) {
-            error = QStringLiteral("Qt software video plane format is not exact R8/R16 UNORM");
+            error = QStringLiteral("Qt software video plane %1 is not exact R8/R16 UNORM: %2, components=%3/%4 type=%5 depth=%6 linear=%7 mapping=%8")
+                        .arg(p).arg(pf->name).arg(plane.components).arg(pf->num_components)
+                        .arg(int(pf->type)).arg(pf->component_depth[0])
+                        .arg(bool(pf->caps & PL_FMT_CAP_LINEAR)).arg(plane.component_mapping[0]);
             return false;
         }
         bindings[p].desc.name = names[p];
