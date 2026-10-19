@@ -17,7 +17,6 @@ class QtSessionWindow : public QQuickView
 {
     Q_OBJECT
     Q_PROPERTY(bool toolbarVisible READ toolbarVisible NOTIFY toolbarChanged)
-    Q_PROPERTY(bool fullscreen READ fullscreen NOTIFY windowModeChanged)
     Q_PROPERTY(bool pinned READ pinned WRITE setPinned NOTIFY toolbarChanged)
     Q_PROPERTY(qreal toolbarPosition READ toolbarPosition NOTIFY toolbarChanged)
     Q_PROPERTY(bool waiting READ waiting WRITE setWaiting NOTIFY waitingChanged)
@@ -71,7 +70,6 @@ public:
     void setWaiting(bool waiting);
     void setBitrateKbps(int kbps);
     void cancelInput();
-    Q_INVOKABLE void revealToolbar();
     Q_INVOKABLE void moveToolbar(qreal logicalLeft);
     Q_INVOKABLE void toggleFullscreen();
     Q_INVOKABLE void minimize();
@@ -92,7 +90,6 @@ signals:
     void microphoneRequested();
     void cameraRequested();
     void toolbarChanged();
-    void windowModeChanged();
     void waitingChanged();
     void bitrateChanged();
     void presentationChanged();
@@ -122,7 +119,6 @@ protected:
 
 private:
     bool overToolbar(const QPointF& position) const;
-    bool overToolbarReveal(const QPointF& position) const;
     bool localPointer(const QPointF& position) const;
     void observePointer(const QPointF& position);
     void setToolbarVisible(bool visible);
@@ -138,7 +134,6 @@ private:
     QtSessionGeometry m_Geometry;
     std::function<bool(QPointF, QPointF&)> m_DragMapper;
     QPointer<QQuickItem> m_Toolbar;
-    QPointer<QQuickItem> m_ToolbarReveal;
     QTimer m_RevealTimer;
     QTimer m_HideTimer;
     QCursor m_RemoteCursor;

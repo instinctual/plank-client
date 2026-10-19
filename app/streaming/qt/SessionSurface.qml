@@ -71,36 +71,6 @@ Item {
         ToolTip.visible: hovered
     }
 
-    ToolButton {
-        id: toolbarReveal
-        objectName: "toolbarRevealButton"
-        z: 2
-        anchors.top: parent.top
-        anchors.right: parent.right
-        anchors.margins: 6
-        implicitWidth: contentItem.implicitWidth + leftPadding + rightPadding
-        height: 28
-        leftPadding: 10
-        rightPadding: 10
-        focusPolicy: Qt.NoFocus
-        visible: !sessionWindow.fullscreen && !sessionWindow.toolbarVisible && !sessionWindow.waiting
-        text: qsTr("Show Toolbar")
-        Accessible.name: text
-        onClicked: sessionWindow.revealToolbar()
-        contentItem: Text {
-            text: toolbarReveal.text
-            color: "#f0f1f4"
-            font.pixelSize: 12
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
-        background: Rectangle {
-            color: toolbarReveal.down ? "#465364" : toolbarReveal.hovered ? "#394452" : "#2b3038"
-            radius: 4
-            border.color: "#637083"
-        }
-    }
-
     Rectangle {
         id: toolbar
         z: 2

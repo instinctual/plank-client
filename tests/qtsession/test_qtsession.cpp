@@ -327,7 +327,7 @@ private slots:
         mouse(window, QEvent::MouseMove, {1270, 0});
         QVERIFY(!window.toolbarVisible());
         QTest::qWait(400);
-        // Leave both the edge and the separate windowed reveal button.
+        // Leave the wider windowed reveal strip.
         mouse(window, QEvent::MouseMove, {1000, 20});
         QTest::qWait(700);
         QVERIFY(!window.toolbarVisible());
@@ -337,7 +337,7 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!window.toolbarVisible(), 6000);
     }
 
-    void windowedToolbarButtonKeepsInputLocal()
+    void windowedEdgeAllowsEasierDwell()
     {
         QtSessionShell shell;
         auto& scene = shell.surface();
@@ -347,73 +347,34 @@ private slots:
         QTRY_VERIFY(scene.isExposed());
         scene.setPresentation(fullFrame(scene.size()));
         scene.setRemoteInputEnabled(true);
-        scene.setRemoteCursor(QCursor(Qt::BlankCursor));
-        auto* reveal = scene.rootObject()->findChild<QQuickItem*>(QStringLiteral("toolbarRevealButton"));
-        QVERIFY(reveal);
-        QVERIFY(reveal->isVisible());
-        QVERIFY(!scene.toolbarVisible());
-        QVERIFY(!scene.pinned());
-        QVERIFY(saveUiSnapshot(scene, QStringLiteral("windowed-toolbar-button")));
-        QSignalSpy buttons(&scene, &QtSessionWindow::remoteButton);
-        QSignalSpy motion(&scene, &QtSessionWindow::remoteMotion);
-        QSignalSpy wheel(&scene, &QtSessionWindow::remoteWheel);
-        const auto point = controlCenter(scene, "toolbarRevealButton");
-        mouse(scene, QEvent::MouseMove, point);
-        QCOMPARE(scene.cursor().shape(), Qt::ArrowCursor);
-        QWheelEvent scroll(point, point, {}, {0, 120}, {}, {}, Qt::NoScrollPhase, false);
-        QCoreApplication::sendEvent(&scene, &scroll);
-        mouse(scene, QEvent::MouseButtonPress, point, Qt::LeftButton, Qt::LeftButton);
-        mouse(scene, QEvent::MouseMove, {500, 300}, Qt::NoButton, Qt::LeftButton);
-        mouse(scene, QEvent::MouseButtonRelease, {500, 300}, Qt::LeftButton);
-        QVERIFY(!scene.toolbarVisible());
-        mouse(scene, QEvent::MouseMove, point);
-        mouse(scene, QEvent::MouseButtonPress, point, Qt::LeftButton, Qt::LeftButton);
-        mouse(scene, QEvent::MouseButtonRelease, point, Qt::LeftButton);
-        QVERIFY(scene.toolbarVisible());
-        QVERIFY(!scene.pinned());
-        QVERIFY(!reveal->isVisible());
-        QVERIFY(buttons.isEmpty());
-        QVERIFY(motion.isEmpty());
-        QVERIFY(wheel.isEmpty());
-        QVERIFY(saveUiSnapshot(scene, QStringLiteral("windowed-toolbar-revealed")));
-
-        // A hidden toolbar must never strand a decorated window again.
-        mouse(scene, QEvent::MouseMove, {500, 300});
-        QTRY_VERIFY_WITH_TIMEOUT(!scene.toolbarVisible(), 6000);
-        QVERIFY(reveal->isVisible());
-        QVERIFY(!scene.pinned());
-    }
-
-    void toolbarButtonHoverAndRemoteDrag()
-    {
-        QtSessionWindow scene;
-        prepare(scene);
-        const auto point = controlCenter(scene, "toolbarRevealButton");
-        QSignalSpy buttons(&scene, &QtSessionWindow::remoteButton);
-        QSignalSpy motion(&scene, &QtSessionWindow::remoteMotion);
-        mouse(scene, QEvent::MouseButtonPress, {500, 300}, Qt::LeftButton, Qt::LeftButton);
-        mouse(scene, QEvent::MouseMove, point, Qt::NoButton, Qt::LeftButton);
-        QTest::qWait(1100);
-        QVERIFY(!scene.toolbarVisible());
-        QCOMPARE(motion.count(), 1);
-        mouse(scene, QEvent::MouseButtonRelease, point, Qt::LeftButton);
-        QCOMPARE(buttons.count(), 2);
-        QVERIFY(!buttons.last().at(1).toBool());
-        QVERIFY(!scene.toolbarVisible());
-
-        // Hover is optional; leaving the button cancels the one-second dwell.
-        mouse(scene, QEvent::MouseMove, point);
+        // Twelve logical pixels below the title bar, independent of DPI and
+        // Host geometry. Leaving that strip must still cancel its timer.
+        mouse(scene, QEvent::MouseMove, {20, 11});
         QTest::qWait(400);
-        QEvent leave(QEvent::Leave);
-        QCoreApplication::sendEvent(&scene, &leave);
+        mouse(scene, QEvent::MouseMove, {20, 12});
         QTest::qWait(700);
         QVERIFY(!scene.toolbarVisible());
-        mouse(scene, QEvent::MouseMove, point);
+        mouse(scene, QEvent::MouseMove, {20, 11});
         QTRY_VERIFY_WITH_TIMEOUT(scene.toolbarVisible(), 1600);
         QVERIFY(!scene.pinned());
+
+        // A fresh fullscreen shell keeps the narrow physical-edge trigger.
+        QtSessionShell fullscreenShell;
+        fullscreenShell.resize(1280, 720);
+        fullscreenShell.showFullScreen();
+        auto& fullscreenScene = fullscreenShell.surface();
+        QTRY_VERIFY(fullscreenScene.fullscreen());
+        QTRY_VERIFY(fullscreenScene.isExposed());
+        fullscreenScene.setPresentation(fullFrame(fullscreenScene.size()));
+        fullscreenScene.setRemoteInputEnabled(true);
+        mouse(fullscreenScene, QEvent::MouseMove, {20, 11});
+        QTest::qWait(1100);
+        QVERIFY(!fullscreenScene.toolbarVisible());
+        mouse(fullscreenScene, QEvent::MouseMove, {20, 2});
+        QTRY_VERIFY_WITH_TIMEOUT(fullscreenScene.toolbarVisible(), 1600);
     }
 
-    void toolbarButtonTracksShellStateAndRecovery()
+    void windowedRevealTracksShellStateAndRecovery()
     {
         QtSessionShell shell;
         auto& scene = shell.surface();
@@ -421,48 +382,52 @@ private slots:
         shell.show();
         QTRY_COMPARE(scene.size(), shell.size());
         QTRY_VERIFY(scene.isExposed());
-        auto* reveal = scene.rootObject()->findChild<QQuickItem*>(QStringLiteral("toolbarRevealButton"));
-        QVERIFY(reveal);
-        QVERIFY(reveal->isVisible());
         for (int round = 0; round < 3; ++round) {
             shell.showFullScreen();
             QTRY_VERIFY(scene.fullscreen());
-            QVERIFY(!reveal->isVisible());
             // The scene remains a native child; only the shell is fullscreen.
             QCOMPARE(scene.windowState(), Qt::WindowNoState);
             shell.showNormal();
             QTRY_VERIFY(!scene.fullscreen());
-            QTRY_VERIFY(reveal->isVisible());
         }
         scene.setWaiting(true);
-        QVERIFY(!reveal->isVisible());
-        scene.revealToolbar();
+        mouse(scene, QEvent::MouseMove, {20, 8});
+        QTest::qWait(1100);
         QVERIFY(!scene.toolbarVisible());
         scene.setWaiting(false);
-        QVERIFY(reveal->isVisible());
+        mouse(scene, QEvent::MouseMove, {20, 8});
+        QTRY_VERIFY_WITH_TIMEOUT(scene.toolbarVisible(), 1600);
+        QVERIFY(!scene.pinned());
+        QVERIFY(saveUiSnapshot(scene, QStringLiteral("windowed-toolbar-revealed")));
         scene.setPinned(true);
-        QVERIFY(!reveal->isVisible());
         shell.showFullScreen();
         shell.showNormal();
         QTRY_VERIFY(!scene.fullscreen());
         QVERIFY(scene.pinned());
         QVERIFY(scene.toolbarVisible());
-        QVERIFY(!reveal->isVisible());
     }
 
-    void toolbarButtonWorksWithReleasedInput()
+    void windowedRevealPreservesDragAndReleasedInput()
     {
         QtSessionWindow scene;
         prepare(scene);
+        QSignalSpy buttons(&scene, &QtSessionWindow::remoteButton);
+        mouse(scene, QEvent::MouseButtonPress, {500, 300}, Qt::LeftButton, Qt::LeftButton);
+        mouse(scene, QEvent::MouseMove, {20, 8}, Qt::NoButton, Qt::LeftButton);
+        QTest::qWait(1100);
+        QVERIFY(!scene.toolbarVisible());
+        mouse(scene, QEvent::MouseButtonRelease, {20, 8}, Qt::LeftButton);
+        QCOMPARE(buttons.count(), 2);
+        QVERIFY(!buttons.last().at(1).toBool());
+        buttons.clear();
+
+        // Released-input mode must still allow reveal and local fullscreen.
         scene.setLiveSession(true);
         scene.setRemoteInputEnabled(false);
         QSignalSpy recapture(&scene, &QtSessionWindow::inputRecaptureRequested);
         QSignalSpy fullscreen(&scene, &QtSessionWindow::fullscreenRequested);
-        QSignalSpy buttons(&scene, &QtSessionWindow::remoteButton);
-        const auto reveal = controlCenter(scene, "toolbarRevealButton");
-        mouse(scene, QEvent::MouseButtonPress, reveal, Qt::LeftButton, Qt::LeftButton);
-        mouse(scene, QEvent::MouseButtonRelease, reveal, Qt::LeftButton);
-        QVERIFY(scene.toolbarVisible());
+        mouse(scene, QEvent::MouseMove, {20, 8});
+        QTRY_VERIFY_WITH_TIMEOUT(scene.toolbarVisible(), 1600);
         const auto full = controlCenter(scene, "fullscreenButton");
         mouse(scene, QEvent::MouseButtonPress, full, Qt::LeftButton, Qt::LeftButton);
         mouse(scene, QEvent::MouseButtonRelease, full, Qt::LeftButton);

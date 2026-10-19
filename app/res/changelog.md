@@ -1,8 +1,8 @@
 ## 1.1.045 — Ubuntu Qt window controls
 
 ### Client
-- Keep a Show Toolbar button available in windowed sessions when the toolbar is hidden.
-- Reveal the toolbar with a click or a one-second hover, without changing your Pin preference.
+- Make the toolbar easier to reveal in windowed mode with a wider hover area below the title bar.
+- Keep the one-second reveal delay, five-second hide delay and your Pin preference unchanged.
 - Retain the recent fixes for hardware video presentation and Wacom cursor updates.
 
 ### Host
