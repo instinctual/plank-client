@@ -8,6 +8,8 @@
 
 #include "../plankpresentation.h"
 
+class IFFmpegRendererFactory;
+
 #define SDL_CODE_FRAME_READY 0
 
 #define MAX_SLICES 4
@@ -75,6 +77,9 @@ typedef struct _DECODER_PARAMETERS {
     bool enableIdentityGbr;
     bool testOnly;
     const PlankPresentationLayout* presentationLayout;
+    // Optional UI-owned presenter. Null preserves the established SDL policy.
+    // The factory outlives decoder startup, reconnect and destruction.
+    IFFmpegRendererFactory* rendererFactory;
 } DECODER_PARAMETERS, *PDECODER_PARAMETERS;
 
 #define WINDOW_STATE_CHANGE_SIZE 0x01

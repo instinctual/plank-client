@@ -142,6 +142,7 @@ bool FFmpegVideoDecoder::suspendForReconnect()
     if (m_Pacer != nullptr) {
         m_Pacer->discardQueuedFrames();
     }
+    if (m_FrontendRenderer != nullptr) m_FrontendRenderer->discardPendingFrames();
     avcodec_flush_buffers(m_VideoDecoderCtx);
     m_FramesIn = 0;
     m_FramesOut = 0;
@@ -157,7 +158,8 @@ bool FFmpegVideoDecoder::suspendForReconnect()
 bool FFmpegVideoDecoder::resumeAfterReconnect()
 {
     if (m_TestOnly || m_DecoderThread != nullptr || m_VideoDecoderCtx == nullptr ||
-            m_Pacer == nullptr || m_FrontendRenderer == nullptr) {
+            m_FrontendRenderer == nullptr ||
+            (m_Pacer == nullptr && !m_FrontendRenderer->ownsPresentationScheduling())) {
         return false;
     }
 
@@ -373,6 +375,10 @@ void FFmpegVideoDecoder::reset()
 
 bool FFmpegVideoDecoder::createFrontendRenderer(PDECODER_PARAMETERS params, bool useAlternateFrontend)
 {
+    if (params->rendererFactory) {
+        m_FrontendRenderer = m_BackendRenderer;
+        return m_FrontendRenderer != nullptr;
+    }
     if (useAlternateFrontend) {
 #ifdef HAVE_EGL
         // Identity GBR relies on importing the packed Y410 VAAPI surface as
@@ -533,7 +539,7 @@ bool FFmpegVideoDecoder::completeInitialization(const AVCodec* decoder, enum AVP
     m_IdentityGbrEnabled = params->enableIdentityGbr;
 
     // Don't bother initializing Pacer if we're not actually going to render
-    if (!testFrame) {
+    if (!testFrame && !m_FrontendRenderer->ownsPresentationScheduling()) {
         m_Pacer = new Pacer(m_FrontendRenderer, &m_ActiveWndVideoStats);
         if (!m_Pacer->initialize(params->window, params->frameRate,
                                  params->enableFramePacing || (params->enableVsync && (m_FrontendRenderer->getRendererAttributes() & RENDERER_ATTRIBUTE_FORCE_PACING)))) {
@@ -1370,12 +1376,15 @@ bool FFmpegVideoDecoder::tryInitializeRenderer(const AVCodec* decoder,
     // i == 0 - Indirect via EGL or DRM frontend with zero-copy DMA-BUF passing
     // i == 1 - Direct rendering or indirect via SDL read-back
 #ifdef HAVE_EGL
-    for (int i = 0; i < 2; i++) {
+    for (int i = params->rendererFactory ? 1 : 0; i < 2; i++) {
 #else
     for (int i = 1; i < 2; i++) {
 #endif
         SDL_assert(m_BackendRenderer == nullptr);
-        if ((m_BackendRenderer = createRendererFunc()) != nullptr &&
+        const auto createRenderer = [&] {
+            return params->rendererFactory ? params->rendererFactory->createRenderer(hwConfig) : createRendererFunc();
+        };
+        if ((m_BackendRenderer = createRenderer()) != nullptr &&
                 m_BackendRenderer->initialize((m_TestOnly || m_BackendRenderer->needsTestFrame()) ? &testFrameDecoderParams : params) &&
                 completeInitialization(decoder, requiredFormat,
                                        (m_TestOnly || m_BackendRenderer->needsTestFrame()) ? &testFrameDecoderParams : params,
@@ -1390,7 +1399,7 @@ bool FFmpegVideoDecoder::tryInitializeRenderer(const AVCodec* decoder,
             if (m_BackendRenderer->needsTestFrame()) {
                 // The test worked, so now let's initialize it for real
                 reset();
-                if ((m_BackendRenderer = createRendererFunc()) != nullptr &&
+                if ((m_BackendRenderer = createRenderer()) != nullptr &&
                         m_BackendRenderer->initialize(params) &&
                         completeInitialization(decoder, requiredFormat, params, false, i == 0 /* EGL/DRM */)) {
                     return true;
@@ -1467,6 +1476,11 @@ bool FFmpegVideoDecoder::tryInitializeRendererForUnknownDecoder(const AVCodec* d
 {
     if (!decoder) {
         return false;
+    }
+
+    if (params->rendererFactory && !tryHwAccel) {
+        return tryInitializeRenderer(decoder, AV_PIX_FMT_NONE, params, nullptr, nullptr,
+                                     []() -> IFFmpegRenderer* { return nullptr; });
     }
 
     const AVPixelFormat* pixelFormats = getSupportedPixelFormats(decoder);
@@ -1996,7 +2010,12 @@ void FFmpegVideoDecoder::decoderThreadProc()
                     m_ActiveWndVideoStats.decodedFrames++;
 
                     // Queue the frame for rendering (or render now if pacer is disabled)
-                    m_Pacer->submitFrame(frame);
+                    if (m_FrontendRenderer->ownsPresentationScheduling()) {
+                        m_FrontendRenderer->renderFrame(frame);
+                        av_frame_free(&frame);
+                    } else {
+                        m_Pacer->submitFrame(frame);
+                    }
                 }
                 else if (err == AVERROR(EAGAIN)) {
                     VIDEO_FRAME_HANDLE handle;
@@ -2075,6 +2094,7 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
 
     // Flip stats windows roughly every second
     if (SDL_GetTicks() >= m_ActiveWndVideoStats.measurementStartTimestamp + 1000) {
+        m_FrontendRenderer->collectPresentationStats(m_ActiveWndVideoStats);
         VIDEO_STATS lastTwoWndStats = {};
         addVideoStats(m_LastWndVideoStats, lastTwoWndStats);
         addVideoStats(m_ActiveWndVideoStats, lastTwoWndStats);
@@ -2185,5 +2205,5 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
 
 void FFmpegVideoDecoder::renderFrameOnMainThread()
 {
-    m_Pacer->renderOnMainThread();
+    if (m_Pacer) m_Pacer->renderOnMainThread();
 }

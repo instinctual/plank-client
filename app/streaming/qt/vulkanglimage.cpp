@@ -59,8 +59,8 @@ bool QtVulkanGlImage::supported(pl_vulkan vk, QString& error)
         error = QStringLiteral("Qt cannot verify the GL/Vulkan device identity");
         return false;
     }
-    VkPhysicalDeviceIDProperties id{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
-    VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    VkPhysicalDeviceIDProperties id{}; id.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
+    VkPhysicalDeviceProperties2 properties{}; properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     properties.pNext = &id;
     vkGetPhysicalDeviceProperties2(vk->phys_device, &properties);
     std::array<GLubyte, VK_UUID_SIZE> driver{}, device{};
@@ -79,17 +79,17 @@ bool QtVulkanGlImage::supported(pl_vulkan vk, QString& error)
         error = QStringLiteral("Qt GL and Vulkan must use the same device and compatible driver");
         return false;
     }
-    VkPhysicalDeviceExternalImageFormatInfo external{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO};
+    VkPhysicalDeviceExternalImageFormatInfo external{}; external.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO;
     external.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-    VkPhysicalDeviceImageFormatInfo2 info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2};
+    VkPhysicalDeviceImageFormatInfo2 info{}; info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
     info.pNext = &external; info.format = ImageFormat; info.type = VK_IMAGE_TYPE_2D;
     info.tiling = VK_IMAGE_TILING_OPTIMAL; info.usage = ImageUsage;
-    VkExternalImageFormatProperties extProps{VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES};
-    VkImageFormatProperties2 props{VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2};
+    VkExternalImageFormatProperties extProps{}; extProps.sType = VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES;
+    VkImageFormatProperties2 props{}; props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
     props.pNext = &extProps;
-    VkPhysicalDeviceExternalSemaphoreInfo semInfo{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO};
+    VkPhysicalDeviceExternalSemaphoreInfo semInfo{}; semInfo.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO;
     semInfo.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
-    VkExternalSemaphoreProperties semProps{VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES};
+    VkExternalSemaphoreProperties semProps{}; semProps.sType = VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES;
     vkGetPhysicalDeviceExternalSemaphoreProperties(vk->phys_device, &semInfo, &semProps);
     if (vkGetPhysicalDeviceImageFormatProperties2(vk->phys_device, &info, &props) != VK_SUCCESS ||
             !(extProps.externalMemoryProperties.externalMemoryFeatures & VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT) ||
@@ -123,8 +123,8 @@ bool QtVulkanGlImage::initialize(QString& error)
         return fail("dimensions");
     // A single queue family is required for this exclusive image. Device
     // creation for this adapter disables asynchronous compute/transfer queues.
-    if (m_Vulkan->queue_compute.index != m_Vulkan->queue_graphics.index ||
-            m_Vulkan->queue_transfer.index != m_Vulkan->queue_graphics.index)
+    if ((m_Vulkan->queue_compute.count && m_Vulkan->queue_compute.index != m_Vulkan->queue_graphics.index) ||
+            (m_Vulkan->queue_transfer.count && m_Vulkan->queue_transfer.index != m_Vulkan->queue_graphics.index))
         return fail("exclusive queue family");
     m_Api = std::make_unique<Api>();
     m_Api->getMemoryFd = reinterpret_cast<PFN_vkGetMemoryFdKHR>(
@@ -133,9 +133,9 @@ bool QtVulkanGlImage::initialize(QString& error)
         vkGetDeviceProcAddr(m_Vulkan->device, "vkGetSemaphoreFdKHR"));
     if (!m_Api->valid()) return fail("entry points");
     const auto device = m_Vulkan->device;
-    VkExternalMemoryImageCreateInfo external{VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO};
+    VkExternalMemoryImageCreateInfo external{}; external.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
     external.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-    VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    VkImageCreateInfo image{}; image.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image.pNext = &external; image.imageType = VK_IMAGE_TYPE_2D; image.format = ImageFormat;
     image.extent = {uint32_t(m_Size.width()), uint32_t(m_Size.height()), 1};
     image.mipLevels = image.arrayLayers = 1; image.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -153,15 +153,15 @@ bool QtVulkanGlImage::initialize(QString& error)
             type = i; break;
         }
     if (type == memoryProperties.memoryTypeCount) return fail("device-local memory");
-    VkMemoryDedicatedAllocateInfo dedicated{VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO};
+    VkMemoryDedicatedAllocateInfo dedicated{}; dedicated.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
     dedicated.image = m_Image;
-    VkExportMemoryAllocateInfo exporting{VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO};
+    VkExportMemoryAllocateInfo exporting{}; exporting.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
     exporting.pNext = &dedicated; exporting.handleTypes = external.handleTypes;
-    VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    VkMemoryAllocateInfo allocate{}; allocate.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocate.pNext = &exporting; allocate.allocationSize = requirements.size; allocate.memoryTypeIndex = type;
     if (vkAllocateMemory(device, &allocate, nullptr, &m_Memory) != VK_SUCCESS ||
             vkBindImageMemory(device, m_Image, m_Memory, 0) != VK_SUCCESS) return fail("image memory");
-    VkMemoryGetFdInfoKHR memoryFd{VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR};
+    VkMemoryGetFdInfoKHR memoryFd{}; memoryFd.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
     memoryFd.memory = m_Memory; memoryFd.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
     int fd = -1;
     if (m_Api->getMemoryFd(device, &memoryFd, &fd) != VK_SUCCESS || fd < 0) return fail("memory export");
@@ -179,11 +179,11 @@ bool QtVulkanGlImage::initialize(QString& error)
     gl->glBindTexture(GL_TEXTURE_2D, 0);
     if (gl->glGetError() != GL_NO_ERROR) return fail("GL RGB10 storage");
     auto semaphore = [&](VkSemaphore& vkSem, GLuint& glSem) {
-        VkExportSemaphoreCreateInfo exportingSem{VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO};
+        VkExportSemaphoreCreateInfo exportingSem{}; exportingSem.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO;
         exportingSem.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
-        VkSemaphoreCreateInfo create{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO}; create.pNext = &exportingSem;
+        VkSemaphoreCreateInfo create{}; create.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO; create.pNext = &exportingSem;
         if (vkCreateSemaphore(device, &create, nullptr, &vkSem) != VK_SUCCESS) return false;
-        VkSemaphoreGetFdInfoKHR get{VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR};
+        VkSemaphoreGetFdInfoKHR get{}; get.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR;
         get.semaphore = vkSem; get.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
         int semFd = -1;
         if (m_Api->getSemaphoreFd(device, &get, &semFd) != VK_SUCCESS || semFd < 0) return false;
