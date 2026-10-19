@@ -1,4 +1,5 @@
 #include "sessionwindow.h"
+#include "sessionshortcut.h"
 #include "../../settings/streamingpreferences.h"
 
 #include <QCloseEvent>
@@ -391,15 +392,21 @@ quint64 QtSessionWindow::keyIdentity(const QKeyEvent* event)
 
 void QtSessionWindow::keyPressEvent(QKeyEvent* event)
 {
-    if (!m_RemoteInputEnabled && !m_Waiting && !event->isAutoRepeat() &&
-            event->key() == Qt::Key_Z &&
-            (event->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::ShiftModifier)) ==
-            (Qt::ControlModifier | Qt::AltModifier | Qt::ShiftModifier)) {
-        emit inputRecaptureRequested();
-        event->accept();
+    if (!remoteKeyboard()) {
+        const int shortcut = qtSessionShortcut(event->nativeScanCode(), event->key(), event->modifiers());
+        // Disconnect is local even during startup, released input or a Host
+        // timeout. It must not depend on a healthy remote input channel.
+        if (shortcut == Qt::Key_Q || (!m_Waiting && shortcut == Qt::Key_Z)) {
+            if (!event->isAutoRepeat()) {
+                if (shortcut == Qt::Key_Q) disconnectSession();
+                else emit inputRecaptureRequested();
+            }
+            event->accept();
+            return;
+        }
+        QQuickView::keyPressEvent(event);
         return;
     }
-    if (!remoteKeyboard()) { QQuickView::keyPressEvent(event); return; }
     const auto id = keyIdentity(event);
     if (!m_RemoteKeys.contains(id) && event->isAutoRepeat()) {
         event->accept();

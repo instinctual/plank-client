@@ -1,6 +1,7 @@
 #include <QtTest>
 #include "../../app/streaming/input/remotecursor.h"
 #include "../../app/streaming/qt/linuxkeymap.h"
+#include "../../app/streaming/qt/sessionshortcut.h"
 #include <thread>
 #include <atomic>
 
@@ -38,6 +39,15 @@ class QtInputTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void localShortcutsUseOneLayoutPolicy()
+    {
+        constexpr auto modifiers = Qt::ControlModifier | Qt::AltModifier | Qt::ShiftModifier;
+        QCOMPARE(qtSessionShortcut(KEY_Q + 8, Qt::Key_Q, modifiers), int(Qt::Key_Q));
+        QCOMPARE(qtSessionShortcut(KEY_Q + 8, 0x419, modifiers), int(Qt::Key_Q));
+        QCOMPARE(qtSessionShortcut(KEY_Q + 8, Qt::Key_Z, modifiers), int(Qt::Key_Z));
+        QCOMPARE(qtSessionShortcut(KEY_Q + 8, Qt::Key_Q, Qt::ControlModifier), 0);
+        QCOMPARE(qtSessionShortcut(0, Qt::Key_unknown, modifiers), 0);
+    }
     void boundedShapeDelivery()
     {
         PlankRemoteCursor cursor;

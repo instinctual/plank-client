@@ -1,4 +1,5 @@
 #include "sessioninput.h"
+#include "sessionshortcut.h"
 #include "../input/linuxwacom.h"
 #include "../input/linuxrawwacom.h"
 #include <QClipboard>
@@ -206,13 +207,9 @@ void QtSessionInput::key(quint32 scan, int key, bool down, bool repeat, Qt::Keyb
 {
     if (repeat) return; // repeat is generated on the Host, as in the ordinary Client
     if (!down && m_ShortcutKeys.remove(scan)) return;
-    if (down && m_Enabled && (modifiers & (Qt::ControlModifier | Qt::AltModifier | Qt::ShiftModifier)) ==
-            (Qt::ControlModifier | Qt::AltModifier | Qt::ShiftModifier)) {
-        const auto physical = qtLinuxRemoteKey(scan).vk;
-        const auto special = [](int code) { return code == Qt::Key_Q || code == Qt::Key_Z || code == Qt::Key_X ||
-            code == Qt::Key_S || code == Qt::Key_D || code == Qt::Key_V || code == Qt::Key_L || code == Qt::Key_K; };
-        const int shortcut = special(key) ? key : int(physical);
-        if (special(shortcut)) { m_ShortcutKeys.insert(scan); releaseAll(); emit shortcutRequested(shortcut); return; }
+    if (down && m_Enabled) {
+        const int shortcut = qtSessionShortcut(scan, key, modifiers);
+        if (shortcut) { m_ShortcutKeys.insert(scan); releaseAll(); emit shortcutRequested(shortcut); return; }
     }
     auto mapped = qtLinuxRemoteKey(scan);
     if (down) {

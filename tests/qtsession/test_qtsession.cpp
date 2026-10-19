@@ -468,6 +468,45 @@ private slots:
         QCOMPARE(fullscreen.count(), 1); QCOMPARE(minimize.count(), 1);
         QCOMPARE(shell.windowState(), Qt::WindowNoState);
     }
+
+    void disconnectWithoutRemoteInput_data()
+    {
+        QTest::addColumn<bool>("waiting");
+        QTest::addColumn<bool>("remoteEnabled");
+        QTest::addColumn<int>("key");
+        QTest::newRow("startup-or-released") << false << false << int(Qt::Key_Q);
+        QTest::newRow("waiting-released") << true << false << int(Qt::Key_Q);
+        QTest::newRow("waiting-enabled") << true << true << int(Qt::Key_Q);
+        QTest::newRow("non-latin-layout") << true << false << 0x419;
+    }
+
+    void disconnectWithoutRemoteInput()
+    {
+        QFETCH(bool, waiting);
+        QFETCH(bool, remoteEnabled);
+        QFETCH(int, key);
+        QtSessionShell shell;
+        auto& scene = shell.surface();
+        scene.setLiveSession(true);
+        scene.setRemoteInputEnabled(remoteEnabled);
+        scene.setWaiting(waiting);
+        QSignalSpy disconnect(&scene, &QtSessionWindow::disconnectRequested);
+        QSignalSpy keys(&scene, &QtSessionWindow::remoteKey);
+        constexpr auto modifiers = Qt::ControlModifier | Qt::AltModifier | Qt::ShiftModifier;
+        QKeyEvent ordinary(QEvent::KeyPress, key, Qt::ControlModifier, 24, 0, 0);
+        QCoreApplication::sendEvent(&shell, &ordinary);
+        QVERIFY(disconnect.isEmpty());
+        QKeyEvent repeat(QEvent::KeyPress, key, modifiers, 24, 0, 0, {}, true);
+        QCoreApplication::sendEvent(&shell, &repeat);
+        QVERIFY(disconnect.isEmpty());
+        QKeyEvent down(QEvent::KeyPress, key, modifiers, 24, 0, 0);
+        QCoreApplication::sendEvent(&shell, &down);
+        QCOMPARE(disconnect.count(), 1);
+        QKeyEvent up(QEvent::KeyRelease, key, modifiers, 24, 0, 0);
+        QCoreApplication::sendEvent(&shell, &up);
+        QCOMPARE(disconnect.count(), 1);
+        QVERIFY(keys.isEmpty());
+    }
 };
 
 int main(int argc, char** argv)

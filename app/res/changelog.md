@@ -1,10 +1,11 @@
-## 1.1.041 — Ubuntu Qt client candidate
+## 1.1.042 — Ubuntu Qt client candidate
 
 ### Client
 - Add a separate PLANK Client Qt app for testing, without replacing your installed client or sharing its settings.
 - Let Qt manage streaming windows, the toolbar, cursors and input on Ubuntu.
 - Preserve the existing encoding profiles, audio synchronization, microphone, camera and Wacom forwarding.
 - Keep the interface responsive during connection, recovery and disconnect.
+- Keep the Disconnect shortcut available while remote input is released or the Host is unreachable.
 
 ### Host
 - No changes; use the same Host as the ordinary client.
