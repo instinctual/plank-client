@@ -7,6 +7,7 @@ extern "C" {
 }
 
 #include <memory>
+#include <list>
 #include <mutex>
 #include <unordered_map>
 
@@ -37,13 +38,17 @@ public:
 private:
     struct State;
     struct Allocation;
+    struct Transfer;
     static AVBufferRef* allocate(void* opaque, size_t size);
     static void freeAllocation(void* opaque, uint8_t* data);
     static void releaseTransfer(void* opaque);
+    void collectTransfers();
     AVBufferRef* getBufferRef(size_t size);
 
     std::shared_ptr<State> m_State;
     std::mutex m_PoolMutex;
     std::unordered_map<size_t, AVBufferPool*> m_Pools;
+    std::mutex m_TransferMutex;
+    std::list<std::unique_ptr<Transfer>> m_Transfers;
     bool m_HasTransfers = false;
 };

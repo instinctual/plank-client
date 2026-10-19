@@ -9,6 +9,7 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <atomic>
 #include <climits>
 #include <cstdint>
 #include <limits>
@@ -51,6 +52,12 @@ struct PlVkFramePool::Allocation {
     void* base = nullptr;
 };
 
+struct PlVkFramePool::Transfer {
+    AVBufferRef* buffer = nullptr;
+    std::atomic_bool complete{false};
+    ~Transfer() { av_buffer_unref(&buffer); }
+};
+
 PlVkFramePool::PlVkFramePool(pl_gpu gpu, std::shared_ptr<void> deviceLifetime) :
     m_State(std::make_shared<State>())
 {
@@ -67,6 +74,7 @@ PlVkFramePool::~PlVkFramePool()
     // Complete callbacks while the owner still holds the device, then retire the
     // pools. Outstanding external AVFrames can outlive the pools themselves.
     if (m_HasTransfers) pl_gpu_finish(m_State->gpu);
+    m_Transfers.clear();
     for (auto& entry : m_Pools) av_buffer_pool_uninit(&entry.second);
 }
 
@@ -131,6 +139,7 @@ AVBufferRef* PlVkFramePool::allocate(void* opaque, size_t size)
 
 AVBufferRef* PlVkFramePool::getBufferRef(size_t size)
 {
+    collectTransfers();
     std::lock_guard<std::mutex> lock(m_PoolMutex);
     try {
         AVBufferPool*& pool = m_Pools[size];
@@ -207,12 +216,29 @@ int PlVkFramePool::getBuffer(AVCodecContext* context, AVFrame* frame, int flags)
 
 void PlVkFramePool::releaseTransfer(void* opaque)
 {
-    auto buffer = static_cast<AVBufferRef*>(opaque);
-    av_buffer_unref(&buffer);
+    // libplacebo may run this inside pl_buf_create(), which is called with
+    // FFmpeg's AVBufferPool mutex held. Never release a reference here: returning
+    // it to the same pool would deadlock. Do not allocate or take locks either.
+    static_cast<Transfer*>(opaque)->complete.store(true, std::memory_order_release);
+}
+
+void PlVkFramePool::collectTransfers()
+{
+    std::list<std::unique_ptr<Transfer>> completed;
+    {
+        std::lock_guard<std::mutex> lock(m_TransferMutex);
+        for (auto it = m_Transfers.begin(); it != m_Transfers.end();) {
+            auto current = it++;
+            if ((*current)->complete.load(std::memory_order_acquire))
+                completed.splice(completed.end(), m_Transfers, current);
+        }
+    }
+    // Destruction/AVBuffer unref happens outside all our locks and GPU calls.
 }
 
 bool PlVkFramePool::upload(const AVFrame* frame, pl_frame* mappedFrame, pl_tex textures[4])
 {
+    collectTransfers();
     if (!frame || !mappedFrame || !textures || !supported(m_State->gpu) ||
             frame->width <= 0 || frame->height <= 0) return false;
     const auto format = static_cast<AVPixelFormat>(frame->format);
@@ -263,12 +289,22 @@ bool PlVkFramePool::upload(const AVFrame* frame, pl_frame* mappedFrame, pl_tex t
 
     for (int plane = 0; plane < count; ++plane) {
         auto& data = planes[plane];
-        data.priv = av_buffer_ref(buffers[plane]);
-        if (!data.priv) return false;
+        auto transfer = std::unique_ptr<Transfer>(new (std::nothrow) Transfer);
+        if (!transfer) return false;
+        transfer->buffer = av_buffer_ref(buffers[plane]);
+        if (!transfer->buffer) return false;
+        data.priv = transfer.get();
+        try {
+            std::lock_guard<std::mutex> lock(m_TransferMutex);
+            m_Transfers.push_back(std::move(transfer));
+        } catch (const std::bad_alloc&) {
+            return false;
+        }
         data.callback = releaseTransfer;
         m_HasTransfers = true;
         if (!pl_upload_plane(m_State->gpu, &mappedFrame->planes[plane], &textures[plane], &data)) {
             releaseTransfer(data.priv);
+            collectTransfers();
             return false;
         }
         mappedFrame->planes[plane].texture = textures[plane];

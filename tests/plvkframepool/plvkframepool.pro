@@ -2,6 +2,7 @@ QT += core testlib
 QT -= gui
 CONFIG += console testcase c++17 link_pkgconfig
 TEMPLATE = app
+PRE_TARGETDEPS += $$PWD/plvkframepool.pro
 PKGCONFIG += libavcodec libavutil libplacebo vulkan
 QMAKE_RPATHDIR += $$system(pkg-config --variable=libdir libavutil)
 # The retained FFmpeg shared objects have no install RPATH of their own. Tests

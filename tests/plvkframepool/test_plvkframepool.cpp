@@ -14,6 +14,7 @@ extern "C" {
 
 namespace {
 bool realGpu = false;
+bool completeOnAllocate = false;
 std::atomic_int allocations{0}, frees{0};
 int failAllocation = 0, failUpload = 0, uploads = 0, finishes = 0;
 struct Transfer { void (*callback)(void*); void* opaque; pl_plane_data data; };
@@ -103,6 +104,7 @@ pl_buf __wrap_pl_buf_create(pl_gpu gpu, const pl_buf_params* params)
 {
     const int count = ++allocations;
     if (realGpu) return __real_pl_buf_create(gpu, params);
+    if (completeOnAllocate) finishTransfers();
     if (count == failAllocation) return nullptr;
     if (params->import_handle != PL_HANDLE_HOST_PTR ||
             reinterpret_cast<uintptr_t>(params->shared_mem.handle.ptr) % gpu->limits.align_host_ptr)
@@ -143,6 +145,7 @@ private slots:
     void init()
     {
         realGpu = false;
+        completeOnAllocate = false;
         allocations = frees = 0;
         uploads = finishes = failAllocation = failUpload = 0;
         QVERIFY(transfers.empty());
@@ -215,6 +218,23 @@ private slots:
         av_frame_unref(f.frame);
         QVERIFY(weak.expired());
         QCOMPARE(frees.load(), 3);
+    }
+    void completionInsideAllocationDoesNotReenterPool()
+    {
+        Fixture f;
+        PlVkFramePool pool(&f.gpu);
+        QCOMPARE(pool.getBuffer(f.codec, f.frame, 0), 0);
+        pl_frame mapped{}; pl_tex textures[4]{};
+        QVERIFY(pool.upload(f.frame, &mapped, textures));
+        QVERIFY(!av_frame_is_writable(f.frame));
+        av_frame_unref(f.frame); f.prepare();
+        completeOnAllocate = true;
+        // pl_buf_create() delivers prior callbacks while AVBufferPool's mutex
+        // is held. A callback that unrefs directly would hang this test.
+        QCOMPARE(pool.getBuffer(f.codec, f.frame, 0), 0);
+        QCOMPARE(finishes, 0);
+        QVERIFY(transfers.empty());
+        QVERIFY(av_frame_is_writable(f.frame));
     }
     void rejectsForeignAndMalformedPlanes()
     {
