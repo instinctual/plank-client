@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QGuiApplication>
 #include <QQuickItem>
+#include <QScreen>
 #include <QSignalSpy>
 #include <limits>
 
@@ -382,14 +383,25 @@ private slots:
         shell.show();
         QTRY_COMPARE(scene.size(), shell.size());
         QTRY_VERIFY(scene.isExposed());
+        const QSize windowedSize = shell.size();
         for (int round = 0; round < 3; ++round) {
             shell.showFullScreen();
             QTRY_VERIFY(scene.fullscreen());
+            // The requested Qt state changes before the compositor confirms
+            // the resize. Complete each native transition before injecting
+            // the next input sequence, just as a user would see it.
+            QTRY_COMPARE(shell.size(), shell.screen()->geometry().size());
+            QTRY_COMPARE(scene.size(), shell.size());
             // The scene remains a native child; only the shell is fullscreen.
             QCOMPARE(scene.windowState(), Qt::WindowNoState);
             shell.showNormal();
             QTRY_VERIFY(!scene.fullscreen());
+            QTRY_COMPARE(shell.size(), windowedSize);
+            QTRY_COMPARE(scene.size(), windowedSize);
         }
+        QVERIFY(QTest::qWaitForWindowActive(&shell));
+        QVERIFY(!scene.grabWindow().isNull());
+        QCoreApplication::processEvents();
         scene.setWaiting(true);
         mouse(scene, QEvent::MouseMove, {20, 8});
         QTest::qWait(1100);
