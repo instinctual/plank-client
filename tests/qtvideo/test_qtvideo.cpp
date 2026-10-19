@@ -265,6 +265,28 @@ private slots:
         QCoreApplication::sendPostedEvents();
         QCOMPARE(deliveries, 0);
     }
+
+    void consumerCanCloseItsOwnSession()
+    {
+        FrameFixture fixture;
+        QString error;
+        auto frame = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        QVERIFY(frame);
+        std::unique_ptr<QtVideoMailbox> queue;
+        int completed = 0;
+        queue = std::make_unique<QtVideoMailbox>([&](auto delivered) {
+            queue.reset();
+            // The callable and its captures must still be alive after close.
+            QCOMPARE(delivered, frame);
+            ++completed;
+        });
+        const auto producer = queue->startGeneration();
+        QVERIFY(producer.submit(frame));
+        QCoreApplication::sendPostedEvents();
+        QCOMPARE(completed, 1);
+        QVERIFY(!queue);
+        QVERIFY(!producer.submit(frame));
+    }
 };
 QTEST_GUILESS_MAIN(QtVideoTest)
 #include "test_qtvideo.moc"

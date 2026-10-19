@@ -93,7 +93,10 @@ void QtVideoMailbox::drain()
         m_State->notificationQueued = false;
         frame = std::move(m_State->pending);
     }
-    if (frame && m_Consumer) m_Consumer(std::move(frame));
+    // Delivery may synchronously close its session and delete this mailbox.
+    // Keep the callable alive independently and do not touch this afterward.
+    const auto consumer = m_Consumer;
+    if (frame && consumer) consumer(std::move(frame));
 }
 
 QtVideoMailbox::Stats QtVideoMailbox::stats() const

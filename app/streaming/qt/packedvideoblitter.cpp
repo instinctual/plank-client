@@ -111,6 +111,7 @@ bool QtPackedVideoBlitter::draw(GLuint texture, GLenum target, PlankPackedVideo:
     if (!context->isOpenGLES()) gl->glDisable(GL_FRAMEBUFFER_SRGB);
     gl->glDisable(GL_BLEND);
     gl->glDisable(GL_DEPTH_TEST);
+    gl->glDepthMask(GL_FALSE);
     gl->glDisable(GL_STENCIL_TEST);
     gl->glDisable(GL_SCISSOR_TEST);
     gl->glDisable(GL_CULL_FACE);
