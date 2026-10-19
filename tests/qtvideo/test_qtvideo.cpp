@@ -1,4 +1,5 @@
 #include "vaapivideoframe.h"
+#include "videomailbox.h"
 
 #include <QtTest>
 extern "C" {
@@ -7,9 +8,11 @@ extern "C" {
 #include <libavutil/hwcontext_vaapi.h>
 }
 #include <cerrno>
+#include <atomic>
 #include <drm_fourcc.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <thread>
 
 namespace {
 VAStatus syncStatus = VA_STATUS_SUCCESS;
@@ -180,6 +183,88 @@ private slots:
         QCOMPARE(identity8->mapping(), PlankPackedVideo::Mapping::Identity8);
         QCOMPARE(bt709->mapping(), PlankPackedVideo::Mapping::Bt709Full10);
     }
+
+    void coalescesFramesWithoutBlockingProducer()
+    {
+        FrameFixture fixture;
+        QString error;
+        auto first = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        auto last = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        QVERIFY(first && last);
+        int deliveries = 0;
+        QtVaapiVideoFrame::Ptr received;
+        QtVideoMailbox queue([&](auto frame) {
+            QCOMPARE(QThread::currentThread(), thread());
+            ++deliveries; received = std::move(frame);
+        });
+        const auto producer = queue.startGeneration();
+        std::atomic_bool submitted{true};
+        std::thread worker([&] {
+            for (int i = 0; i < 10000; ++i) if (!producer.submit(first)) submitted = false;
+            if (!producer.submit(last)) submitted = false;
+        });
+        worker.join(); // deliberately do not dispatch GUI work until submission finishes
+        QVERIFY(submitted.load());
+        QCOMPARE(deliveries, 0);
+        QCOMPARE(queue.stats().submitted, uint64_t(10001));
+        QCOMPARE(queue.stats().replaced, uint64_t(10000));
+        QVERIFY(queue.stats().pending);
+        QCoreApplication::sendPostedEvents();
+        QCOMPARE(deliveries, 1);
+        QCOMPARE(received, last);
+        QVERIFY(!queue.stats().pending);
+    }
+
+    void reconnectRejectsOldProducerAndPendingFrames()
+    {
+        FrameFixture fixture;
+        QString error;
+        auto first = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        auto last = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        QVERIFY(first && last);
+        int deliveries = 0;
+        QtVaapiVideoFrame::Ptr received;
+        QtVideoMailbox queue([&](auto frame) { ++deliveries; received = std::move(frame); });
+        const auto old = queue.startGeneration();
+        QVERIFY(old.submit(first));
+        const auto current = queue.startGeneration();
+        QVERIFY(!old.submit(first));
+        QVERIFY(current.submit(last));
+        QCoreApplication::sendPostedEvents();
+        QCOMPARE(deliveries, 1);
+        QCOMPARE(received, last);
+        QVERIFY(current.submit(first));
+        queue.retire();
+        QVERIFY(!current.submit(last));
+        QCoreApplication::sendPostedEvents();
+        QCOMPARE(deliveries, 1);
+    }
+
+    void teardownRejectsLiveWorkerWithoutGuiWait()
+    {
+        FrameFixture fixture;
+        QString error;
+        auto frame = QtVaapiVideoFrame::create(fixture.frame, 10, error);
+        QVERIFY(frame);
+        int deliveries = 0;
+        for (int iteration = 0; iteration < 100; ++iteration) {
+            auto queue = std::make_unique<QtVideoMailbox>([&](auto) { ++deliveries; });
+            const auto producer = queue->startGeneration();
+            std::atomic_bool submitted{false};
+            std::thread worker([&] {
+                for (int attempt = 0; attempt < 10000; ++attempt) {
+                    if (!producer.submit(frame)) break;
+                    submitted.store(true);
+                }
+            });
+            while (!submitted.load()) std::this_thread::yield();
+            queue.reset();
+            worker.join();
+            QVERIFY(!producer.submit(frame));
+        }
+        QCoreApplication::sendPostedEvents();
+        QCOMPARE(deliveries, 0);
+    }
 };
-QTEST_APPLESS_MAIN(QtVideoTest)
+QTEST_GUILESS_MAIN(QtVideoTest)
 #include "test_qtvideo.moc"
