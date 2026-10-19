@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QLibraryInfo>
 #include <QScreen>
+#include <QSysInfo>
 #include <QThread>
 
 #ifndef PLANK_QT_CLIENT_EXPERIMENT
