@@ -5,7 +5,9 @@ extern "C" {
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_vaapi.h>
 }
+#include <algorithm>
 #include <climits>
+#include <drm_fourcc.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -34,8 +36,15 @@ bool QtVaapiVideoFrame::validate(const VADRMPRIMESurfaceDescriptor& d,
         return false;
     // All currently accepted storage layouts are four bytes per pixel. With
     // tiled/modifier layouts, size is not a linear pitch*height footprint.
-    return plane.pitch[0] >= uint32_t(size.width()) * 4 && plane.pitch[0] <= INT_MAX &&
-            plane.offset[0] <= INT_MAX && object.size > plane.offset[0];
+    if (plane.pitch[0] < uint32_t(size.width()) * 4 || plane.pitch[0] > INT_MAX ||
+            plane.offset[0] > INT_MAX || object.size <= plane.offset[0])
+        return false;
+    if (object.drm_format_modifier == DRM_FORMAT_MOD_LINEAR) {
+        const uint64_t end = uint64_t(plane.offset[0]) +
+            uint64_t(plane.pitch[0]) * (size.height() - 1) + uint64_t(size.width()) * 4;
+        if (end > object.size) return false;
+    }
+    return true;
 }
 
 uint32_t QtVaapiVideoFrame::importFormat() const

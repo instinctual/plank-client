@@ -3,6 +3,7 @@
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <drm_fourcc.h>
 #include <QOpenGLContext>
 #include <QOpenGLExtraFunctions>
 #include <QQuickWindow>
@@ -79,12 +80,12 @@ public:
             EGL_DMA_BUF_PLANE0_PITCH_EXT, EGLint(p.pitch[0])
         };
         // INVALID means an implicit layout, not a numeric modifier to import.
-        if (object.drm_format_modifier != UINT64_MAX) {
+        if (object.drm_format_modifier != DRM_FORMAT_MOD_INVALID) {
             if (tokens.contains("EGL_EXT_image_dma_buf_import_modifiers")) {
                 attributes.insert(attributes.end(), {
                     EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, EGLint(object.drm_format_modifier & 0xffffffff),
                     EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, EGLint(object.drm_format_modifier >> 32)});
-            } else if (object.drm_format_modifier != 0) {
+            } else if (object.drm_format_modifier != DRM_FORMAT_MOD_LINEAR) {
                 fail(QtEglVideoStatus::ImportFailed); return;
             }
         }

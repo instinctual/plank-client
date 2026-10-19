@@ -7,6 +7,7 @@ extern "C" {
 #include <libavutil/hwcontext_vaapi.h>
 }
 #include <cerrno>
+#include <drm_fourcc.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -104,6 +105,11 @@ private slots:
         d.layers[0].pitch[0] = UINT32_MAX; QVERIFY(!valid(d)); d = descriptor();
         d.layers[0].offset[0] = d.objects[0].size; QVERIFY(!valid(d)); d = descriptor();
         d.objects[0].fd = -1; QVERIFY(!valid(d)); d = descriptor();
+        d.objects[0].size -= 1; QVERIFY(!valid(d)); d = descriptor();
+        d.layers[0].offset[0] = 4; QVERIFY(!valid(d)); d = descriptor();
+        d.layers[0].offset[0] = 4; d.objects[0].size += 4; QVERIFY(valid(d)); d = descriptor();
+        d.layers[0].pitch[0] = 8192; QVERIFY(!valid(d)); d = descriptor();
+        d.objects[0].drm_format_modifier = DRM_FORMAT_MOD_INVALID; QVERIFY(valid(d)); d = descriptor();
         d.width = 1023; QVERIFY(!valid(d)); d = descriptor();
         QVERIFY(!QtVaapiVideoFrame::validate(d, {0, 4}, 10, true, false, true));
         QVERIFY(!QtVaapiVideoFrame::validate(d, {1024, 4}, 10, true, false, false));
