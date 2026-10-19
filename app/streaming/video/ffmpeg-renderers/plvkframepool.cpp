@@ -236,7 +236,8 @@ void PlVkFramePool::collectTransfers()
     // Destruction/AVBuffer unref happens outside all our locks and GPU calls.
 }
 
-bool PlVkFramePool::upload(const AVFrame* frame, pl_frame* mappedFrame, pl_tex textures[4])
+bool PlVkFramePool::upload(const AVFrame* frame, pl_frame* mappedFrame, pl_tex textures[4],
+                         pl_fmt requiredPlaneFormat)
 {
     collectTransfers();
     if (!frame || !mappedFrame || !textures || !supported(m_State->gpu) ||
@@ -249,6 +250,20 @@ bool PlVkFramePool::upload(const AVFrame* frame, pl_frame* mappedFrame, pl_tex t
     mappedFrame->user_data = nullptr;
     const int count = pl_plane_data_from_pixfmt(planes, &mappedFrame->repr.bits, format);
     if (count <= 0 || count > 4) return false;
+    if (requiredPlaneFormat) {
+        const auto fmt = requiredPlaneFormat;
+        if (fmt->type != PL_FMT_UNORM || fmt->opaque || fmt->emulated ||
+                fmt->num_components != 1 || fmt->sample_order[0] != 0 ||
+                (fmt->component_depth[0] != 8 && fmt->component_depth[0] != 16) ||
+                fmt->host_bits[0] != fmt->component_depth[0] ||
+                !(fmt->caps & PL_FMT_CAP_SAMPLEABLE)) return false;
+        for (int p = 0; p < count; ++p) {
+            const auto& data = planes[p];
+            if (data.type != fmt->type || data.swapped || data.component_pad[0] ||
+                    data.component_size[0] != fmt->host_bits[0] || data.component_size[1] ||
+                    data.pixel_stride != fmt->texel_size) return false;
+        }
+    }
 
     AVBufferRef* buffers[4] = {};
     // Validate every plane before submitting any GPU work.
@@ -302,7 +317,28 @@ bool PlVkFramePool::upload(const AVFrame* frame, pl_frame* mappedFrame, pl_tex t
         }
         data.callback = releaseTransfer;
         m_HasTransfers = true;
-        if (!pl_upload_plane(m_State->gpu, &mappedFrame->planes[plane], &textures[plane], &data)) {
+        bool uploaded;
+        if (requiredPlaneFormat) {
+            pl_tex_params params{};
+            params.w = data.width; params.h = data.height;
+            params.format = requiredPlaneFormat;
+            params.sampleable = params.host_writable = true;
+            uploaded = pl_tex_recreate(m_State->gpu, &textures[plane], &params);
+            if (uploaded) {
+                auto& output = mappedFrame->planes[plane];
+                output.components = 1;
+                for (int& mapping : output.component_mapping) mapping = -1;
+                output.component_mapping[0] = data.component_map[0];
+                pl_tex_transfer_params transfer{};
+                transfer.tex = textures[plane];
+                transfer.rc.x1 = data.width; transfer.rc.y1 = data.height; transfer.rc.z1 = 1;
+                transfer.row_pitch = data.row_stride;
+                transfer.buf = data.buf; transfer.buf_offset = data.buf_offset;
+                transfer.callback = data.callback; transfer.priv = data.priv;
+                uploaded = pl_tex_upload(m_State->gpu, &transfer);
+            }
+        } else uploaded = pl_upload_plane(m_State->gpu, &mappedFrame->planes[plane], &textures[plane], &data);
+        if (!uploaded) {
             releaseTransfer(data.priv);
             collectTransfers();
             return false;

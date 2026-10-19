@@ -33,7 +33,10 @@ public:
     // until the GPU completes the upload, preventing premature decoder reuse.
     // No per-frame GPU wait is introduced. Returns false for foreign frames,
     // malformed plane bounds, or an unsupported GPU/format.
-    bool upload(const AVFrame* frame, pl_frame* mappedFrame, pl_tex textures[4]);
+    // A caller doing explicit code-value conversion can require exact R8/R16
+    // storage instead of libplacebo's automatic compatible-format selection.
+    bool upload(const AVFrame* frame, pl_frame* mappedFrame, pl_tex textures[4],
+                pl_fmt requiredPlaneFormat = nullptr);
 
 private:
     struct State;

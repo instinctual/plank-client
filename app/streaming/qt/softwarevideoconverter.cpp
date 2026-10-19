@@ -71,7 +71,9 @@ bool QtSoftwareVideoConverter::convert(const AVFrame* frame, AVPixelFormat expec
         return false;
     }
     pl_frame source{};
-    if (!m_Pool.upload(frame, &source, m_Planes)) {
+    const int depth = descriptor->comp[0].depth;
+    const auto planeFormat = pl_find_named_fmt(m_Gpu, depth == 8 ? "r8" : "r16");
+    if (!planeFormat || !m_Pool.upload(frame, &source, m_Planes, planeFormat)) {
         error = QStringLiteral("Qt software video could not import the decoder's pooled planes");
         return false;
     }
@@ -80,7 +82,6 @@ bool QtSoftwareVideoConverter::convert(const AVFrame* frame, AVPixelFormat expec
     // renderer infers YCbCr's neutral point from the *storage* depth (16 for
     // 10-bit planes), which shifts gray. The decoded precision is authoritative.
     // No transfer functions, color management, dithering or extra resize pass.
-    const int depth = descriptor->comp[0].depth;
     const int maximum = (1 << depth) - 1;
     pl_shader_desc bindings[3]{};
     const char* names[] = {"plane0", "plane1", "plane2"};
