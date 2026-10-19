@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../video/ffmpeg-renderers/plvkframepool.h"
+#include <libplacebo/dispatch.h>
 
 #include <QString>
 
@@ -31,6 +32,6 @@ private:
     std::shared_ptr<void> m_DeviceLifetime;
     pl_gpu m_Gpu;
     PlVkFramePool m_Pool;
-    pl_renderer m_Renderer = nullptr;
+    pl_dispatch m_Dispatch = nullptr;
     pl_tex m_Planes[4]{};
 };

@@ -212,6 +212,14 @@ private slots:
         f->colorspace = AVCOL_SPC_RGB; f->color_trc = AVCOL_TRC_SMPTE2084;
         QVERIFY(!converter.convert(f, AV_PIX_FMT_GBRP10LE, out.value, error));
         QVERIFY(!converter.convert(nullptr, AV_PIX_FMT_GBRP10LE, out.value, error));
+        f->color_trc = AVCOL_TRC_BT709; f->crop_left = 1;
+        QVERIFY(!converter.convert(f, AV_PIX_FMT_GBRP10LE, out.value, error));
+        f->crop_left = 0; f->flags |= AV_FRAME_FLAG_INTERLACED;
+        QVERIFY(!converter.convert(f, AV_PIX_FMT_GBRP10LE, out.value, error));
+        f->flags &= ~AV_FRAME_FLAG_INTERLACED;
+        QVERIFY(av_frame_new_side_data(f, AV_FRAME_DATA_ICC_PROFILE, 128));
+        QVERIFY(!converter.convert(f, AV_PIX_FMT_GBRP10LE, out.value, error));
+        av_frame_remove_side_data(f, AV_FRAME_DATA_ICC_PROFILE);
         // Ordinary host memory cannot silently reintroduce a CPU upload copy.
         Frame foreign;
         foreign.value->format = f->format; foreign.value->width = 64; foreign.value->height = 16;
@@ -219,6 +227,69 @@ private slots:
         QVERIFY(av_frame_get_buffer(foreign.value, 32) == 0);
         QVERIFY(!converter.convert(foreign.value, AV_PIX_FMT_GBRP10LE, out.value, error));
         QVERIFY(error.contains("pooled"));
+    }
+    void chromaAndStride_data()
+    {
+        QTest::addColumn<int>("format"); QTest::addColumn<bool>("flipped");
+        QTest::newRow("422") << int(AV_PIX_FMT_YUV422P10LE) << false;
+        QTest::newRow("420") << int(AV_PIX_FMT_YUV420P10LE) << false;
+        QTest::newRow("422-negative-stride") << int(AV_PIX_FMT_YUV422P10LE) << true;
+        QTest::newRow("rgb-negative-stride") << int(AV_PIX_FMT_GBRP10LE) << true;
+    }
+    void chromaAndStride()
+    {
+        QFETCH(int, format); QFETCH(bool, flipped);
+        QtSoftwareVideoConverter converter(gpu(), m_Device);
+        Context context(AV_CODEC_ID_H264); Frame frame;
+        const auto pixelFormat = static_cast<AVPixelFormat>(format);
+        const auto* d = av_pix_fmt_desc_get(pixelFormat);
+        const bool rgb = d->flags & AV_PIX_FMT_FLAG_RGB;
+        auto* f = frame.value;
+        context.value->pix_fmt = pixelFormat;
+        f->format = format; f->width = 17; f->height = 9;
+        f->colorspace = rgb ? AVCOL_SPC_RGB : AVCOL_SPC_BT709;
+        f->color_range = AVCOL_RANGE_JPEG; f->chroma_location = AVCHROMA_LOC_LEFT;
+        QVERIFY(converter.framePool().getBuffer(context.value, f, 0) == 0);
+        for (int p = 0; p < 3; ++p) {
+            const int w = AV_CEIL_RSHIFT(f->width, p ? d->log2_chroma_w : 0);
+            const int h = AV_CEIL_RSHIFT(f->height, p ? d->log2_chroma_h : 0);
+            for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x)
+                reinterpret_cast<uint16_t*>(f->data[p] + y * f->linesize[p])[x] = (x * 31 + y * 71 + p * 90) & 1023;
+            if (flipped) { f->data[p] += (h - 1) * f->linesize[p]; f->linesize[p] = -f->linesize[p]; }
+        }
+        Texture out{gpu(), createOutput(f->width, f->height)};
+        QVERIFY(out.value);
+        QString error;
+        QVERIFY2(converter.convert(f, pixelFormat, out.value, error), qPrintable(error));
+        const auto pixels = readback(gpu(), out.value);
+        QCOMPARE(pixels.size(), size_t(f->width * f->height));
+        for (int y = 0; y < f->height; ++y) for (int x = 0; x < f->width; ++x) {
+            double values[3]{};
+            for (int p = 0; p < 3; ++p) {
+                const int subX = p ? 1 << d->log2_chroma_w : 1;
+                const int subY = p ? 1 << d->log2_chroma_h : 1;
+                const int w = (f->width + subX - 1) / subX, h = (f->height + subY - 1) / subY;
+                // AVCHROMA_LOC_LEFT: horizontally co-sited; vertically centered.
+                const double sx = subX > 1 ? double(x) / subX : x;
+                const double sy = std::clamp((y + 0.5) / subY - 0.5, 0.0, double(h - 1));
+                const int x0 = int(sx), x1 = std::min(x0 + 1, w - 1);
+                const int y0 = int(sy), y1 = std::min(y0 + 1, h - 1);
+                const double a = sample(f, p, x0, y0, 10) * (1 - (sx - x0)) + sample(f, p, x1, y0, 10) * (sx - x0);
+                const double b = sample(f, p, x0, y1, 10) * (1 - (sx - x0)) + sample(f, p, x1, y1, 10) * (sx - x0);
+                values[p] = (a * (1 - (sy - y0)) + b * (sy - y0)) / 1023.0;
+            }
+            const double yf = values[0], uf = values[1] - 512.0 / 1023.0, vf = values[2] - 512.0 / 1023.0;
+            const double channels[] = {rgb ? values[2] : yf + 1.5748 * vf,
+                                       rgb ? values[0] : yf - 0.1873242729 * uf - 0.4681242729 * vf,
+                                       rgb ? values[1] : yf + 1.8556 * uf};
+            for (int c = 0; c < 3; ++c) {
+                const int expected = qRound(std::clamp(channels[c], 0.0, 1.0) * 1023);
+                const int actual = (pixels[y * f->width + x] >> (10 * c)) & 1023;
+                if (rgb) QCOMPARE(actual, expected);
+                else QVERIFY2(std::abs(actual - expected) <= 1,
+                              qPrintable(QString("chroma (%1,%2) channel %3: %4 != %5").arg(x).arg(y).arg(c).arg(actual).arg(expected)));
+            }
+        }
     }
     void decodedFixtures_data()
     {
