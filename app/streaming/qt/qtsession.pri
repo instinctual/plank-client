@@ -2,6 +2,6 @@
 QT += core gui qml quick quickcontrols2
 CONFIG += c++17
 INCLUDEPATH += $$PWD
-SOURCES += $$PWD/sessionwindow.cpp $$PWD/sessionshell.cpp
-HEADERS += $$PWD/sessionwindow.h $$PWD/sessiongeometry.h $$PWD/sessionshell.h
+SOURCES += $$PWD/sessionwindow.cpp $$PWD/sessionshell.cpp $$PWD/cursoritem.cpp
+HEADERS += $$PWD/sessionwindow.h $$PWD/sessiongeometry.h $$PWD/sessionshell.h $$PWD/cursoritem.h
 RESOURCES += $$PWD/qtsession.qrc

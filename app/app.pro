@@ -55,7 +55,9 @@ contains(CONFIG, plank-qt-session) {
     DEFINES += PLANK_QT_CLIENT_EXPERIMENT
     include(streaming/qt/qtsession.pri)
     include(streaming/qt/qtvideo.pri)
-    SOURCES += streaming/qt/sessionruntime.cpp streaming/qt/decodedvideorenderer.cpp
+    include(streaming/qt/qtwaylandguard.pri)
+    SOURCES += streaming/qt/sessionruntime.cpp streaming/qt/decodedvideorenderer.cpp streaming/qt/sessioninput.cpp
+    HEADERS += streaming/qt/sessioninput.h streaming/qt/linuxkeymap.h
     HEADERS += streaming/qt/sessionruntime.h streaming/qt/decodedvideorenderer.h streaming/qt/decodedvideodelivery.h
 }
 HEADERS += clientidentity.h

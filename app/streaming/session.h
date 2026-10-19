@@ -32,6 +32,7 @@ class ComputerManager;
 class PlankToolbar;
 class MacClipboardSync;
 class QtSessionRuntime;
+class QtSessionInput;
 #ifdef PLANK_TRANSPORT
 struct PlankTransportNativeEndpoint;
 #endif
@@ -169,6 +170,7 @@ public:
     // signals; ordinary sessions keep their existing SDL event dispatch.
     static void requestSessionQuit();
     static void requestDecoderReset();
+    bool usesQtPresentation() const { return m_RendererFactory != nullptr; }
 
     void updateRenderedStats(float fps, float videoMbps)
     {
@@ -188,6 +190,7 @@ public:
     }
 
 signals:
+    void qtStatisticsUpdated(QString text);
     void qtQuitRequested();
     void qtDecoderResetRequested();
     void qtReconnectRequested();
@@ -239,7 +242,7 @@ private:
     bool waitForPlankReconnectRequest(bool restartAuthenticationAfterWait = false);
 
     bool finishPlankReconnect(bool success,
-                                       const PlankReconnectState& state);
+                             const PlankReconnectState& state, bool* decoderNeedsReset = nullptr);
 
     void clearPlankReconnectCredentials();
 
@@ -476,6 +479,9 @@ private:
     PlankPresentationLayout m_PresentationLayout;
     SdlInputHandler* m_InputHandler;
     PlankCallbackTarget<SdlInputHandler> m_InputCallbacks;
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+    PlankCallbackTarget<QtSessionInput> m_QtInputCallbacks;
+#endif
     void destroyInputHandler();
     int m_FlushingWindowEventsRef;
 

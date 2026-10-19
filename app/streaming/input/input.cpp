@@ -293,105 +293,16 @@ void SdlInputHandler::refreshWaylandTabletCursorParents()
                 m_WaylandTabletCursorOutputs.size() == 1 ? "" : "s");
 }
 
-bool SdlInputHandler::handleRemoteCursorChunk(const unsigned char* data,
-                                              unsigned int length)
+bool SdlInputHandler::handleRemoteCursorChunk(const unsigned char* data, unsigned int length)
 {
-    if (data == nullptr || length < sizeof(PLANK_CURSOR_WIRE_HEADER) ||
-            length > sizeof(PLANK_CURSOR_WIRE_HEADER) + PLANK_CURSOR_MAX_CHUNK_SIZE) {
-        return false;
-    }
-
-    PLANK_CURSOR_WIRE_HEADER wire;
-    std::memcpy(&wire, data, sizeof(wire));
-    const std::uint32_t magic = qFromLittleEndian(wire.magic);
-    const std::uint16_t version = qFromLittleEndian(wire.version);
-    const std::uint16_t pixelFormat = qFromLittleEndian(wire.pixelFormat);
-    const std::uint32_t flags = qFromLittleEndian(wire.flags);
-    const std::uint64_t generation = qFromLittleEndian(wire.generation);
-    const std::uint32_t width = qFromLittleEndian(wire.width);
-    const std::uint32_t height = qFromLittleEndian(wire.height);
-    const std::uint32_t hotspotX = qFromLittleEndian(wire.hotspotX);
-    const std::uint32_t hotspotY = qFromLittleEndian(wire.hotspotY);
-    const std::uint32_t imageSize = qFromLittleEndian(wire.imageSize);
-    const std::uint32_t chunkOffset = qFromLittleEndian(wire.chunkOffset);
-    const std::uint32_t chunkSize = qFromLittleEndian(wire.chunkSize);
-    constexpr std::uint32_t knownFlags = PLANK_CURSOR_FLAG_VISIBLE |
-                                          PLANK_CURSOR_FLAG_FIRST_CHUNK |
-                                          PLANK_CURSOR_FLAG_LAST_CHUNK;
-
-    if (magic != PLANK_CURSOR_WIRE_MAGIC || version != PLANK_CURSOR_WIRE_VERSION ||
-            pixelFormat != PLANK_CURSOR_PIXEL_FORMAT_ARGB8888 ||
-            (flags & ~knownFlags) != 0 || width == 0 || height == 0 ||
-            width > PLANK_CURSOR_MAX_DIMENSION || height > PLANK_CURSOR_MAX_DIMENSION ||
-            imageSize != width * height * 4U || imageSize > PLANK_CURSOR_MAX_IMAGE_SIZE ||
-            hotspotX >= width || hotspotY >= height ||
-            chunkSize > PLANK_CURSOR_MAX_CHUNK_SIZE ||
-            sizeof(wire) + chunkSize != length ||
-            chunkOffset > imageSize || chunkSize > imageSize - chunkOffset) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
-                    "Rejected malformed PLANK local cursor chunk");
-        return false;
-    }
-
-    std::lock_guard<std::mutex> lock(m_RemoteCursorMutex);
-    if ((flags & PLANK_CURSOR_FLAG_FIRST_CHUNK) != 0) {
-        if (chunkOffset != 0) {
-            return false;
-        }
-        m_RemoteCursorAssembly = {};
-        m_RemoteCursorAssembly.generation = generation;
-        m_RemoteCursorAssembly.width = width;
-        m_RemoteCursorAssembly.height = height;
-        m_RemoteCursorAssembly.hotspotX = hotspotX;
-        m_RemoteCursorAssembly.hotspotY = hotspotY;
-        m_RemoteCursorAssembly.flags = flags & PLANK_CURSOR_FLAG_VISIBLE;
-        m_RemoteCursorAssembly.pixels.resize(imageSize);
-        m_RemoteCursorAssemblyActive = true;
-    }
-
-    if (!m_RemoteCursorAssemblyActive ||
-            generation != m_RemoteCursorAssembly.generation ||
-            width != m_RemoteCursorAssembly.width ||
-            height != m_RemoteCursorAssembly.height ||
-            hotspotX != m_RemoteCursorAssembly.hotspotX ||
-            hotspotY != m_RemoteCursorAssembly.hotspotY ||
-            (flags & PLANK_CURSOR_FLAG_VISIBLE) != m_RemoteCursorAssembly.flags ||
-            chunkOffset != m_RemoteCursorAssembly.nextOffset) {
-        m_RemoteCursorAssemblyActive = false;
-        return false;
-    }
-
-    std::memcpy(m_RemoteCursorAssembly.pixels.data() + chunkOffset,
-                data + sizeof(wire), chunkSize);
-    m_RemoteCursorAssembly.nextOffset += chunkSize;
-
-    if ((flags & PLANK_CURSOR_FLAG_LAST_CHUNK) == 0) {
-        return false;
-    }
-    if (m_RemoteCursorAssembly.nextOffset != imageSize) {
-        m_RemoteCursorAssemblyActive = false;
-        return false;
-    }
-
-    m_ReadyRemoteCursor = std::move(m_RemoteCursorAssembly);
-    m_ReadyRemoteCursorValid = true;
-    m_RemoteCursorAssemblyActive = false;
-    return !m_RemoteCursorUpdatePending.exchange(true);
+    return m_RemoteCursorMailbox.shape(data, length);
 }
 
 void SdlInputHandler::applyPendingRemoteCursor()
 {
-    RemoteCursorState cursor;
-    {
-        std::lock_guard<std::mutex> lock(m_RemoteCursorMutex);
-        if (!m_ReadyRemoteCursorValid) {
-            m_RemoteCursorUpdatePending.store(false);
-            return;
-        }
-        cursor = std::move(m_ReadyRemoteCursor);
-        m_ReadyRemoteCursorValid = false;
-        m_RemoteCursorUpdatePending.store(false);
-    }
+    auto pending = m_RemoteCursorMailbox.takeShape();
+    if (!pending) return;
+    auto cursor = std::move(*pending);
 
     SDL_Surface* surface = SDL_CreateSurfaceFrom(
                 static_cast<int>(cursor.width),
@@ -462,61 +373,16 @@ void SdlInputHandler::applyPendingRemoteCursor()
     }
 }
 
-bool SdlInputHandler::handleRemoteCursorPosition(
-        const unsigned char* data, unsigned int length)
+bool SdlInputHandler::handleRemoteCursorPosition(const unsigned char* data, unsigned int length)
 {
-    if (data == nullptr || length != sizeof(PLANK_CURSOR_POSITION_WIRE_MESSAGE)) {
-        return false;
-    }
-
-    PLANK_CURSOR_POSITION_WIRE_MESSAGE wire;
-    std::memcpy(&wire, data, sizeof(wire));
-    RemoteCursorPosition position;
-    const std::uint32_t magic = qFromLittleEndian(wire.magic);
-    const std::uint16_t version = qFromLittleEndian(wire.version);
-    const std::uint16_t reserved = qFromLittleEndian(wire.reserved);
-    position.sequence = qFromLittleEndian(wire.sequence);
-    position.x = qFromLittleEndian(wire.x);
-    position.y = qFromLittleEndian(wire.y);
-    position.frameWidth = qFromLittleEndian(wire.frameWidth);
-    position.frameHeight = qFromLittleEndian(wire.frameHeight);
-
-    const QSize streamSize = streamDimensions();
-    if (magic != PLANK_CURSOR_POSITION_WIRE_MAGIC ||
-            version != PLANK_CURSOR_POSITION_WIRE_VERSION || reserved != 0 ||
-            position.sequence == 0 || position.frameWidth == 0 ||
-            position.frameHeight == 0 || position.x >= position.frameWidth ||
-            position.y >= position.frameHeight ||
-            position.frameWidth != static_cast<std::uint32_t>(streamSize.width()) ||
-            position.frameHeight != static_cast<std::uint32_t>(streamSize.height())) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
-                    "Rejected malformed PLANK cursor position");
-        return false;
-    }
-
-    std::lock_guard<std::mutex> lock(m_RemoteCursorPositionMutex);
-    if (position.sequence <= m_HighestRemoteCursorPositionSequence) {
-        return false;
-    }
-    m_HighestRemoteCursorPositionSequence = position.sequence;
-    m_ReadyRemoteCursorPosition = position;
-    m_ReadyRemoteCursorPositionValid = true;
-    return !m_RemoteCursorPositionUpdatePending.exchange(true);
+    return m_RemoteCursorMailbox.position(data, length, streamDimensions());
 }
 
 void SdlInputHandler::applyPendingRemoteCursorPosition()
 {
-    RemoteCursorPosition position;
-    {
-        std::lock_guard<std::mutex> lock(m_RemoteCursorPositionMutex);
-        if (!m_ReadyRemoteCursorPositionValid) {
-            m_RemoteCursorPositionUpdatePending.store(false);
-            return;
-        }
-        position = m_ReadyRemoteCursorPosition;
-        m_ReadyRemoteCursorPositionValid = false;
-        m_RemoteCursorPositionUpdatePending.store(false);
-    }
+    const auto pending = m_RemoteCursorMailbox.takePosition();
+    if (!pending) return;
+    const auto position = *pending;
 
     m_AppliedRemoteCursorPosition = position;
     m_AppliedRemoteCursorPositionValid = true;
@@ -728,13 +594,7 @@ void SdlInputHandler::resetRemoteCursorPositionEpoch()
     // handoff, so discard the old worker's high-water mark once its transport
     // has stopped or the new worker's positions will be rejected until its
     // counter catches up.
-    {
-        std::lock_guard<std::mutex> lock(m_RemoteCursorPositionMutex);
-        m_ReadyRemoteCursorPosition = {};
-        m_ReadyRemoteCursorPositionValid = false;
-        m_HighestRemoteCursorPositionSequence = 0;
-        m_RemoteCursorPositionUpdatePending.store(false);
-    }
+    m_RemoteCursorMailbox.resetPositionEpoch();
 
     m_AppliedRemoteCursorPosition = {};
     m_AppliedRemoteCursorPositionValid = false;

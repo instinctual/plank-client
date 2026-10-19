@@ -94,6 +94,7 @@
 #include <vector>
 #ifdef PLANK_QT_CLIENT_EXPERIMENT
 #include "qt/sessionruntime.h"
+#include "qt/sessioninput.h"
 #endif
 
 CONNECTION_LISTENER_CALLBACKS Session::k_ConnCallbacks = {
@@ -313,6 +314,9 @@ void Session::clSetHdrMode(bool enabled)
 void Session::clRawHidControl(const unsigned char* data, unsigned int length)
 {
     if (s_ActiveSession != nullptr) {
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+        s_ActiveSession->m_QtInputCallbacks.invoke([&](QtSessionInput& input) { input.handleRawHidControl(data, length); });
+#endif
         s_ActiveSession->m_InputCallbacks.invoke([&](SdlInputHandler& input) {
             input.handleRawHidControl(data, length);
         });
@@ -333,6 +337,8 @@ void Session::clVideoBitrateApplied(
     s_ActiveSession->m_ConfirmedBitratePeakKbps.store(
                 static_cast<int>(peakKbps), std::memory_order_relaxed);
 
+    if (s_ActiveSession->m_RendererFactory) return; // Qt observes the same acknowledgement atomics
+
     SDL_Event event = {};
     event.type = SDL_EVENT_USER;
     event.user.code = SDL_CODE_PLANK_BITRATE_APPLIED;
@@ -344,6 +350,9 @@ void Session::clCursorChunk(const unsigned char* data, unsigned int length)
     if (s_ActiveSession == nullptr) {
         return;
     }
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+    s_ActiveSession->m_QtInputCallbacks.invoke([&](QtSessionInput& input) { input.handleCursorShape(data, length); });
+#endif
     s_ActiveSession->m_InputCallbacks.invoke([&](SdlInputHandler& input) {
         if (input.handleRemoteCursorChunk(data, length)) {
             SDL_Event event = {};
@@ -359,6 +368,9 @@ void Session::clCursorPosition(const unsigned char* data, unsigned int length)
     if (s_ActiveSession == nullptr) {
         return;
     }
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+    s_ActiveSession->m_QtInputCallbacks.invoke([&](QtSessionInput& input) { input.handleCursorPosition(data, length); });
+#endif
     s_ActiveSession->m_InputCallbacks.invoke([&](SdlInputHandler& input) {
         if (input.handleRemoteCursorPosition(data, length)) {
             SDL_Event event = {};
@@ -1748,21 +1760,18 @@ bool Session::initialize(IFFmpegRendererFactory* presenter)
 
         // Create a hidden window to use for decoder initialization tests
         testWindow = SDL_CreateWindow("", width, height,
-                                              SDL_WINDOW_HIDDEN | StreamUtils::getPlatformWindowFlags());
-    if (!testWindow) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                    "Failed to create test window with platform flags: %s",
-                    SDL_GetError());
-
-        testWindow = SDL_CreateWindow("", width, height, SDL_WINDOW_HIDDEN);
+                                      SDL_WINDOW_HIDDEN | StreamUtils::getPlatformWindowFlags());
         if (!testWindow) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                         "Failed to create window for hardware decode test: %s",
-                         SDL_GetError());
-            SDL_QuitSubSystem(SDL_INIT_VIDEO);
-            return false;
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                        "Failed to create test window with platform flags: %s", SDL_GetError());
+            testWindow = SDL_CreateWindow("", width, height, SDL_WINDOW_HIDDEN);
+            if (!testWindow) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                             "Failed to create window for hardware decode test: %s", SDL_GetError());
+                SDL_QuitSubSystem(SDL_INIT_VIDEO);
+                return false;
+            }
         }
-    }
     }
 
     qInfo() << "PLANK host version:"
@@ -3604,7 +3613,7 @@ bool Session::runPlankReconnect()
 
 bool Session::finishPlankReconnect(
         bool success,
-        const PlankReconnectState& state)
+        const PlankReconnectState& state, bool* decoderNeedsReset)
 {
     bool resumedRenderer = false;
     if (success) {
@@ -3630,8 +3639,10 @@ bool Session::finishPlankReconnect(
     m_DesktopHandoffNoticeDeadline.store(0);
     setPlankReconnectStatus("", false);
     m_ReconnectRequested = false;
-    m_ReconnectCancelled.store(false);
-    m_ConnectionStartCancelled.store(false);
+    if (!m_RendererFactory) {
+        m_ReconnectCancelled.store(false);
+        m_ConnectionStartCancelled.store(false);
+    }
     m_OverlayManager.setOverlayState(Overlay::OverlayStatusUpdate, false);
 
     m_OverlayManager.setOverlayColor(Overlay::OverlayStatusUpdate, {0xCC, 0x00, 0x00, 0xFF});
@@ -3641,7 +3652,8 @@ bool Session::finishPlankReconnect(
     }
 
     if (!resumedRenderer) {
-        requestDecoderReset();
+        if (decoderNeedsReset) *decoderNeedsReset = true;
+        else requestDecoderReset();
     } else {
         LiRequestIdrFrame();
     }

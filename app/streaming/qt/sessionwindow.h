@@ -1,12 +1,14 @@
 #pragma once
 
 #include "sessiongeometry.h"
+#include "cursoritem.h"
 
 #include <QCursor>
 #include <QMap>
 #include <QPointer>
 #include <QQuickView>
 #include <QTimer>
+#include <QVariantMap>
 
 // Ubuntu prototype. Not enabled by shipping app.pro. No SDL window, native
 // Wayland proxy, network call or decoder is owned by this GUI-thread component.
@@ -24,6 +26,9 @@ class QtSessionWindow : public QQuickView
     Q_PROPERTY(QRectF videoRect READ videoRect NOTIFY presentationChanged)
     Q_PROPERTY(bool liveSession READ liveSession WRITE setLiveSession NOTIFY statusChanged)
     Q_PROPERTY(QString statusText READ statusText WRITE setStatusText NOTIFY statusChanged)
+    Q_PROPERTY(QVariantMap telemetry READ telemetry WRITE setTelemetry NOTIFY telemetryChanged)
+    Q_PROPERTY(QString statisticsText READ statisticsText WRITE setStatisticsText NOTIFY statisticsChanged)
+    Q_PROPERTY(bool statisticsVisible READ statisticsVisible WRITE setStatisticsVisible NOTIFY statisticsChanged)
 public:
     explicit QtSessionWindow(QWindow* parent = nullptr);
     ~QtSessionWindow() override;
@@ -41,6 +46,16 @@ public:
     QString statusText() const { return m_StatusText; }
     void setLiveSession(bool live) { m_LiveSession = live; emit statusChanged(); }
     void setStatusText(const QString& text) { if (text != m_StatusText) { m_StatusText = text; emit statusChanged(); } }
+    QVariantMap telemetry() const { return m_Telemetry; }
+    void setTelemetry(const QVariantMap& values) { if (m_Telemetry != values) { m_Telemetry = values; emit telemetryChanged(); } }
+    QString statisticsText() const { return m_StatisticsText; }
+    void setStatisticsText(const QString& text) { m_StatisticsText = text; emit statisticsChanged(); }
+    bool statisticsVisible() const { return m_StatisticsVisible; }
+    void setStatisticsVisible(bool visible) { m_StatisticsVisible = visible; emit statisticsChanged(); }
+    void setCursorShape(QImage image, QPoint hotspot, bool visible);
+    void setHostCursorPosition(QPointF position);
+    void setTabletActive(bool active);
+    void setEmbeddedCursor(bool embedded);
 
     void setPresentation(const QtSessionGeometry& geometry);
     void setRemoteInputEnabled(bool enabled);
@@ -54,9 +69,17 @@ public:
     Q_INVOKABLE void minimize();
     Q_INVOKABLE void disconnectSession();
     Q_INVOKABLE void keepWaiting();
+    Q_INVOKABLE void toggleMicrophone() { emit microphoneRequested(); }
+    Q_INVOKABLE void toggleCamera() { emit cameraRequested(); }
+    Q_INVOKABLE void toggleStatistics() { setStatisticsVisible(!statisticsVisible()); }
 
 signals:
     void statusChanged();
+    void telemetryChanged();
+    void statisticsChanged();
+    void physicalMouseActivity();
+    void microphoneRequested();
+    void cameraRequested();
     void toolbarChanged();
     void waitingChanged();
     void bitrateChanged();
@@ -91,6 +114,7 @@ private:
     void observePointer(const QPointF& position);
     void setToolbarVisible(bool visible);
     void updateCursor();
+    void updateTabletCursor();
     void scheduleHide();
     void releaseRemoteInput();
     bool remoteKeyboard() const;
@@ -117,4 +141,15 @@ private:
     int m_BitrateKbps;
     bool m_LiveSession = false;
     QString m_StatusText;
+    QVariantMap m_Telemetry;
+    QString m_StatisticsText;
+    bool m_StatisticsVisible = false;
+    QtTabletCursorItem* m_TabletCursor = nullptr;
+    QImage m_CursorImage;
+    QPoint m_CursorHotspot;
+    QPointF m_HostCursorPosition;
+    bool m_HostPositionValid = false;
+    bool m_HostCursorVisible = true;
+    bool m_TabletActive = false;
+    bool m_EmbeddedCursor = false;
 };

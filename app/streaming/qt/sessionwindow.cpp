@@ -32,6 +32,8 @@ QtSessionWindow::QtSessionWindow(QWindow* parent) : QQuickView(parent),
     setSource(QUrl(QStringLiteral("qrc:/qt-session/SessionSurface.qml")));
     if (rootObject()) {
         m_Toolbar = rootObject()->findChild<QQuickItem*>(QStringLiteral("sessionToolbar"));
+        m_TabletCursor = new QtTabletCursorItem(rootObject());
+        m_TabletCursor->setVisible(false);
     }
     m_RevealTimer.setSingleShot(true);
     m_RevealTimer.setInterval(EdgeDwellMs);
@@ -73,6 +75,7 @@ void QtSessionWindow::setPresentation(const QtSessionGeometry& geometry)
     releaseRemoteInput();
     m_Geometry = geometry.valid() && geometry.logicalSize == size() ? geometry : QtSessionGeometry{};
     emit presentationChanged();
+    updateTabletCursor();
 }
 
 void QtSessionWindow::setRemoteInputEnabled(bool enabled)
@@ -88,6 +91,44 @@ void QtSessionWindow::setRemoteCursor(const QCursor& cursor)
     Q_ASSERT(QThread::currentThread() == thread());
     m_RemoteCursor = cursor;
     updateCursor();
+}
+
+void QtSessionWindow::setCursorShape(QImage image, QPoint hotspot, bool visible)
+{
+    m_CursorImage = std::move(image);
+    m_CursorHotspot = hotspot;
+    m_HostCursorVisible = visible;
+    if (m_TabletCursor) m_TabletCursor->setImage(m_CursorImage);
+    if (m_CursorImage.isNull()) m_RemoteCursor = QCursor(Qt::ArrowCursor);
+    else m_RemoteCursor = QCursor(QPixmap::fromImage(m_CursorImage), hotspot.x(), hotspot.y());
+    updateCursor();
+}
+void QtSessionWindow::setHostCursorPosition(QPointF position)
+{
+    m_HostCursorPosition = position; m_HostPositionValid = true;
+    updateTabletCursor();
+}
+void QtSessionWindow::setTabletActive(bool active)
+{
+    m_TabletActive = active;
+    if (!active) m_HostPositionValid = false;
+    updateCursor();
+}
+void QtSessionWindow::setEmbeddedCursor(bool embedded) { m_EmbeddedCursor = embedded; updateCursor(); }
+
+void QtSessionWindow::updateTabletCursor()
+{
+    if (!m_TabletCursor) return;
+    QPointF point;
+    const bool visible = m_RemoteInputEnabled && !m_Waiting && m_TabletActive && !m_EmbeddedCursor &&
+        m_HostCursorVisible && m_HostPositionValid && !m_CursorImage.isNull() &&
+        m_Geometry.fromStream(m_HostCursorPosition, point);
+    m_TabletCursor->setVisible(visible);
+    if (!visible) return;
+    const qreal sx = m_Geometry.destinationPixels.width() / m_Geometry.sourcePixels.width() * width() / m_Geometry.drawableSize.width();
+    const qreal sy = m_Geometry.destinationPixels.height() / m_Geometry.sourcePixels.height() * height() / m_Geometry.drawableSize.height();
+    m_TabletCursor->setPosition(point - QPointF(m_CursorHotspot.x() * sx, m_CursorHotspot.y() * sy));
+    m_TabletCursor->setSize(QSizeF(m_CursorImage.width() * sx, m_CursorImage.height() * sy));
 }
 
 void QtSessionWindow::setPinned(bool pinned)
@@ -198,6 +239,7 @@ void QtSessionWindow::scheduleHide()
 
 void QtSessionWindow::observePointer(const QPointF& position)
 {
+    emit physicalMouseActivity();
     m_PointerPresent = true;
     m_Pointer = position;
     // The top edge of the *window*, including letterbox. Never Host pixels.
@@ -212,8 +254,12 @@ void QtSessionWindow::observePointer(const QPointF& position)
 
 void QtSessionWindow::updateCursor()
 {
-    setCursor(!m_RemoteInputEnabled || m_Waiting || localPointer(m_Pointer)
-              ? QCursor(Qt::ArrowCursor) : m_RemoteCursor);
+    QPointF ignored;
+    const bool local = !m_RemoteInputEnabled || m_Waiting ||
+        (!m_TabletActive && (localPointer(m_Pointer) || !m_Geometry.toStream(m_Pointer, ignored)));
+    setCursor(local ? QCursor(Qt::ArrowCursor) :
+        (m_TabletActive || m_EmbeddedCursor || !m_HostCursorVisible) ? QCursor(Qt::BlankCursor) : m_RemoteCursor);
+    updateTabletCursor();
 }
 
 bool QtSessionWindow::event(QEvent* event)

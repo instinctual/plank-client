@@ -4,6 +4,7 @@
 #include "backend/computermanager.h"
 #include "streaming/plankpresentation.h"
 #include "streaming/plankembeddedcursor.h"
+#include "remotecursor.h"
 #ifdef Q_OS_MACOS
 #include "macrawwacomfocus.h"
 #endif
@@ -146,44 +147,17 @@ private:
     StreamingPreferences::CaptureSysKeysMode m_CaptureSystemKeysMode;
     bool m_MouseCursorCapturedVisibilityState;
 
-    struct RemoteCursorState {
-        std::uint64_t generation = 0;
-        std::uint32_t width = 0;
-        std::uint32_t height = 0;
-        std::uint32_t hotspotX = 0;
-        std::uint32_t hotspotY = 0;
-        std::uint32_t flags = 0;
-        std::uint32_t nextOffset = 0;
-        std::vector<unsigned char> pixels;
-    };
-
-    std::mutex m_RemoteCursorMutex;
-    RemoteCursorState m_RemoteCursorAssembly;
-    RemoteCursorState m_ReadyRemoteCursor;
+    using RemoteCursorState = PlankRemoteCursor::Shape;
+    using RemoteCursorPosition = PlankRemoteCursor::Position;
+    PlankRemoteCursor m_RemoteCursorMailbox;
     RemoteCursorState m_AppliedRemoteCursor;
-    bool m_RemoteCursorAssemblyActive = false;
-    bool m_ReadyRemoteCursorValid = false;
     bool m_AppliedRemoteCursorValid = false;
-    std::atomic_bool m_RemoteCursorUpdatePending {false};
     SDL_Cursor* m_RemoteCursor = nullptr;
 
-    struct RemoteCursorPosition {
-        std::uint64_t sequence = 0;
-        std::uint32_t x = 0;
-        std::uint32_t y = 0;
-        std::uint32_t frameWidth = 0;
-        std::uint32_t frameHeight = 0;
-    };
-
-    std::mutex m_RemoteCursorPositionMutex;
-    RemoteCursorPosition m_ReadyRemoteCursorPosition;
     RemoteCursorPosition m_AppliedRemoteCursorPosition;
-    std::uint64_t m_HighestRemoteCursorPositionSequence = 0;
     std::uint64_t m_AppliedRemoteCursorPositionSequence = 0;
     std::uint64_t m_TabletCursorActivationSequence = 0;
-    bool m_ReadyRemoteCursorPositionValid = false;
     bool m_AppliedRemoteCursorPositionValid = false;
-    std::atomic_bool m_RemoteCursorPositionUpdatePending {false};
     std::atomic_bool m_TabletCursorActivationPending {false};
     struct WaylandTabletCursorOutput {
         SDL_Window* window = nullptr;

@@ -2113,7 +2113,11 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
                                             currentVideoMbps);
 
         // Update overlay stats if it's enabled
-        if (Session::get()->getOverlayManager().isOverlayEnabled(Overlay::OverlayDebug)) {
+        if (Session::get()->usesQtPresentation()) {
+            char text[2048];
+            stringifyVideoStats(lastTwoWndStats, text, sizeof(text));
+            emit Session::get()->qtStatisticsUpdated(QString::fromUtf8(text));
+        } else if (Session::get()->getOverlayManager().isOverlayEnabled(Overlay::OverlayDebug)) {
             stringifyVideoStats(lastTwoWndStats,
                                 Session::get()->getOverlayManager().getOverlayText(Overlay::OverlayDebug),
                                 Session::get()->getOverlayManager().getOverlayMaxTextLength());

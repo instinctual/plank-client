@@ -2,6 +2,8 @@
 #include "../session.h"
 #include "../../backend/hostrecovery.h"
 #include "../../backend/nvhttp.h"
+#include "../audio/microphone.h"
+#include "../camera/camera.h"
 
 #include <QEvent>
 #include <QGuiApplication>
@@ -11,6 +13,28 @@
 
 QtSessionRuntime::QtSessionRuntime(Session* session) : QObject(session), m_Session(session)
 {
+    m_Input = std::make_unique<QtSessionInput>();
+    m_WindowGuard = std::make_unique<QtWaylandSessionGuard>();
+    m_TargetBitrate = session->m_PlankBitrateKbps;
+    m_RecoveryBitrate.store(m_TargetBitrate);
+    connect(QGuiApplication::instance(), &QGuiApplication::focusWindowChanged, this, [this] { updateFocus(); });
+    connect(m_Input.get(), &QtSessionInput::shortcutRequested, this, &QtSessionRuntime::handleShortcut);
+    connect(session, &Session::qtStatisticsUpdated, this, [this](const QString& text) {
+        for (auto& shell : m_Windows) shell->surface().setStatisticsText(text);
+    });
+    connect(session, &Session::activeSessionTakeoverRequested, this, [this] {
+        // The existing launcher owns the authenticated takeover dialog. Never
+        // bury it under a fullscreen stream surface while startup is waiting.
+        for (auto& shell : m_Windows) shell->hide();
+        if (m_Launcher) { m_Launcher->show(); m_Launcher->raise(); m_Launcher->requestActivate(); }
+    });
+    connect(session, &Session::connectionStarted, this, [this] {
+        if (m_Stop.load()) return;
+        for (size_t i = 0; i < m_Windows.size(); ++i) {
+            if (m_Session->m_IsFullScreen) m_Windows[i]->showFullScreen();
+            else if (!i) m_Windows[i]->show();
+        }
+    });
     connect(session, &Session::qtQuitRequested, this, &QtSessionRuntime::stop, Qt::QueuedConnection);
     connect(session, &Session::qtDecoderResetRequested, this, [this] { request(Command::ResetDecoder); }, Qt::QueuedConnection);
     connect(session, &Session::qtReconnectRequested, this, [this] { request(Command::Reconnect); }, Qt::QueuedConnection);
@@ -110,6 +134,35 @@ void QtSessionRuntime::start(QWindow* launcher)
         surface.setLiveSession(true);
         surface.setStatusText(tr("Connecting to workstation…"));
         surface.setBitrateKbps(m_Session->m_PlankBitrateKbps);
+        surface.setPinned(m_Session->m_Preferences->plankToolbarPinned);
+        surface.setStatisticsVisible(m_Session->m_Preferences->showPerformanceOverlay);
+        connect(&surface, &QtSessionWindow::physicalMouseActivity, m_Input.get(), &QtSessionInput::activateMouse);
+        connect(&surface, &QtSessionWindow::remoteMotion, m_Input.get(), &QtSessionInput::mouseMotion);
+        connect(&surface, &QtSessionWindow::remoteButton, m_Input.get(), &QtSessionInput::mouseButton);
+        connect(&surface, &QtSessionWindow::remoteWheel, m_Input.get(), &QtSessionInput::wheel);
+        connect(&surface, &QtSessionWindow::remoteKey, m_Input.get(), &QtSessionInput::key);
+        connect(m_Input.get(), &QtSessionInput::cursorShape, &surface, &QtSessionWindow::setCursorShape);
+        connect(m_Input.get(), &QtSessionInput::cursorPosition, &surface, &QtSessionWindow::setHostCursorPosition);
+        connect(m_Input.get(), &QtSessionInput::tabletActive, &surface, &QtSessionWindow::setTabletActive);
+        connect(&surface, &QtSessionWindow::toolbarChanged, this, [&surface, this] {
+            auto& preferences = *m_Session->m_Preferences;
+            if (preferences.plankToolbarPinned != surface.pinned()) {
+                preferences.plankToolbarPinned = surface.pinned(); preferences.save();
+                for (auto& window : m_Windows) window->surface().setPinned(surface.pinned());
+            }
+        });
+        connect(&surface, &QtSessionWindow::bitrateRequested, this, [this](int bitrate) {
+            if (bitrate == m_TargetBitrate) return;
+            m_TargetBitrate = bitrate; m_RecoveryBitrate.store(bitrate);
+            m_BitrateChanged = SDL_GetTicks();
+            for (auto& window : m_Windows) window->surface().setBitrateKbps(bitrate);
+        });
+        connect(&surface, &QtSessionWindow::microphoneRequested, this, [this] {
+            m_Session->m_MicrophoneRequested.store(!m_Session->m_MicrophoneRequested.load());
+        });
+        connect(&surface, &QtSessionWindow::cameraRequested, this, [this] {
+            m_Session->m_CameraRequested.store(!m_Session->m_CameraRequested.load());
+        });
         connect(&surface, &QtSessionWindow::disconnectRequested, this, &QtSessionRuntime::stop);
         connect(&surface, &QtSessionWindow::keepWaitingRequested, this, &QtSessionRuntime::keepWaiting);
         connect(&surface, &QtSessionWindow::surfaceSizeChanged, this, &QtSessionRuntime::updateGeometry);
@@ -134,9 +187,9 @@ void QtSessionRuntime::start(QWindow* launcher)
     connect(m_Presenter.get(), &QtVideoPresenter::presentationFailed, this, [this](const QString& reason) {
         emit m_Session->displayLaunchError(reason); stop();
     });
-    for (auto& shell : m_Windows) {
-        if (m_Session->m_IsFullScreen) shell->showFullScreen();
-        else shell->show();
+    for (size_t i = 0; i < m_Windows.size(); ++i) {
+        if (m_Session->m_IsFullScreen) m_Windows[i]->showFullScreen();
+        else if (!i) m_Windows[i]->show();
     }
     m_Tick.start();
     m_StartupDeadline.start();
@@ -158,7 +211,7 @@ void QtSessionRuntime::request(Command command)
     if (m_Stop.load()) return;
     if (command == Command::Reconnect) {
         m_Streaming = false;
-        for (auto& shell : m_Windows) shell->surface().setRemoteInputEnabled(false);
+        setInputEnabled(false);
         keepWaiting();
     }
     {
@@ -176,7 +229,8 @@ void QtSessionRuntime::stop()
     m_Session->m_CanReconnect.store(false);
     m_StartupDeadline.stop();
     m_Tick.stop();
-    for (auto& shell : m_Windows) { shell->surface().setRemoteInputEnabled(false); shell->hide(); }
+    setInputEnabled(false);
+    for (auto& shell : m_Windows) shell->hide();
     if (m_Presenter) m_Presenter->stop(); // also wakes test-frame qualification
     m_CommandChanged.notify_all();
     if (!m_Worker) QTimer::singleShot(0, this, &QtSessionRuntime::finishWorker);
@@ -214,8 +268,16 @@ void QtSessionRuntime::workerMain()
     }
     m_OwnsSession = true;
     Session::s_ActiveSession = &s;
-    bool ready = !m_Stop.load() && s.initialize(m_Factory.get()) && !m_Stop.load() && s.startConnectionAsync() && !m_Stop.load();
-    if (ready) ready = resetDecoder();
+    s.m_QtInputCallbacks.publish(m_Input.get());
+    bool ready = !m_Stop.load() && s.initialize(m_Factory.get()) && !m_Stop.load();
+    if (ready) {
+        m_Input->setStreamSize(QSize(s.m_StreamConfig.width, s.m_StreamConfig.height));
+        ready = s.startConnectionAsync() && !m_Stop.load();
+    }
+    if (ready) {
+        m_Input->startTablets(LiGetHostFeatureFlags());
+        ready = resetDecoder();
+    }
     if (!ready && !m_Stop.load()) emit s.displayLaunchError(tr("The Qt session could not start with the selected video format."));
     quint64 nextProbe = 0;
     while (ready && !m_Stop.load()) {
@@ -228,12 +290,18 @@ void QtSessionRuntime::workerMain()
         }
         if (m_Stop.load()) break;
         if (command == Command::Reconnect) {
+            m_Input->beginReconnect();
             Session::PlankReconnectState state;
             if (!s.beginPlankReconnect(state) || m_Stop.load()) break;
+            m_Input->resetCursorEpoch();
+            s.m_StreamConfig.bitrate = m_RecoveryBitrate.load();
             const bool connected = s.runPlankReconnect() && !m_Stop.load();
             // Use the established recovery state machine. It requests a
             // decoder reset only if format/size changed; otherwise retain it.
-            ready = s.finishPlankReconnect(connected, state);
+            bool needsReset = false;
+            ready = s.finishPlankReconnect(connected, state, &needsReset) && !m_Stop.load();
+            if (ready) m_Input->finishReconnect();
+            if (ready && needsReset) ready = resetDecoder();
             if (ready) {
                 const QSize size(s.m_ActiveVideoWidth, s.m_ActiveVideoHeight);
                 QMetaObject::invokeMethod(this, [this, size] { setStreaming(size); }, Qt::QueuedConnection);
@@ -258,6 +326,8 @@ void QtSessionRuntime::workerMain()
     // active-session token or allowing another session to start.
     s.m_CanReconnect.store(false);
     s.m_ReconnectCancelled.store(true);
+    m_Input->shutdown();
+    s.m_QtInputCallbacks.clear();
     s.stopPlankTransportMediaReceivers();
     SDL_LockSpinlock(&s.m_DecoderLock);
     delete s.m_VideoDecoder;
@@ -283,6 +353,7 @@ void QtSessionRuntime::finishWorker()
     m_Finished = true;
     m_Stop.store(true);
     m_StartupDeadline.stop(); m_Tick.stop();
+    setInputEnabled(false);
     delete m_Worker; m_Worker = nullptr;
     if (m_Presenter) m_Presenter->stop();
     m_Factory.reset();
@@ -307,14 +378,16 @@ void QtSessionRuntime::setStreaming(QSize size)
 {
     if (m_Stop.load()) return;
     m_StreamSize = size;
+    m_Input->setStreamSize(size);
     m_Streaming = true;
     m_ReconnectDeadline = 0;
     updateGeometry();
     setStatus({});
     for (auto& shell : m_Windows) {
         shell->surface().setWaiting(false);
-        shell->surface().setRemoteInputEnabled(true);
+        shell->surface().setEmbeddedCursor(!(LiGetHostFeatureFlags() & LI_FF_LOCAL_CURSOR));
     }
+    setInputEnabled(m_InputGrabbed);
 }
 
 void QtSessionRuntime::updateGeometry()
@@ -322,6 +395,11 @@ void QtSessionRuntime::updateGeometry()
     if (!m_Presenter || m_Windows.empty() || !m_StreamSize.isValid()) return;
     const bool fullscreen = m_Windows.front()->windowState() == Qt::WindowFullScreen;
     const bool multi = fullscreen && m_Windows.size() > 1;
+    if (m_Windows.front()->windowState() == Qt::WindowMinimized) {
+        for (size_t i = 1; i < m_Windows.size(); ++i) m_Windows[i]->hide();
+        updateFocus();
+        return;
+    }
     QSize canvas;
     if (multi) for (const auto& display : m_Session->m_ClientDisplays) {
         canvas.setWidth(qMax(canvas.width(), display.canvasRect.right() + 1));
@@ -344,6 +422,7 @@ void QtSessionRuntime::updateGeometry()
         surface.setPresentation(geometry);
         m_Presenter->setGeometry(&surface, geometry);
     }
+    updateFocus();
 }
 
 void QtSessionRuntime::setStatus(const QString& text)
@@ -358,6 +437,59 @@ void QtSessionRuntime::keepWaiting()
     for (auto& shell : m_Windows) shell->surface().setWaiting(false);
 }
 
+void QtSessionRuntime::setInputEnabled(bool enabled)
+{
+    for (auto& shell : m_Windows) shell->surface().setRemoteInputEnabled(enabled);
+    m_Input->setEnabled(enabled);
+    updateFocus();
+}
+
+void QtSessionRuntime::updateFocus()
+{
+    auto* focused = QGuiApplication::focusWindow();
+    bool active = false;
+    for (const auto& shell : m_Windows)
+        active |= focused == shell.get() || focused == &shell->surface();
+    m_Input->setFocused(active && !m_Stop.load());
+    const auto policy = m_Session->m_Preferences->captureSysKeysMode;
+    const bool fullscreen = !m_Windows.empty() && m_Windows.front()->windowState() == Qt::WindowFullScreen;
+    const bool grab = active && m_Streaming && m_InputGrabbed && m_CaptureSystemKeys &&
+        (policy == StreamingPreferences::CSK_ALWAYS || (policy == StreamingPreferences::CSK_FULLSCREEN && fullscreen));
+    m_Input->setSystemKeys(grab);
+    QtSessionShell* focusedShell = nullptr;
+    for (auto& shell : m_Windows)
+        if (focused == shell.get() || focused == &shell->surface()) focusedShell = shell.get();
+    m_WindowGuard->setWindows(focusedShell, focusedShell ? &focusedShell->surface() : nullptr);
+    m_WindowGuard->setPolicy(grab, active && m_Streaming && m_InputGrabbed && m_ConfinePointer &&
+        fullscreen && m_Windows.size() == 1);
+    // The Wayland shortcut inhibitor is attached separately to Qt's surface.
+    // XCB implements this public Qt API directly.
+    if (QGuiApplication::platformName() != QStringLiteral("wayland"))
+        for (auto& shell : m_Windows) shell->setKeyboardGrabEnabled(grab && shell.get() == focused);
+}
+
+void QtSessionRuntime::handleShortcut(int key)
+{
+    if (m_Windows.empty()) return;
+    auto& surface = m_Windows.front()->surface();
+    switch (key) {
+    case Qt::Key_Q: stop(); break;
+    case Qt::Key_Z: m_InputGrabbed = !m_InputGrabbed; setInputEnabled(m_Streaming && m_InputGrabbed); break;
+    case Qt::Key_X: surface.toggleFullscreen(); break;
+    case Qt::Key_S:
+    {
+        const bool show = !surface.statisticsVisible();
+        for (auto& shell : m_Windows) shell->surface().setStatisticsVisible(show);
+        break;
+    }
+    case Qt::Key_D: surface.minimize(); break;
+    case Qt::Key_V: m_Input->pasteText(); break;
+    case Qt::Key_K: m_CaptureSystemKeys = !m_CaptureSystemKeys; updateFocus(); break;
+    case Qt::Key_L: m_ConfinePointer = !m_ConfinePointer; updateFocus(); break;
+    default: break;
+    }
+}
+
 void QtSessionRuntime::tick()
 {
     if (m_Stop.load()) return;
@@ -365,10 +497,48 @@ void QtSessionRuntime::tick()
     if (m_ReconnectDeadline && SDL_GetTicks() >= m_ReconnectDeadline) {
         m_ReconnectDeadline = 0;
         if (m_Session->m_Preferences->plankUnreachableAction == StreamingPreferences::PLANK_UNREACHABLE_DISCONNECT) stop();
-        else for (auto& shell : m_Windows) shell->surface().setWaiting(true);
+        else {
+            setInputEnabled(false);
+            for (auto& shell : m_Windows) shell->surface().setWaiting(true);
+        }
     }
     if (m_Streaming) {
         const bool silent = PlankHostRecovery::videoSilent(SDL_GetTicks(), m_Session->m_LastPlankVideoReceived.load());
         setStatus(silent ? tr("Waiting for workstation…") : QString());
     }
+    const auto now = SDL_GetTicks();
+    const auto requested = m_Session->m_ConfirmedBitrateRequestKbps.load();
+    const auto applied = m_Session->m_ConfirmedBitrateAppliedKbps.load();
+    if (requested == m_TargetBitrate && applied > 0 && applied != m_TargetBitrate) {
+        m_TargetBitrate = applied; m_RecoveryBitrate.store(applied);
+        for (auto& shell : m_Windows) shell->surface().setBitrateKbps(applied);
+    }
+    const auto flags = LI_FF_DYNAMIC_VIDEO_BITRATE | LI_FF_ENCODER_TARGET_ACK;
+    const bool rateSupported = (LiGetHostFeatureFlags() & flags) == flags;
+    if (m_Streaming && rateSupported && m_TargetBitrate != applied && now >= m_BitrateChanged + 250 &&
+        now >= m_BitrateSent + (m_LastSentBitrate == m_TargetBitrate ? 1000 : 250)) {
+        if (LiSetVideoBitrate(m_TargetBitrate) == 0) { m_LastSentBitrate = m_TargetBitrate; m_BitrateSent = now; }
+    }
+    QVariantMap telemetry{{QStringLiteral("fps"), m_Session->m_CurrentRenderedFps.load()},
+        {QStringLiteral("videoMbps"), m_Session->m_CurrentVideoMbps.load()},
+        {QStringLiteral("loss"), m_Session->currentVideoFecLoss().before},
+        {QStringLiteral("rtt"), m_Session->currentNetworkRttMs()},
+        {QStringLiteral("bitrateEnabled"), rateSupported && m_Streaming},
+        {QStringLiteral("bitrateConfirmed"), requested == m_TargetBitrate && applied == m_TargetBitrate},
+        {QStringLiteral("peakKbps"), m_Session->m_ConfirmedBitratePeakKbps.load()}};
+    {
+        std::unique_lock<std::mutex> lock(m_Session->m_MicrophoneMutex, std::try_to_lock);
+        if (lock.owns_lock()) {
+            telemetry.insert(QStringLiteral("microphoneSupported"), m_Session->m_Microphone != nullptr);
+            telemetry.insert(QStringLiteral("microphoneState"), int(m_Session->m_Microphone ? m_Session->m_Microphone->state() : PlankMicrophone::State::Off));
+        }
+    }
+    {
+        std::unique_lock<std::mutex> lock(m_Session->m_CameraMutex, std::try_to_lock);
+        if (lock.owns_lock()) {
+            telemetry.insert(QStringLiteral("cameraSupported"), m_Session->m_Camera != nullptr);
+            telemetry.insert(QStringLiteral("cameraState"), int(m_Session->m_Camera ? m_Session->m_Camera->state() : PlankCamera::State::Off));
+        }
+    }
+    for (auto& shell : m_Windows) shell->surface().setTelemetry(telemetry);
 }

@@ -37,6 +37,21 @@ Item {
         font.pixelSize: 20
     }
 
+    Text {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.margins: 12
+        width: parent.width - 24
+        text: sessionWindow.statisticsText
+        visible: sessionWindow.statisticsVisible && !sessionWindow.waiting
+        color: "#ffff90"
+        font.family: "monospace"
+        font.pixelSize: 16
+        wrapMode: Text.Wrap
+        style: Text.Outline
+        styleColor: "#000000"
+    }
+
     component ToolButton: Button {
         implicitWidth: 24
         implicitHeight: 24
@@ -58,6 +73,7 @@ Item {
 
     Rectangle {
         id: toolbar
+        z: 2
         objectName: "sessionToolbar"
         visible: sessionWindow.toolbarVisible && !sessionWindow.waiting
         x: Math.round(Math.max(0, surface.width - width) * sessionWindow.toolbarPosition)
@@ -111,16 +127,28 @@ Item {
                     }
                 }
             }
-            Text { text: "FPS —"; color: "#eff1f4"; font.pixelSize: 12 }
-            Text { text: "Video — Mbps"; color: "#eff1f4"; font.pixelSize: 12 }
-            Text { text: "Loss —%"; color: "#8aa6c9"; font.pixelSize: 12 }
-            Text { text: "RTT — ms"; color: "#eff1f4"; font.pixelSize: 12 }
+            Text { text: "FPS " + (sessionWindow.telemetry.fps || 0).toFixed(1); color: "#eff1f4"; font.pixelSize: 12 }
+            Text { text: "Video " + (sessionWindow.telemetry.videoMbps || 0).toFixed(1) + " Mbps"; color: "#eff1f4"; font.pixelSize: 12 }
+            Text {
+                property real loss: sessionWindow.telemetry.loss === undefined ? -1 : sessionWindow.telemetry.loss
+                text: "Loss " + (loss < 0 ? "—" : loss.toFixed(3)) + "%"
+                font.pixelSize: 12
+                color: {
+                    if (loss < 0) return "#8aa6c9"
+                    const blue = [52, 132, 228], green = [52, 199, 110], red = [239, 88, 88]
+                    const a = loss <= 5 ? blue : green, b = loss <= 5 ? green : red
+                    const t = Math.min(1, Math.max(0, loss <= 5 ? loss / 5 : (loss - 5) / 5))
+                    return Qt.rgba((a[0] + (b[0] - a[0]) * t) / 255, (a[1] + (b[1] - a[1]) * t) / 255,
+                                   (a[2] + (b[2] - a[2]) * t) / 255, 1)
+                }
+            }
+            Text { text: "RTT " + (sessionWindow.telemetry.rtt || "—") + " ms"; color: "#eff1f4"; font.pixelSize: 12 }
             ColumnLayout {
                 spacing: 0
                 Text {
                     id: targetText
                     text: "Encoder Target " + (sessionWindow.bitrateKbps / 1000).toFixed(1) + " Mbps"
-                    color: "#eff1f4"
+                    color: sessionWindow.liveSession && !sessionWindow.telemetry.bitrateConfirmed ? "#edc76b" : "#eff1f4"
                     font.pixelSize: 13
                 }
                 Slider {
@@ -132,8 +160,27 @@ Item {
                     stepSize: sessionWindow.bitrateStepKbps
                     value: sessionWindow.bitrateKbps
                     focusPolicy: Qt.NoFocus
+                    enabled: !sessionWindow.liveSession || !!sessionWindow.telemetry.bitrateEnabled
                     onMoved: sessionWindow.bitrateKbps = Math.round(value)
                 }
+            }
+            ToolButton {
+                visible: !!sessionWindow.telemetry.microphoneSupported
+                text: sessionWindow.telemetry.microphoneState === 2 ? "●" : "○"
+                ToolTip.text: ["Microphone off", "Starting microphone", "Microphone on", "Microphone unavailable"][sessionWindow.telemetry.microphoneState || 0]
+                onClicked: sessionWindow.toggleMicrophone()
+                // Compact microphone glyph; colour indicates actual Host acknowledgement.
+                contentItem: Item {
+                    Rectangle { x: 9; y: 3; width: 6; height: 11; radius: 3; color: sessionWindow.telemetry.microphoneState === 2 ? "#61d991" : "#c7cbd2" }
+                    Rectangle { x: 6; y: 9; width: 12; height: 9; radius: 5; color: "transparent"; border.color: "#c7cbd2" }
+                    Rectangle { x: 11; y: 17; width: 2; height: 4; color: "#c7cbd2" }
+                }
+            }
+            ToolButton {
+                visible: !!sessionWindow.telemetry.cameraSupported
+                text: "▣"
+                ToolTip.text: ["Camera off", "Starting camera", "Camera on", "Camera unavailable"][sessionWindow.telemetry.cameraState || 0]
+                onClicked: sessionWindow.toggleCamera()
             }
             ToolButton {
                 objectName: "fullscreenButton"
@@ -156,6 +203,7 @@ Item {
     }
 
     Rectangle {
+        z: 3
         visible: sessionWindow.waiting
         anchors.fill: parent
         color: "#55000000"

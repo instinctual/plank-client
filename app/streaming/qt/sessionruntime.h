@@ -3,6 +3,8 @@
 #include "sessionshell.h"
 #include "videopresenter.h"
 #include "decodedvideorenderer.h"
+#include "sessioninput.h"
+#include "waylandsessionguard.h"
 #include <QPointer>
 #include <QThread>
 #include <QTimer>
@@ -41,12 +43,17 @@ private:
     void keepWaiting();
     void setStatus(const QString& text);
     bool snapshotDisplays();
+    void updateFocus();
+    void setInputEnabled(bool enabled);
+    void handleShortcut(int key);
 
     Session* const m_Session;
     QPointer<QWindow> m_Launcher;
     std::vector<std::unique_ptr<QtSessionShell>> m_Windows;
     std::unique_ptr<QtVideoPresenter> m_Presenter;
     std::unique_ptr<QtDecodedVideoRendererFactory> m_Factory;
+    std::unique_ptr<QtSessionInput> m_Input;
+    std::unique_ptr<QtWaylandSessionGuard> m_WindowGuard;
     QThread* m_Worker = nullptr;
     QTimer m_Tick;
     QTimer m_StartupDeadline;
@@ -62,4 +69,11 @@ private:
     bool m_ExitApplication = false;
     bool m_PreviousQuitOnLastWindow = true;
     quint64 m_ReconnectDeadline = 0;
+    quint64 m_BitrateChanged = 0, m_BitrateSent = 0;
+    int m_LastSentBitrate = -1;
+    int m_TargetBitrate = 0;
+    std::atomic_int m_RecoveryBitrate{0};
+    bool m_InputGrabbed = true;
+    bool m_CaptureSystemKeys = true;
+    bool m_ConfinePointer = true;
 };
