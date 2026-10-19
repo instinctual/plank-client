@@ -278,6 +278,8 @@ private slots:
             return rendered.pixelColor(qRound(505.0 * rendered.width() / window.width()),
                                        qRound(305.0 * rendered.height() / window.height()));
         };
+        const QColor background = cursorPixel();
+        QVERIFY(background.isValid());
 
         // Render every replacement, rather than coalescing all shapes before
         // the first frame. The old implementation double-deleted the first
@@ -293,13 +295,13 @@ private slots:
         // Clear/recreate and mouse/tablet ownership changes must also retire
         // the old scene-graph node safely, then show the latest Host shape.
         window.setCursorShape({}, {}, false);
-        QCOMPARE(cursorPixel(), QColor(Qt::black));
+        QCOMPARE(cursorPixel(), background);
         QImage shape(60, 60, QImage::Format_ARGB32_Premultiplied);
         shape.fill(Qt::blue);
         window.setCursorShape(shape, {}, true);
         QCOMPARE(cursorPixel(), QColor(Qt::blue));
         window.setTabletActive(false);
-        QCOMPARE(cursorPixel(), QColor(Qt::black));
+        QCOMPARE(cursorPixel(), background);
         shape.fill(Qt::red);
         window.setCursorShape(shape, {}, true);
         window.setTabletActive(true);
