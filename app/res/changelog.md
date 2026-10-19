@@ -1,3 +1,13 @@
+## 1.1.045 — Ubuntu Qt window controls
+
+### Client
+- Keep a Show Toolbar button available in windowed sessions when the toolbar is hidden.
+- Reveal the toolbar with a click or a one-second hover, without changing your Pin preference.
+- Retain the recent fixes for hardware video presentation and Wacom cursor updates.
+
+### Host
+- No changes; no Host update is needed.
+
 ## 1.1.042 — Ubuntu Qt client candidate
 
 ### Client

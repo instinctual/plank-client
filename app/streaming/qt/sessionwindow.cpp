@@ -29,10 +29,22 @@ QtSessionWindow::QtSessionWindow(QWindow* parent) : QQuickView(parent),
     surface.setGreenBufferSize(10);
     surface.setBlueBufferSize(10);
     setFormat(surface);
+    // Window chrome belongs to the top-level shell, not this native child.
+    auto* window = controlWindow();
+    m_Fullscreen = window->windowState() == Qt::WindowFullScreen;
+    connect(window, &QWindow::windowStateChanged, this, [this](Qt::WindowState state) {
+        const bool fullscreen = state == Qt::WindowFullScreen;
+        if (m_Fullscreen == fullscreen) return;
+        m_Fullscreen = fullscreen;
+        m_RevealTimer.stop();
+        emit windowModeChanged();
+        updateCursor();
+    });
     rootContext()->setContextProperty(QStringLiteral("sessionWindow"), this);
     setSource(QUrl(QStringLiteral("qrc:/qt-session/SessionSurface.qml")));
     if (rootObject()) {
         m_Toolbar = rootObject()->findChild<QQuickItem*>(QStringLiteral("sessionToolbar"));
+        m_ToolbarReveal = rootObject()->findChild<QQuickItem*>(QStringLiteral("toolbarRevealButton"));
         m_TabletCursor = new QtTabletCursorItem(rootObject());
         m_TabletCursor->setVisible(false);
     }
@@ -42,8 +54,7 @@ QtSessionWindow::QtSessionWindow(QWindow* parent) : QQuickView(parent),
     m_HideTimer.setInterval(HideDelayMs);
     connect(&m_RevealTimer, &QTimer::timeout, this, [this] {
         if (m_PointerPresent && !m_RemoteButtons && !m_LocalButtons) {
-            setToolbarVisible(true);
-            scheduleHide();
+            revealToolbar();
         }
     });
     connect(&m_HideTimer, &QTimer::timeout, this, [this] {
@@ -179,6 +190,14 @@ void QtSessionWindow::moveToolbar(qreal logicalLeft)
     emit toolbarChanged();
 }
 
+void QtSessionWindow::revealToolbar()
+{
+    if (m_Waiting || m_RemoteButtons) return;
+    m_RevealTimer.stop();
+    setToolbarVisible(true);
+    scheduleHide();
+}
+
 void QtSessionWindow::toggleFullscreen()
 {
     cancelInput();
@@ -215,13 +234,20 @@ void QtSessionWindow::keepWaiting()
 
 bool QtSessionWindow::overToolbar(const QPointF& position) const
 {
-    return m_ToolbarVisible && m_Toolbar &&
+    return m_Toolbar && m_Toolbar->isVisible() &&
             m_Toolbar->contains(m_Toolbar->mapFromScene(position));
+}
+
+bool QtSessionWindow::overToolbarReveal(const QPointF& position) const
+{
+    return m_ToolbarReveal && m_ToolbarReveal->isVisible() &&
+            m_ToolbarReveal->contains(m_ToolbarReveal->mapFromScene(position));
 }
 
 bool QtSessionWindow::localPointer(const QPointF& position) const
 {
-    return m_LocalButtons || (!m_RemoteButtons && overToolbar(position));
+    return m_LocalButtons || (!m_RemoteButtons &&
+            (overToolbar(position) || overToolbarReveal(position)));
 }
 
 void QtSessionWindow::setToolbarVisible(bool visible)
@@ -248,9 +274,10 @@ void QtSessionWindow::observePointer(const QPointF& position)
     m_Pointer = position;
     // The top edge of the *window*, including letterbox. Never Host pixels.
     const bool edge = position.x() >= 0 && position.x() < width() &&
-            position.y() >= 0 && position.y() < 3 && !m_Waiting &&
+            position.y() >= 0 && position.y() < 3;
+    const bool reveal = (edge || overToolbarReveal(position)) && !m_Waiting &&
             !m_RemoteButtons && !m_LocalButtons;
-    if (!edge || m_ToolbarVisible) m_RevealTimer.stop();
+    if (!reveal || m_ToolbarVisible) m_RevealTimer.stop();
     else if (!m_RevealTimer.isActive()) m_RevealTimer.start();
     scheduleHide();
     updateCursor();
