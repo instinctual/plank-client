@@ -10,6 +10,7 @@ Item {
     // Qualification background only. The production presenter will draw under
     // this scene directly; this rectangle is not a CPU video upload path.
     Rectangle {
+        visible: !sessionWindow.liveSession
         x: sessionWindow.videoRect.x
         y: sessionWindow.videoRect.y
         width: sessionWindow.videoRect.width
@@ -22,6 +23,18 @@ Item {
             color: "#ccd3dd"
             font.pixelSize: 16
         }
+    }
+
+    Text {
+        visible: sessionWindow.statusText.length > 0 && !sessionWindow.waiting
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.margins: 20
+        text: sessionWindow.statusText
+        color: "#f1f2f5"
+        style: Text.Outline
+        styleColor: "#111111"
+        font.pixelSize: 20
     }
 
     component ToolButton: Button {

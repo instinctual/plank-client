@@ -36,7 +36,6 @@ public:
         if (!params || !m_Open || (!m_Hardware && !m_Device)) return false;
         m_VideoFormat = params->videoFormat;
         m_Identity = params->enableIdentityGbr;
-        m_FullRange = params->captureSource != DecoderCaptureSource::ScreenCaptureKit;
         m_Delivery = m_Open();
         if (!m_Delivery.submit || !m_Delivery.qualify || !m_Delivery.discard) return false;
         if (m_Hardware) {
@@ -68,7 +67,7 @@ public:
     bool ownsPresentationScheduling() const override { return true; }
     bool notifyWindowChanged(PWINDOW_STATE_CHANGE_INFO) override { return true; }
     int getDecoderColorspace() override { return m_Identity ? COLORSPACE_IDENTITY_GBR : COLORSPACE_REC_709; }
-    int getDecoderColorRange() override { return m_FullRange ? COLOR_RANGE_FULL : COLOR_RANGE_LIMITED; }
+    int getDecoderColorRange() override { return COLOR_RANGE_FULL; }
 
     AVPixelFormat getPreferredPixelFormat(int format) override
     {
@@ -156,7 +155,10 @@ public:
 private:
     QtVideoFrame::Ptr retain(const AVFrame* frame, QtVideoFrame::Feedback feedback, QString& error)
     {
-        if (!frame || frame->color_range != (m_FullRange ? AVCOL_RANGE_JPEG : AVCOL_RANGE_MPEG) ||
+        // Both Linux and Apple codec contracts require full-range samples.
+        // The legacy STREAM_CONFIGURATION colorRange field is not proof of
+        // the actual bitstream; FFmpeg's exact-profile test validates it.
+        if (!frame || frame->color_range != AVCOL_RANGE_JPEG ||
                 frame->colorspace != (m_Identity ? AVCOL_SPC_RGB : AVCOL_SPC_BT709)) {
             error = QStringLiteral("Decoded range/matrix differs from the selected profile");
             return {};
@@ -178,7 +180,6 @@ private:
     std::shared_ptr<PresentationStats> m_Stats = std::make_shared<PresentationStats>();
     int m_VideoFormat = 0;
     bool m_Identity = false;
-    bool m_FullRange = true;
 };
 }
 

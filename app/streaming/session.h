@@ -31,6 +31,7 @@
 class ComputerManager;
 class PlankToolbar;
 class MacClipboardSync;
+class QtSessionRuntime;
 #ifdef PLANK_TRANSPORT
 struct PlankTransportNativeEndpoint;
 #endif
@@ -128,6 +129,7 @@ class Session : public QObject
     friend class AsyncConnectionStartThread;
     friend class ExecThread;
     friend class PlankReconnectThread;
+    friend class QtSessionRuntime;
 
 public:
     explicit Session(NvComputer* computer, NvApp& app,
@@ -163,6 +165,11 @@ public:
 
     static void postTabletCursorActivationEvent();
 
+    // Worker-to-UI requests. The experimental Qt owner receives queued
+    // signals; ordinary sessions keep their existing SDL event dispatch.
+    static void requestSessionQuit();
+    static void requestDecoderReset();
+
     void updateRenderedStats(float fps, float videoMbps)
     {
         m_CurrentRenderedFps.store(fps, std::memory_order_relaxed);
@@ -181,6 +188,10 @@ public:
     }
 
 signals:
+    void qtQuitRequested();
+    void qtDecoderResetRequested();
+    void qtReconnectRequested();
+    void qtReconnectStatusChanged(QString text, bool warning);
     void stageStarting(QString stage);
 
     void stageFailed(QString stage, int errorCode, QString failingPorts);
@@ -207,7 +218,7 @@ private:
 #endif
     void execInternal();
 
-    bool initialize();
+    bool initialize(IFFmpegRendererFactory* presenter = nullptr);
 
     bool startConnectionAsync(bool reconnecting = false,
                               bool takeOverActiveSession = false);
@@ -325,7 +336,8 @@ private:
                        DecoderCaptureSource captureSource =
                            DecoderCaptureSource::Nvfbc8Bit,
                        DecoderEncoderBackend encoderBackend =
-                           DecoderEncoderBackend::SoftwareCuda);
+                           DecoderEncoderBackend::SoftwareCuda,
+                       IFFmpegRendererFactory* presenter = nullptr);
 
     bool isIdentityGbrEnabledForFormat(int videoFormat) const;
     DecoderCaptureSource decoderCaptureSource() const;
@@ -415,6 +427,8 @@ private:
     NvApp m_App;
     SDL_Window* m_Window;
     IVideoDecoder* m_VideoDecoder;
+    // Immutable during one active runtime, owned until all decoder workers exit.
+    IFFmpegRendererFactory* m_RendererFactory = nullptr;
     SDL_SpinLock m_DecoderLock;
     bool m_AudioDisabled;
     bool m_AudioMuted;

@@ -1939,9 +1939,7 @@ void FFmpegVideoDecoder::decoderThreadProc()
                         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                                      "Mac stream changed its negotiated profile/chroma/color format; disconnecting");
                         SDL_SetAtomicInt(&m_DecoderThreadShouldQuit, 1);
-                        SDL_Event event{};
-                        event.type = SDL_EVENT_QUIT;
-                        SDL_PushEvent(&event);
+                        Session::requestSessionQuit();
                         av_frame_free(&frame);
                         return;
                     }
@@ -2055,9 +2053,7 @@ void FFmpegVideoDecoder::decoderThreadProc()
                         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                                      "Resetting decoder due to consistent failure");
 
-                        SDL_Event event;
-                        event.type = SDL_EVENT_RENDER_DEVICE_RESET;
-                        SDL_PushEvent(&event);
+                        Session::requestDecoderReset();
 
                         // Don't consume any additional data
                         SDL_SetAtomicInt(&m_DecoderThreadShouldQuit, 1);
@@ -2194,9 +2190,7 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                          "Resetting decoder due to consistent failure");
 
-            SDL_Event event;
-            event.type = SDL_EVENT_RENDER_DEVICE_RESET;
-            SDL_PushEvent(&event);
+            Session::requestDecoderReset();
 
             // Don't consume any additional data
             SDL_SetAtomicInt(&m_DecoderThreadShouldQuit, 1);

@@ -53,6 +53,10 @@ contains(CONFIG, plank-qt-session) {
     TARGET = plank-client-qt
     PLANK_PRIVATE_LIB_NAME = plank-client-qt
     DEFINES += PLANK_QT_CLIENT_EXPERIMENT
+    include(streaming/qt/qtsession.pri)
+    include(streaming/qt/qtvideo.pri)
+    SOURCES += streaming/qt/sessionruntime.cpp streaming/qt/decodedvideorenderer.cpp
+    HEADERS += streaming/qt/sessionruntime.h streaming/qt/decodedvideorenderer.h streaming/qt/decodedvideodelivery.h
 }
 HEADERS += clientidentity.h
 
@@ -426,6 +430,12 @@ libplacebo {
         streaming/video/ffmpeg-renderers/plvk.cpp \
         streaming/video/ffmpeg-renderers/plvkframepool.cpp \
         streaming/video/ffmpeg-renderers/plvk_c.c
+
+    contains(CONFIG, plank-qt-session) {
+        # qtsoftwarevideo.pri already names the same shared sources by their
+        # absolute paths. Link each allocator/transfer implementation once.
+        SOURCES -= streaming/video/ffmpeg-renderers/plvkframepool.cpp streaming/video/ffmpeg-renderers/plvk_c.c
+    }
     HEADERS += \
         streaming/video/ffmpeg-renderers/plvk.h \
         streaming/video/ffmpeg-renderers/plvkframepool.h \

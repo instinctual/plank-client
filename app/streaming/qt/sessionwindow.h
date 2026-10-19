@@ -22,6 +22,8 @@ class QtSessionWindow : public QQuickView
     Q_PROPERTY(int maximumBitrateKbps READ maximumBitrateKbps CONSTANT)
     Q_PROPERTY(int bitrateStepKbps READ bitrateStepKbps CONSTANT)
     Q_PROPERTY(QRectF videoRect READ videoRect NOTIFY presentationChanged)
+    Q_PROPERTY(bool liveSession READ liveSession WRITE setLiveSession NOTIFY statusChanged)
+    Q_PROPERTY(QString statusText READ statusText WRITE setStatusText NOTIFY statusChanged)
 public:
     explicit QtSessionWindow(QWindow* parent = nullptr);
     ~QtSessionWindow() override;
@@ -35,6 +37,10 @@ public:
     int maximumBitrateKbps() const;
     int bitrateStepKbps() const;
     QRectF videoRect() const;
+    bool liveSession() const { return m_LiveSession; }
+    QString statusText() const { return m_StatusText; }
+    void setLiveSession(bool live) { m_LiveSession = live; emit statusChanged(); }
+    void setStatusText(const QString& text) { if (text != m_StatusText) { m_StatusText = text; emit statusChanged(); } }
 
     void setPresentation(const QtSessionGeometry& geometry);
     void setRemoteInputEnabled(bool enabled);
@@ -50,6 +56,7 @@ public:
     Q_INVOKABLE void keepWaiting();
 
 signals:
+    void statusChanged();
     void toolbarChanged();
     void waitingChanged();
     void bitrateChanged();
@@ -108,4 +115,6 @@ private:
     bool m_Waiting = false;
     qreal m_ToolbarPosition = 0.5;
     int m_BitrateKbps;
+    bool m_LiveSession = false;
+    QString m_StatusText;
 };

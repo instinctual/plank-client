@@ -1,5 +1,6 @@
 #include "softwarevideoconverter.h"
 #include "../../app/streaming/video/ffmpeg-testframes.h"
+#include "../../app/streaming/video/applevideo-test-frame.h"
 
 #include <libplacebo/vulkan.h>
 extern "C" {
@@ -311,6 +312,8 @@ private slots:
         SAMPLE("h264-10-422", AV_CODEC_ID_H264, k_H264High10_422TestFrame);
         SAMPLE("hevc-8-444", AV_CODEC_ID_HEVC, k_HEVCRExt8_444IdentityGbrTestFrame);
         SAMPLE("hevc-10-444", AV_CODEC_ID_HEVC, k_HEVCRExt10_444IdentityGbrTestFrame);
+        SAMPLE("apple-hevc-10-420", AV_CODEC_ID_HEVC, k_AppleHEVCMain10TestFrame);
+        SAMPLE("apple-hevc-10-444", AV_CODEC_ID_HEVC, k_AppleHEVCRext10TestFrame);
 #undef SAMPLE
     }
     void decodedFixtures()

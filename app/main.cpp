@@ -1,4 +1,7 @@
 #include <QGuiApplication>
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#include <QQuickWindow>
+#endif
 #include <QStyleHints>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -403,6 +406,9 @@ void configureSignalHandlers()
 
 int main(int argc, char *argv[])
 {
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+#endif
     SDL_SetMainReady();
 
     // Set the SDL3 application identity before any subsystem can initialize.
