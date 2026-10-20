@@ -114,7 +114,8 @@ private slots:
         const QSize expected = QtSessionShell::defaultWindowedSize(
             shell.screen()->availableGeometry().size(), desktop);
         shell.prepareForSession(desktop, true);
-        QCOMPARE(shell.size(), expected);
+        // A native backend may already apply fullscreen geometry while hidden.
+        // Verify the normal restore size after leaving fullscreen, below.
         QVERIFY(!shell.isVisible());
         QVERIFY(!scene.isVisible());
         QCOMPARE(shell.windowState(), Qt::WindowFullScreen);
@@ -441,6 +442,9 @@ private slots:
         QTRY_COMPARE(scene.size(), shell.size());
         QCOMPARE(scene.windowState(), Qt::WindowNoState);
         QTRY_COMPARE(fullscreen->property("source").toUrl().fileName(), QStringLiteral("fullscreen-exit.svg"));
+        // State/size notifications can precede the new icon's layout and draw.
+        // Require the rendered glyph, not just its changed source property.
+        QTRY_VERIFY(hasRenderedGlyph(renderedControl(scene, fullscreen)));
         const auto exitImage = renderedControl(scene, fullscreen);
         QVERIFY(hasRenderedGlyph(exitImage));
         QVERIFY(exitImage != enterImage);
