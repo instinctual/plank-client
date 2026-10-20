@@ -133,6 +133,19 @@ private slots:
             QVERIFY(guard.apply(4000, now%10 ? -1 : 30000, now, true) <= 0);
         QCOMPARE(guard.apply(4000, -1, 2905, false), 0);
     }
+    void largeGraphPullCanPrimeWithinHighWater()
+    {
+        for (unsigned quantum : {128U, 512U, 1024U, 2048U, 4096U}) {
+            PcmRing ring(9840, 2); Playback playback(ring, 48000, 2);
+            std::vector<float> input(480, 0.05f), output(quantum * 2);
+            const auto highWater = producerHighWater(48000, quantum);
+            while (ring.queued() <= highWater) QVERIFY(ring.push(input.data(), 240));
+            QCOMPARE(playback.render(output.data(), quantum), quantum);
+            QVERIFY(!playback.clock().priming);
+            QVERIFY(playback.clock().headroom >= 48000 * ReserveUs / 1000000);
+            QVERIFY(ring.queued() < 9840U);
+        }
+    }
     void batchedSourceAndDriftingDevice_data()
     {
         QTest::addColumn<int>("quantum"); QTest::addColumn<int>("drift");
@@ -203,6 +216,8 @@ private slots:
     void realPipeWirePlayback()
     {
         if (qEnvironmentVariable("PLANK_PIPEWIRE_TEST") != "1") QSKIP("Isolated PipeWire daemon gate runs separately");
+        const int expectedQuantum = qEnvironmentVariableIntValue("PLANK_PIPEWIRE_TEST_QUANTUM");
+        QVERIFY(expectedQuantum == 1024 || expectedQuantum == 4096);
         OPUS_MULTISTREAM_CONFIGURATION config {};
         config.sampleRate = 48000; config.channelCount = 2; config.samplesPerFrame = 240;
         // Repeated construction/destruction while the RT consumer is active.
@@ -223,10 +238,12 @@ private slots:
                     samples[frame*2] = samples[frame*2+1] = value;
                 }
                 QVERIFY(output.submitAudio(bytes, block * 5000LL));
-                QVERIFY(output.getQueuedAudioDurationMs() <= 100);
+                QVERIFY(output.getQueuedAudioDurationMs() <=
+                    int(producerHighWater(48000, expectedQuantum) / 48 + 10));
             }
             const auto stats = output.diagnostics();
             QVERIFY(stats.pulls > 20); QVERIFY(stats.quantumFrames > 0); QVERIFY(!stats.priming);
+            QCOMPARE(stats.quantumFrames, expectedQuantum);
             QVERIFY(output.getDeviceBufferDurationMs() >= 0);
             QCOMPARE(SDL_WasInit(SDL_INIT_AUDIO), 0U); // no hidden SDL output
             // Hosted scheduling is not acoustic qualification. A severe stall

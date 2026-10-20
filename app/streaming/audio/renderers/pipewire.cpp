@@ -135,9 +135,9 @@ bool PipeWireAudioRenderer::prepareForPlayback(const OPUS_MULTISTREAM_CONFIGURAT
     p.channels = config->channelCount;
     p.samplesPerFrame = config->samplesPerFrame;
     p.input.resize(p.samplesPerFrame * p.channels);
-    // A hard capacity, not a latency target. Producer backpressure starts at
-    // 50ms; startup/recovery requires one graph pull plus 12ms of reserve.
-    p.ring.reset(new PlankPipeWire::PcmRing(p.rate / 5, p.channels));
+    // A hard capacity, not a latency target. Include one input block so large
+    // legal Opus blocks still fit after the normal high-water backpressure.
+    p.ring.reset(new PlankPipeWire::PcmRing(p.rate / 5 + p.samplesPerFrame, p.channels));
     p.playback.reset(new PlankPipeWire::Playback(*p.ring, p.rate, p.channels));
     if (p.correctionEnabled) {
         AVChannelLayout layout;
@@ -219,10 +219,13 @@ bool PipeWireAudioRenderer::submitAudio(int bytes, qint64 sourceUs)
     // Bounded wait on the decoder worker only. No realtime callback, GUI or
     // transport lock is held while waiting for the device to consume samples.
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
-    while (!p.failed.load() && p.ring->queued() > unsigned(p.rate / 20) &&
+    const auto aboveHighWater = [&p] {
+        return p.ring->queued() > PlankPipeWire::producerHighWater(p.rate, p.snapshot.get().quantum);
+    };
+    while (!p.failed.load() && aboveHighWater() &&
         std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    if (p.failed.load() || p.ring->queued() > unsigned(p.rate / 20)) {
+    if (p.failed.load() || aboveHighWater()) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "PLANK PipeWire playback stalled; recreating output");
         return false;
     }

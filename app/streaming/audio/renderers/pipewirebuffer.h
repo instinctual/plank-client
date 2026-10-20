@@ -132,6 +132,13 @@ inline std::int64_t queueDelayUs(const OutputClock& clock, std::uint64_t written
 
 constexpr int ReserveUs = 12000; // covers the Host's 512/48k capture batch
 
+inline unsigned producerHighWater(unsigned rate, unsigned quantum)
+{
+    // A large graph pull must be allowed to prime and retain its reserve.
+    // A fixed 50ms ceiling would starve devices requesting 2048/4096 frames.
+    return std::max(rate / 20, quantum + rate * ReserveUs / 1000000);
+}
+
 // Producer-side safety ceiling, driven by the minimum POST-pull reserve over
 // one second, not the misleading pre-enqueue fill. Smooth resampling remains
 // the only clock actuator. Never accelerate repeatedly into an empty queue.
