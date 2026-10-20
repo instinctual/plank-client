@@ -876,8 +876,14 @@ private slots:
         }
         scene.minimize();
         QTRY_COMPARE(shell.windowState(), Qt::WindowMinimized);
+        QVERIFY(!scene.isVisible());
         shell.showNormal();
         QTRY_COMPARE(shell.windowState(), Qt::WindowNoState);
+        QVERIFY(scene.isVisible());
+        shell.hide();
+        QVERIFY(!scene.isVisible());
+        shell.showNormal();
+        QVERIFY(scene.isVisible());
         QSignalSpy disconnect(&scene, &QtSessionWindow::disconnectRequested);
         shell.close();
         QCOMPARE(disconnect.count(), 1);
