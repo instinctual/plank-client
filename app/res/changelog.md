@@ -1,3 +1,10 @@
+## 1.1.050 — Ubuntu Qt connection recovery
+
+### Client
+- Fix video startup stopping when Wayland considers the covered parent window hidden.
+- Keep hardware-decoder checks, ten-bit presentation and native PipeWire playback.
+- Preserve ordinary window hiding, minimizing and restoring.
+
 ## 1.1.049 — Ubuntu Qt native audio candidate
 
 ### Client

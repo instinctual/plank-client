@@ -911,6 +911,46 @@ private slots:
         QCOMPARE(keys.count(), 2);
     }
 
+    void coveredShellKeepsRenderingAndRestoresAfterHide()
+    {
+        if (QGuiApplication::platformName() != QStringLiteral("wayland"))
+            QSKIP("Requires the real isolated Wayland compositor");
+        QtSessionShell shell;
+        auto& scene = shell.surface();
+        scene.setLiveSession(true);
+        shell.resize(1280, 720);
+        QSignalSpy swaps(&scene, &QQuickWindow::frameSwapped);
+        for (bool fullscreen : {false, true, false, true}) {
+            if (fullscreen) shell.showFullScreen();
+            else shell.showNormal();
+            QTRY_VERIFY(shell.isExposed());
+            QTRY_VERIFY(scene.isExposed());
+            // Survive the parent's missing-callback timeout, then require new
+            // actual swaps. Merely showing a window or grabbing it can hide
+            // this regression by rendering before the timeout fires.
+            QTest::qWait(400);
+            for (int frame = 0; frame < 8; ++frame) {
+                const int before = swaps.count();
+                scene.setStatusText(QString::number(frame));
+                scene.update();
+                QTRY_VERIFY_WITH_TIMEOUT(swaps.count() > before, 1000);
+                QVERIFY(scene.isExposed());
+            }
+            shell.hide();
+            QTRY_VERIFY(!shell.isExposed());
+            QTRY_VERIFY(!scene.isExposed());
+        }
+        shell.showNormal();
+        QTRY_VERIFY(scene.isExposed());
+        shell.showMinimized();
+        QTRY_COMPARE(shell.windowState(), Qt::WindowMinimized);
+        shell.showNormal();
+        QTRY_VERIFY(scene.isExposed());
+        const int before = swaps.count();
+        scene.update();
+        QTRY_VERIFY_WITH_TIMEOUT(swaps.count() > before, 1000);
+    }
+
     void releasedInputCanBeRecapturedWithoutAClickLeak()
     {
         QtSessionWindow scene;
@@ -995,6 +1035,8 @@ int main(int argc, char** argv)
     qputenv("QT_QUICK_CONTROLS_MATERIAL_VARIANT", "Dense");
     qputenv("QT_QUICK_CONTROLS_MATERIAL_ACCENT", "#5A9CE6");
     QQuickStyle::setStyle(QStringLiteral("Material"));
+    qputenv("QSG_RENDER_LOOP", "basic");
+    QtSessionShell::configureWaylandExposure();
     QGuiApplication app(argc, argv);
     QtSessionTest test;
     return QTest::qExec(&test, argc, argv);

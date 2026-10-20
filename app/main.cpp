@@ -2,6 +2,7 @@
 #ifdef PLANK_QT_CLIENT_EXPERIMENT
 #include <QQuickWindow>
 #include <QEvent>
+#include "streaming/qt/sessionshell.h"
 #endif
 #include <QStyleHints>
 #include <QQmlApplicationEngine>
@@ -669,6 +670,9 @@ int main(int argc, char *argv[])
     // NB: Windows defaults to the "windows" non-threaded render loop on
     // Qt 5 and the threaded render loop on Qt 6.
     qputenv("QSG_RENDER_LOOP", "basic");
+#endif
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+    QtSessionShell::configureWaylandExposure();
 #endif
 
 #if defined(Q_OS_DARWIN) && defined(QT_DEBUG) && !defined(HAVE_LIBPLACEBO_VULKAN)

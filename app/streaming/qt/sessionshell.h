@@ -11,6 +11,8 @@
 class QtSessionShell final : public QRasterWindow
 {
 public:
+    // Call before QGuiApplication creates any Wayland surfaces.
+    static void configureWaylandExposure();
     QtSessionShell();
     QtSessionWindow& surface() { return m_Surface; }
 

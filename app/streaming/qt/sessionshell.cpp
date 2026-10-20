@@ -3,6 +3,21 @@
 #include <QCoreApplication>
 #include <QPainter>
 
+void QtSessionShell::configureWaylandExposure()
+{
+    // The opaque video child can cover the raster parent completely. Wayland
+    // may then omit the parent's frame callbacks while still presenting the
+    // child. Qt 6.10's timeout heuristic hides that parent AND its children,
+    // so video qualification/playback stops despite a visible, healthy output.
+    //
+    // Disable only that heuristic, not compositor callbacks or swap pacing.
+    // Actual hide/minimize/exposure events and our bounded decoder gate remain.
+    // This is process-local and called only by the opt-in Qt Client/probes.
+    // Keep an explicit environment value for diagnostic A/B comparisons.
+    if (!qEnvironmentVariableIsSet("QT_WAYLAND_FRAME_CALLBACK_TIMEOUT"))
+        qputenv("QT_WAYLAND_FRAME_CALLBACK_TIMEOUT", "0");
+}
+
 QtSessionShell::QtSessionShell() : m_Surface(this)
 {
     setTitle(QStringLiteral("PLANK Qt session qualification"));
