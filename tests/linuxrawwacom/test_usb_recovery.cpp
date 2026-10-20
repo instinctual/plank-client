@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cstdarg>
 #include <cstdlib>
 #include <cstring>
@@ -167,6 +168,11 @@ void acknowledge(LinuxRawWacomInput& raw, const std::vector<Frame>& attach)
 void inject(Fault fault)
 {
     std::lock_guard<std::mutex> lock(mutex);
+    if (pollFault != Fault::None || readFault != Fault::None) {
+        std::cerr << "Unconsumed test fault before " << static_cast<int>(fault)
+                  << ": poll=" << static_cast<int>(pollFault)
+                  << " read=" << static_cast<int>(readFault) << '\n';
+    }
     CHECK(pollFault == Fault::None && readFault == Fault::None);
     pollFault = fault;
     changed.notify_all();
@@ -368,6 +374,19 @@ ssize_t __wrap_read(int fd, void* data, size_t size)
     CHECK(size >= report.size());
     std::memcpy(data, report.data(), report.size());
     return report.size();
+}
+// With _FORTIFY_SOURCE=3 the sanitizer build may call checked libc entry
+// points instead of read/poll. Preserve their bounds checks and route them
+// through the same fixture; otherwise /dev/null can masquerade as a USB EOF.
+ssize_t __wrap___read_chk(int fd, void* data, size_t size, size_t capacity)
+{
+    CHECK(size <= capacity);
+    return __wrap_read(fd, data, size);
+}
+int __wrap___poll_chk(pollfd* fds, nfds_t size, int timeout, size_t capacity)
+{
+    CHECK(size <= capacity / sizeof(pollfd));
+    return __wrap_poll(fds, size, timeout);
 }
 int LiSendRawHidEvent(const unsigned char* data, unsigned int size)
 {
