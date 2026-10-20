@@ -220,11 +220,6 @@ void QtSessionWindow::disconnectSession()
     emit disconnectRequested();
 }
 
-void QtSessionWindow::keepWaiting()
-{
-    emit keepWaitingRequested();
-}
-
 bool QtSessionWindow::overToolbar(const QPointF& position) const
 {
     return m_Toolbar && m_Toolbar->isVisible() &&

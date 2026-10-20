@@ -266,6 +266,7 @@ Item {
     }
 
     Rectangle {
+        objectName: "recoveryOverlay"
         z: 3
         visible: sessionWindow.waiting
         anchors.fill: parent
@@ -281,11 +282,14 @@ Item {
                 anchors.fill: parent
                 anchors.margins: 18
                 Text { text: "Waiting for workstation"; font.pixelSize: 19; color: "white" }
-                Text { text: "You can disconnect or keep waiting."; font.pixelSize: 14; color: "#e1e4ea" }
+                Text { text: "Reconnecting automatically…"; font.pixelSize: 14; color: "#e1e4ea" }
                 RowLayout {
                     Layout.alignment: Qt.AlignRight
-                    Button { text: "Disconnect"; onClicked: sessionWindow.disconnectSession() }
-                    Button { text: "Keep Waiting"; onClicked: sessionWindow.keepWaiting() }
+                    Button {
+                        objectName: "recoveryDisconnectButton"
+                        text: "Disconnect"
+                        onClicked: sessionWindow.disconnectSession()
+                    }
                 }
             }
         }

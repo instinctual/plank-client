@@ -1009,6 +1009,9 @@ Flickable {
                         }
                     }
                     Component.onCompleted: {
+                        if (SystemProperties.automaticSessionRecovery) {
+                            unreachableActionListModel.setProperty(0, "text", qsTr("Keep waiting and reconnect automatically"))
+                        }
                         currentIndex = StreamingPreferences.plankUnreachableAction === StreamingPreferences.PLANK_UNREACHABLE_DISCONNECT ? 1 : 0
                     }
                     onActivated: {
@@ -1022,7 +1025,9 @@ Flickable {
                 }
 
                 PlankSettingHelp {
-                    text: qsTr("The stream window and toolbar remain responsive while PLANK retries the host.")
+                    text: SystemProperties.automaticSessionRecovery ?
+                              qsTr("When keeping the session open, the timeout displays a status message without pausing reconnection. The message closes automatically when the session recovers. You can disconnect at any time.") :
+                              qsTr("The stream window and toolbar remain responsive while PLANK retries the host.")
                 }
             }
         }

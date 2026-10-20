@@ -2,14 +2,16 @@
 
 #include <atomic>
 #include <cstdint>
+#include <limits>
 
-// One deadline shared by the UI and reconnect worker. Requests already in
-// flight remain bounded by their own HTTP timeout; no new request may begin
-// while the local Ask prompt awaits a decision.
+// The frontend chooses bounded or continuous recovery. Individual operations
+// retain their HTTP timeout, cancellation and terminal authentication checks.
+// The ordinary frontend's Ask policy still pauses requests at its deadline.
 class PlankReconnectPolicy
 {
 public:
     void allowUntil(uint64_t deadline) { m_Deadline.store(deadline); }
+    void allowContinuously() { allowUntil(std::numeric_limits<uint64_t>::max()); }
     bool allowsRequest(uint64_t now) const { return now < m_Deadline.load(); }
 
     static bool terminalStatus(int status, bool authenticating)

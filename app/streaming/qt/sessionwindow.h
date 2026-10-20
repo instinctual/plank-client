@@ -75,7 +75,6 @@ public:
     Q_INVOKABLE void toggleFullscreen();
     Q_INVOKABLE void minimize();
     Q_INVOKABLE void disconnectSession();
-    Q_INVOKABLE void keepWaiting();
     Q_INVOKABLE void toggleMicrophone() { emit microphoneRequested(); }
     Q_INVOKABLE void toggleCamera() { emit cameraRequested(); }
     Q_INVOKABLE void toggleStatistics() { setStatisticsVisible(!statisticsVisible()); }
@@ -103,7 +102,6 @@ signals:
     void remoteKey(quint32 scanCode, int key, bool down, bool repeat, Qt::KeyboardModifiers modifiers);
     void bitrateRequested(int kbps);
     void disconnectRequested();
-    void keepWaitingRequested();
 
 protected:
     bool event(QEvent* event) override;

@@ -21,6 +21,12 @@ private slots:
         QVERIFY(!properties.property("rendererAlwaysFullScreen").toBool());
     }
 
+    void settingsDescribeAutomaticRecovery()
+    {
+        SystemProperties properties;
+        QVERIFY(properties.property("automaticSessionRecovery").toBool());
+    }
+
     void nativeDisplayGeometryAndRepeatedRefresh()
     {
         SystemProperties properties;

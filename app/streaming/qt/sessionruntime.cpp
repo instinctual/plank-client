@@ -187,11 +187,10 @@ void QtSessionRuntime::start(QWindow* launcher)
         connect(&surface, &QtSessionWindow::fullscreenRequested, this, &QtSessionRuntime::toggleFullscreen);
         connect(&surface, &QtSessionWindow::minimizeRequested, this, &QtSessionRuntime::minimize);
         connect(&surface, &QtSessionWindow::inputRecaptureRequested, this, [this] {
-            if (!m_Streaming || m_Stop.load() || m_ReconnectDeadline) return;
+            if (!m_Streaming || m_Stop.load() || m_ReconnectNoticeDeadline) return;
             m_InputGrabbed = true;
             setInputEnabled(true);
         });
-        connect(&surface, &QtSessionWindow::keepWaitingRequested, this, &QtSessionRuntime::keepWaiting);
         connect(&surface, &QtSessionWindow::surfaceSizeChanged, this, &QtSessionRuntime::updateGeometry);
         connect(shell.get(), &QWindow::windowStateChanged, this, [this] { updateGeometry(); });
         m_Presenter->addOutput(&surface, {}, primary);
@@ -240,7 +239,7 @@ void QtSessionRuntime::request(Command command)
     if (command == Command::Reconnect) {
         m_Streaming = false;
         setInputEnabled(false);
-        keepWaiting();
+        beginRecovery();
     }
     {
         std::lock_guard<std::mutex> lock(m_CommandMutex);
@@ -252,6 +251,7 @@ void QtSessionRuntime::request(Command command)
 void QtSessionRuntime::stop()
 {
     if (m_Stop.exchange(true)) return;
+    m_Session->m_ReconnectPolicy.allowUntil(0);
     m_Session->cancelConnectionStart();
     m_Session->m_ReconnectCancelled.store(true);
     m_Session->m_CanReconnect.store(false);
@@ -411,7 +411,7 @@ void QtSessionRuntime::setStreaming(QSize size)
     m_StreamSize = size;
     m_Input->setStreamSize(size);
     m_Streaming = true;
-    m_ReconnectDeadline = 0;
+    m_ReconnectNoticeDeadline = 0;
     updateGeometry();
     setStatus({});
     for (auto& shell : m_Windows) {
@@ -472,10 +472,16 @@ void QtSessionRuntime::setStatus(const QString& text)
     for (auto& shell : m_Windows) shell->surface().setStatusText(text);
 }
 
-void QtSessionRuntime::keepWaiting()
+void QtSessionRuntime::beginRecovery()
 {
-    m_ReconnectDeadline = SDL_GetTicks() + quint64(m_Session->m_Preferences->plankUnreachableTimeoutSeconds) * 1000;
-    m_Session->m_ReconnectPolicy.allowUntil(m_ReconnectDeadline);
+    m_ReconnectNoticeDeadline = SDL_GetTicks() + quint64(m_Session->m_Preferences->plankUnreachableTimeoutSeconds) * 1000;
+    if (m_Session->m_Preferences->plankUnreachableAction == StreamingPreferences::PLANK_UNREACHABLE_DISCONNECT)
+        m_Session->m_ReconnectPolicy.allowUntil(m_ReconnectNoticeDeadline);
+    else
+        // The timeout reveals a status dialog; it does not suspend recovery.
+        // The shared worker retains cancellation, bounded requests, retry delay,
+        // terminal authentication errors and protection against silent takeover.
+        m_Session->m_ReconnectPolicy.allowContinuously();
     for (auto& shell : m_Windows) shell->surface().setWaiting(false);
 }
 
@@ -559,10 +565,14 @@ void QtSessionRuntime::tick()
 {
     if (m_Stop.load()) return;
     if (m_Session->m_ReconnectGreeterConfirmed.exchange(false)) setStatus(tr("Returning to the sign-in screen…"));
-    if (m_ReconnectDeadline && SDL_GetTicks() >= m_ReconnectDeadline) {
-        m_ReconnectDeadline = 0;
-        if (m_Session->m_Preferences->plankUnreachableAction == StreamingPreferences::PLANK_UNREACHABLE_DISCONNECT) stop();
-        else {
+    if (m_ReconnectNoticeDeadline && SDL_GetTicks() >= m_ReconnectNoticeDeadline) {
+        m_ReconnectNoticeDeadline = 0;
+        if (m_Session->m_Preferences->plankUnreachableAction == StreamingPreferences::PLANK_UNREACHABLE_DISCONNECT) {
+            stop();
+            return;
+        } else {
+            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                        "PLANK Qt waiting for workstation; automatic recovery remains active");
             setInputEnabled(false);
             for (auto& shell : m_Windows) shell->surface().setWaiting(true);
         }

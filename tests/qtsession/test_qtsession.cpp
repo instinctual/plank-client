@@ -63,11 +63,12 @@ bool hasRenderedGlyph(const QImage& image)
     for (int y = 0; y < image.height(); ++y) {
         for (int x = 0; x < image.width(); ++x) {
             const QColor color = image.pixelColor(x, y);
-            if (color.red() > 180 && color.green() > 180 && color.blue() > 180) ++brightPixels;
+            if (color.red() > 128 && color.green() > 128 && color.blue() > 128) ++brightPixels;
         }
     }
-    // The button background is dark. Require actual foreground strokes,
-    // not merely a loaded resource or the surrounding button rectangle.
+    // The brightest button background channel is 98. Thin vector strokes are
+    // antialiased, so require clear foreground contrast rather than expecting
+    // eight fully covered white pixels in an otherwise valid small glyph.
     return brightPixels >= 8;
 }
 }
@@ -249,6 +250,7 @@ private slots:
         QCOMPARE(fullscreen->property("source").toUrl().fileName(), QStringLiteral("fullscreen-enter.svg"));
         const auto pinnedImage = renderedControl(scene, pin);
         const auto enterImage = renderedControl(scene, fullscreen);
+        QVERIFY(saveUiSnapshot(scene, QStringLiteral("toolbar-initial-stacked")));
         QVERIFY(hasRenderedGlyph(pinnedImage));
         QVERIFY(hasRenderedGlyph(enterImage));
         QSignalSpy remote(&scene, &QtSessionWindow::remoteButton);
@@ -407,6 +409,59 @@ private slots:
         window.setWaiting(false);
         mouse(window, QEvent::MouseMove, {600, 350});
         QCOMPARE(motion.count(), 1);
+    }
+
+    void recoveryDialogHasOnlyDisconnectAndClearsWithoutInteraction()
+    {
+        QtSessionWindow window;
+        QCOMPARE(window.status(), QQuickView::Ready);
+        QVERIFY(window.rootObject());
+        prepare(window);
+        const auto overlay = window.rootObject()->findChild<QQuickItem*>("recoveryOverlay");
+        QVERIFY(overlay);
+        const auto disconnect = overlay->findChild<QQuickItem*>("recoveryDisconnectButton");
+        QVERIFY(disconnect);
+        int actions = 0;
+        for (auto* item : overlay->findChildren<QQuickItem*>()) {
+            if (item->metaObject()->indexOfSignal("clicked()") >= 0) ++actions;
+        }
+        QCOMPARE(actions, 1);
+        QCOMPARE(disconnect->property("text").toString(), QStringLiteral("Disconnect"));
+        QSignalSpy quit(&window, &QtSessionWindow::disconnectRequested);
+        QSignalSpy remote(&window, &QtSessionWindow::remoteButton);
+
+        window.setRemoteInputEnabled(false);
+        window.setWaiting(true);
+        QVERIFY(!window.grabWindow().isNull());
+        QVERIFY(overlay->isVisible());
+        QCOMPARE(window.cursor().shape(), Qt::ArrowCursor);
+        mouse(window, QEvent::MouseButtonPress, {50, 300}, Qt::LeftButton, Qt::LeftButton);
+        mouse(window, QEvent::MouseButtonRelease, {50, 300}, Qt::LeftButton);
+        QVERIFY(remote.isEmpty());
+        QVERIFY(quit.isEmpty());
+
+        // Runtime completion clears the notice without any dialog action and
+        // restores current input geometry before enabling remote input.
+        window.setPresentation(fullFrame());
+        window.setWaiting(false);
+        window.setRemoteInputEnabled(true);
+        QVERIFY(!window.grabWindow().isNull());
+        QVERIFY(!overlay->isVisible());
+        QVERIFY(quit.isEmpty());
+        mouse(window, QEvent::MouseButtonPress, {50, 300}, Qt::LeftButton, Qt::LeftButton);
+        mouse(window, QEvent::MouseButtonRelease, {50, 300}, Qt::LeftButton);
+        QCOMPARE(remote.count(), 2);
+
+        // A second interruption still offers an immediately usable escape.
+        window.setRemoteInputEnabled(false);
+        window.setWaiting(true);
+        QVERIFY(!window.grabWindow().isNull());
+        QVERIFY(saveUiSnapshot(window, QStringLiteral("automatic-recovery-dialog")));
+        const auto point = controlCenter(window, "recoveryDisconnectButton");
+        mouse(window, QEvent::MouseButtonPress, point, Qt::LeftButton, Qt::LeftButton);
+        mouse(window, QEvent::MouseButtonRelease, point, Qt::LeftButton);
+        QCOMPARE(quit.count(), 1);
+        QCOMPARE(remote.count(), 2);
     }
 
     void tabletCursorTextureReplacement()

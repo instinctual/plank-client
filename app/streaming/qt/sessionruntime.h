@@ -40,7 +40,7 @@ private:
     void updateGeometry();
     void setStreaming(QSize size);
     void tick();
-    void keepWaiting();
+    void beginRecovery();
     void setStatus(const QString& text);
     bool snapshotDisplays();
     void updateFocus();
@@ -71,7 +71,7 @@ private:
     bool m_Finished = false;
     bool m_ExitApplication = false;
     bool m_PreviousQuitOnLastWindow = true;
-    quint64 m_ReconnectDeadline = 0;
+    quint64 m_ReconnectNoticeDeadline = 0;
     quint64 m_BitrateChanged = 0, m_BitrateSent = 0;
     int m_LastSentBitrate = -1;
     int m_TargetBitrate = 0;

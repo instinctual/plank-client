@@ -1,10 +1,12 @@
-## 1.1.046 — Ubuntu Qt toolbar presentation
+## 1.1.046 — Ubuntu Qt toolbar and recovery
 
 ### Client
 - Restore the pin icon and the fullscreen/restore corner icons in the Qt toolbar.
 - Put FPS, Video Mbps, Loss and RTT labels above their values, matching the regular client.
 - Keep the toolbar and controls steady as numbers change, without increasing its height.
 - Retain the accepted windowed toolbar reveal behavior.
+- Recover automatically after network interruptions, without needing to click Keep Waiting.
+- Keep Disconnect available while waiting and retain the optional automatic-disconnect setting.
 
 ### Host
 - No changes; no Host update is needed.

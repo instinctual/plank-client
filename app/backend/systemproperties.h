@@ -25,6 +25,7 @@ public:
     Q_PROPERTY(QString plankVersionString MEMBER plankVersionString CONSTANT)
     Q_PROPERTY(QString plankChangelog READ plankChangelog CONSTANT)
     Q_PROPERTY(bool usesMaterial3Theme MEMBER usesMaterial3Theme CONSTANT)
+    Q_PROPERTY(bool automaticSessionRecovery READ automaticSessionRecovery CONSTANT)
 
     Q_INVOKABLE void refreshDisplays();
     Q_INVOKABLE QRect getNativeResolution(int displayIndex);
@@ -32,6 +33,13 @@ public:
     Q_INVOKABLE int getRefreshRate(int displayIndex);
 
 private:
+    bool automaticSessionRecovery() const {
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+        return true;
+#else
+        return false;
+#endif
+    }
     QString plankChangelog() const;
     void querySdlVideoInfo();
     void querySdlVideoInfoInternal();

@@ -34,6 +34,21 @@ private slots:
         }
     }
 
+    void automaticRecoveryDoesNotPauseForTheNotice()
+    {
+        PlankReconnectPolicy policy;
+        policy.allowContinuously();
+        for (uint64_t now : {0ULL, 14999ULL, 15000ULL, 30000ULL, 60000ULL, 86400000ULL})
+            QVERIFY(policy.allowsRequest(now));
+        // Explicit disconnect revokes recovery. A later session can still
+        // choose the bounded automatic-disconnect policy.
+        policy.allowUntil(0);
+        QVERIFY(!policy.allowsRequest(60000));
+        policy.allowUntil(75000);
+        QVERIFY(policy.allowsRequest(74999));
+        QVERIFY(!policy.allowsRequest(75000));
+    }
+
     void boundsSilenceTrigger()
     {
         using namespace PlankHostRecovery;
