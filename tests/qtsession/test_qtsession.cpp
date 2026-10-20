@@ -183,6 +183,8 @@ private slots:
     void toolbarReadoutsAreStackedAndStable()
     {
         QtSessionWindow window;
+        QCOMPARE(window.status(), QQuickView::Ready);
+        QVERIFY(window.rootObject());
         prepare(window);
         window.setPinned(true);
         window.setTelemetry({{"fps", 59.9}, {"videoMbps", 76.5}, {"loss", 1.55}, {"rtt", "12.3"}});
@@ -224,6 +226,8 @@ private slots:
     {
         QtSessionShell shell;
         auto& scene = shell.surface();
+        QCOMPARE(scene.status(), QQuickView::Ready);
+        QVERIFY(scene.rootObject());
         shell.resize(1280, 720);
         shell.show();
         QTRY_COMPARE(scene.size(), shell.size());

@@ -74,12 +74,18 @@ Item {
 
     // Fixed vector resources avoid font substitutions and Canvas repaint state
     // when the toolbar is hidden, shown or moved between display scales.
-    component ToolbarIcon: Image {
+    component ToolbarIcon: Item {
         implicitWidth: 24
         implicitHeight: 24
-        fillMode: Image.PreserveAspectFit
-        sourceSize.width: Math.round(width * Screen.devicePixelRatio)
-        sourceSize.height: Math.round(height * Screen.devicePixelRatio)
+        property alias source: iconImage.source
+        readonly property int status: iconImage.status
+        Image {
+            id: iconImage
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectFit
+            sourceSize.width: Math.round(width * Screen.devicePixelRatio)
+            sourceSize.height: Math.round(height * Screen.devicePixelRatio)
+        }
     }
 
     component StatReadout: Item {
