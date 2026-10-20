@@ -27,6 +27,8 @@ protected:
     void closeEvent(QCloseEvent* event) override;
 
 private:
+    bool initialGeometryReady() const;
     void queueSurfaceShow();
+    bool m_AwaitInitialFullscreenGeometry = false;
     QtSessionWindow m_Surface;
 };

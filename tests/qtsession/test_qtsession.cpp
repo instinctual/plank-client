@@ -1,6 +1,5 @@
 #include <QtTest>
 #include <QGuiApplication>
-#include <QLoggingCategory>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QScreen>
@@ -108,38 +107,24 @@ private slots:
 
     void fullscreenStartupAndWindowedRestore()
     {
-        QLoggingCategory::setFilterRules(QStringLiteral("qt.qpa.wayland.debug=true"));
-        const auto restoreLogging = qScopeGuard([] { QLoggingCategory::setFilterRules({}); });
         QtSessionShell shell;
         auto& scene = shell.surface();
         scene.setLiveSession(true);
         QVector<QSize> shownSizes;
-        const auto trace = [&](const char* event) {
-            qInfo() << event << "shell" << shell.size() << shell.windowState()
-                    << shell.isVisible() << shell.isExposed()
-                    << "child" << scene.size() << scene.isVisible() << scene.isExposed();
-        };
         QObject observations;
-        connect(&shell, &QWindow::widthChanged, &observations, [&] { trace("shell width"); });
-        connect(&shell, &QWindow::heightChanged, &observations, [&] { trace("shell height"); });
-        connect(&shell, &QWindow::visibilityChanged, &observations, [&] { trace("shell visibility"); });
-        connect(&shell, &QWindow::windowStateChanged, &observations, [&] { trace("shell state"); });
         const QSize desktop(5120, 2160);
         const QSize expected = QtSessionShell::defaultWindowedSize(
             shell.screen()->availableGeometry().size(), desktop);
         shell.prepareForSession(desktop, true);
-        trace("prepared");
         // A native backend may already apply fullscreen geometry while hidden.
         // Verify the normal restore size after leaving fullscreen, below.
         QVERIFY(!shell.isVisible());
         QVERIFY(!scene.isVisible());
         QCOMPARE(shell.windowState(), Qt::WindowFullScreen);
         connect(&scene, &QWindow::visibleChanged, &observations, [&](bool visible) {
-            trace("child visibility");
             if (visible) shownSizes.append(scene.size());
         });
         shell.showFullScreen();
-        trace("show requested");
         QTRY_VERIFY(scene.isExposed());
         QVERIFY(!shownSizes.isEmpty());
         qInfo() << "Initial fullscreen child geometry:" << shownSizes.first()

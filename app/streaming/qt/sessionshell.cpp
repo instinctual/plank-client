@@ -39,16 +39,24 @@ QtSessionShell::QtSessionShell() : m_Surface(this)
     });
 }
 
+bool QtSessionShell::initialGeometryReady() const
+{
+    // GNOME may expose an initial normal configure before applying the queued
+    // fullscreen configure. Exposure alone is not proof of fullscreen sizing.
+    return !m_AwaitInitialFullscreenGeometry ||
+        (screen() && size() == screen()->geometry().size());
+}
+
 void QtSessionShell::queueSurfaceShow()
 {
     if (m_Surface.isVisible()) return;
-    // Qt Wayland can report exposure from inside a native configure, before
-    // it has applied that configure's final size. Finish that GUI event before
-    // mapping the child. No timer, resize loop or guessed fullscreen dimensions.
+    // Finish native configure/resize delivery before mapping the child. The
+    // initial fullscreen gate also waits across separate normal/full configures.
     QMetaObject::invokeMethod(&m_Surface, [this] {
         if (m_Surface.isVisible() || !isVisible() || !isExposed() ||
-                windowState() == Qt::WindowMinimized) return;
+                windowState() == Qt::WindowMinimized || !initialGeometryReady()) return;
         m_Surface.setGeometry(QRect(QPoint(), size()));
+        m_AwaitInitialFullscreenGeometry = false;
         m_Surface.show();
     }, Qt::QueuedConnection);
 }
@@ -65,6 +73,7 @@ QSize QtSessionShell::defaultWindowedSize(QSize available, QSize desktop)
 void QtSessionShell::prepareForSession(QSize desktop, bool fullscreen)
 {
     Q_ASSERT(!isVisible());
+    m_AwaitInitialFullscreenGeometry = fullscreen;
     const auto target = screen();
     if (target) {
         const QSize available = target->availableGeometry().isEmpty() ?
@@ -85,6 +94,15 @@ void QtSessionShell::prepareForSession(QSize desktop, bool fullscreen)
 bool QtSessionShell::event(QEvent* event)
 {
     switch (event->type()) {
+    case QEvent::Paint:
+    case QEvent::UpdateRequest:
+        // Do not map a smaller raster backing buffer while waiting for the
+        // initial fullscreen configure. A later resize/expose resumes drawing.
+        if (!initialGeometryReady()) {
+            event->accept();
+            return true;
+        }
+        break;
     case QEvent::KeyPress:
     case QEvent::KeyRelease:
     case QEvent::ShortcutOverride:
@@ -119,6 +137,7 @@ void QtSessionShell::resizeEvent(QResizeEvent* event)
 {
     QRasterWindow::resizeEvent(event);
     m_Surface.setGeometry(QRect(QPoint(), size()));
+    queueSurfaceShow();
 }
 
 void QtSessionShell::showEvent(QShowEvent* event)
