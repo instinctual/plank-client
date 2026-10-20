@@ -224,7 +224,7 @@ std::function<QtDecodedVideoDelivery()> QtVideoPresenter::deliveryFactory() cons
                     const auto& output = state->outputs[index];
                     std::lock_guard<std::mutex> feedbackLock(output->presentationMutex);
                     outputs.append(QStringLiteral("output=%1 required=%2 delivery_visible=%3 delivery_exposed=%4 sync=%5 imports=%6 draws=%7 swaps=%8 error=%9")
-                        .arg(index).arg(state->required[index]).arg(output->visibleAtDelivery)
+                        .arg(index).arg(bool(state->required[index])).arg(output->visibleAtDelivery)
                         .arg(output->exposedAtDelivery).arg(output->synchronizations.load())
                         .arg(output->imports.load()).arg(output->draws.load())
                         .arg(output->swaps.load()).arg(output->error.load()));
