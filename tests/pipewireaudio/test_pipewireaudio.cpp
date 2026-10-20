@@ -216,6 +216,25 @@ private slots:
             QVERIFY(stats.underruns <= 2);
         }
     }
+    void unavailableServerFailsPromptly()
+    {
+        if (qEnvironmentVariable("PLANK_PIPEWIRE_TEST") != "1") QSKIP("Isolated daemon test only");
+        const QByteArray previous = qgetenv("PIPEWIRE_REMOTE");
+        qputenv("PIPEWIRE_REMOTE", "plank-nonexistent-test-server");
+        OPUS_MULTISTREAM_CONFIGURATION config {};
+        config.sampleRate = 48000; config.channelCount = 2; config.samplesPerFrame = 240;
+        QElapsedTimer elapsed; elapsed.start();
+        bool prepared;
+        {
+            PipeWireAudioRenderer output(true, true);
+            prepared = output.prepareForPlayback(&config);
+        }
+        if (previous.isEmpty()) qunsetenv("PIPEWIRE_REMOTE");
+        else qputenv("PIPEWIRE_REMOTE", previous);
+        QVERIFY(!prepared);
+        QVERIFY(elapsed.elapsed() < 2500);
+        QCOMPARE(SDL_WasInit(SDL_INIT_AUDIO), 0U);
+    }
 };
 QTEST_GUILESS_MAIN(PipeWireAudioTest)
 #include "test_pipewireaudio.moc"
