@@ -127,6 +127,12 @@ void QtSessionRuntime::start(QWindow* launcher)
     // Primary first: device creation and the A/V presentation clock use this
     // same output. Canvas coordinates retain physical left-to-right order.
     auto displays = m_Session->m_ClientDisplays;
+    QSize desktop;
+    {
+        QReadLocker lock(&m_Session->m_Computer->lock);
+        desktop = QSize(m_Session->m_Computer->outputTopology.desktopWidth,
+                        m_Session->m_Computer->outputTopology.desktopHeight);
+    }
     std::stable_sort(displays.begin(), displays.end(), [this](const auto& a, const auto& b) {
         return (a.displayId == m_Session->m_TargetDisplayId) > (b.displayId == m_Session->m_TargetDisplayId);
     });
@@ -137,8 +143,7 @@ void QtSessionRuntime::start(QWindow* launcher)
         shell->setScreen(screens[int(display.displayId) - 1]);
         m_Screens.append(shell->screen());
         shell->setTitle(m_Session->m_Computer->name + QStringLiteral(" — PLANK Client Qt"));
-        const auto available = shell->screen()->availableGeometry();
-        shell->setGeometry(QRect(available.center() - QPoint(480, 300), QSize(960, 600)).intersected(available));
+        shell->prepareForSession(desktop, m_Fullscreen);
         auto& surface = shell->surface();
         surface.setLiveSession(true);
         surface.setStatusText(tr("Connecting to workstation…"));

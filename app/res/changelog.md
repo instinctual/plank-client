@@ -1,3 +1,11 @@
+## 1.1.052 — Ubuntu Qt window sizing
+
+### Client
+- Start windowed sessions at a larger size that fits the screen and matches the remote desktop's proportions.
+- Keep your manually resized window size when switching out of fullscreen.
+- Wait for the configured window size before showing the video surface at startup.
+- Keep the remote picture proportional during resizing, without changing the Host resolution.
+
 ## 1.1.051 — Ubuntu Qt toolbar spacing
 
 ### Client

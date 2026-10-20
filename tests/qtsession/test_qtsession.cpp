@@ -80,6 +80,94 @@ class QtSessionTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void defaultWindowedSize_data()
+    {
+        QTest::addColumn<QSize>("available");
+        QTest::addColumn<QSize>("desktop");
+        QTest::addColumn<QSize>("expected");
+        QTest::newRow("wide") << QSize(1600, 1000) << QSize(3840, 2160) << QSize(1280, 720);
+        QTest::newRow("ultrawide") << QSize(1920, 1080) << QSize(5120, 2160) << QSize(1536, 648);
+        QTest::newRow("dual-desktop") << QSize(1600, 1000) << QSize(7680, 2160) << QSize(1280, 360);
+        QTest::newRow("portrait") << QSize(1600, 1000) << QSize(2160, 3840) << QSize(450, 800);
+        QTest::newRow("square") << QSize(1600, 1000) << QSize(2160, 2160) << QSize(800, 800);
+        // availableGeometry is already in logical units at fractional scaling.
+        QTest::newRow("fractional-display") << QSize(1536, 864) << QSize(3840, 2160) << QSize(1228, 691);
+        QTest::newRow("unknown-desktop") << QSize(1600, 1000) << QSize() << QSize(1280, 800);
+        QTest::newRow("empty-desktop") << QSize(1600, 1000) << QSize(0, 0) << QSize(1280, 800);
+        QTest::newRow("empty-screen") << QSize() << QSize(3840, 2160) << QSize();
+    }
+
+    void defaultWindowedSize()
+    {
+        QFETCH(QSize, available);
+        QFETCH(QSize, desktop);
+        QFETCH(QSize, expected);
+        QCOMPARE(QtSessionShell::defaultWindowedSize(available, desktop), expected);
+    }
+
+    void fullscreenStartupAndWindowedRestore()
+    {
+        QtSessionShell shell;
+        auto& scene = shell.surface();
+        scene.setLiveSession(true);
+        const QSize desktop(5120, 2160);
+        const QSize expected = QtSessionShell::defaultWindowedSize(
+            shell.screen()->availableGeometry().size(), desktop);
+        shell.prepareForSession(desktop, true);
+        QCOMPARE(shell.size(), expected);
+        QVERIFY(!shell.isVisible());
+        QVERIFY(!scene.isVisible());
+        QCOMPARE(shell.windowState(), Qt::WindowFullScreen);
+        QVector<QSize> shownSizes;
+        connect(&scene, &QWindow::visibleChanged, &shell, [&](bool visible) {
+            if (visible) shownSizes.append(scene.size());
+        });
+        shell.showFullScreen();
+        QTRY_VERIFY(scene.isExposed());
+        QVERIFY(!shownSizes.isEmpty());
+        // The first child show must already use the configured fullscreen
+        // geometry, not the normal restore size or the QML's 1280x720 default.
+        QCOMPARE(shownSizes.first(), shell.screen()->geometry().size());
+        QTRY_COMPARE(scene.size(), shell.size());
+        shell.showNormal();
+        QTRY_COMPARE(shell.size(), expected);
+        QTRY_COMPARE(scene.size(), expected);
+        QVERIFY(saveUiSnapshot(scene, QStringLiteral("windowed-default")));
+
+        // Arbitrary manual resize remains free-form. Do not resize back to the
+        // source aspect or replace this size with a fresh 80% default on exit.
+        const QSize manual(900, 650);
+        shell.resize(manual);
+        QTRY_COMPARE(scene.size(), manual);
+        for (int round = 0; round < 3; ++round) {
+            shell.showFullScreen();
+            QTRY_COMPARE(shell.size(), shell.screen()->geometry().size());
+            QTRY_COMPARE(scene.size(), shell.size());
+            shell.showNormal();
+            QTRY_COMPARE(shell.size(), manual);
+            QTRY_COMPARE(scene.size(), manual);
+        }
+        // Takeover/recovery can temporarily unmap the same shell.
+        shell.hide();
+        QTRY_VERIFY(!scene.isVisible());
+        shell.show();
+        QTRY_VERIFY(scene.isExposed());
+        QCOMPARE(shell.size(), manual);
+    }
+
+    void windowedStartupUsesDesktopAspect()
+    {
+        QtSessionShell shell;
+        shell.prepareForSession(QSize(3840, 2160), false);
+        const QSize expected = QtSessionShell::defaultWindowedSize(
+            shell.screen()->availableGeometry().size(), QSize(3840, 2160));
+        shell.show();
+        QTRY_VERIFY(shell.surface().isExposed());
+        QCOMPARE(shell.windowState(), Qt::WindowNoState);
+        QCOMPARE(shell.size(), expected);
+        QCOMPARE(shell.surface().size(), expected);
+    }
+
     void coordinateScale_data()
     {
         QTest::addColumn<qreal>("scale");
@@ -951,11 +1039,11 @@ private slots:
         QVERIFY(!scene.isVisible());
         shell.showNormal();
         QTRY_COMPARE(shell.windowState(), Qt::WindowNoState);
-        QVERIFY(scene.isVisible());
+        QTRY_VERIFY(scene.isVisible());
         shell.hide();
         QVERIFY(!scene.isVisible());
         shell.showNormal();
-        QVERIFY(scene.isVisible());
+        QTRY_VERIFY(scene.isVisible());
         QSignalSpy disconnect(&scene, &QtSessionWindow::disconnectRequested);
         shell.close();
         QCOMPARE(disconnect.count(), 1);

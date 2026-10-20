@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QPainter>
+#include <QScreen>
 
 void QtSessionShell::configureWaylandExposure()
 {
@@ -27,11 +28,40 @@ QtSessionShell::QtSessionShell() : m_Surface(this)
         // Parent unmapping alone can leave Qt's child exposed flag stale.
         // This signal also covers programmatic minimize/restore, which need
         // not deliver WindowStateChange events to QWindow.
-        const bool visible = visibility != QWindow::Hidden && visibility != QWindow::Minimized;
-        if (!visible)
+        if (visibility == QWindow::Hidden || visibility == QWindow::Minimized) {
             m_Surface.cancelInput();
-        m_Surface.setVisible(visible);
+            m_Surface.hide();
+        }
+        // Show only after the shell's expose, when the compositor has supplied
+        // its actual size. visibilityChanged precedes initial native creation;
+        // showing the child here can expose its small pre-fullscreen geometry.
     });
+}
+
+QSize QtSessionShell::defaultWindowedSize(QSize available, QSize desktop)
+{
+    if (available.isEmpty()) return {};
+    const QSize bounds(qMax(1, qRound(available.width() * 0.8)),
+                       qMax(1, qRound(available.height() * 0.8)));
+    if (desktop.isEmpty()) return bounds;
+    return desktop.scaled(bounds, Qt::KeepAspectRatio).expandedTo(QSize(1, 1));
+}
+
+void QtSessionShell::prepareForSession(QSize desktop, bool fullscreen)
+{
+    Q_ASSERT(!isVisible());
+    const auto target = screen();
+    if (target) {
+        const QSize available = target->availableGeometry().isEmpty() ?
+            target->geometry().size() : target->availableGeometry().size();
+        // resize(), not setGeometry(): Wayland owns top-level placement.
+        // These are logical pixels, not the stream's backing-pixel dimensions.
+        resize(defaultWindowedSize(available, desktop));
+    }
+    // Establish state before either native surface is shown. Qt retains the
+    // normal size (including subsequent user resizes) across fullscreen toggles.
+    // Do not impose an aspect constraint on interactive window resizing.
+    setWindowState(fullscreen ? Qt::WindowFullScreen : Qt::WindowNoState);
 }
 
 bool QtSessionShell::event(QEvent* event)
@@ -57,6 +87,17 @@ void QtSessionShell::paintEvent(QPaintEvent*)
 {
     QPainter painter(this);
     painter.fillRect(QRect(QPoint(), size()), Qt::black);
+}
+
+void QtSessionShell::exposeEvent(QExposeEvent* event)
+{
+    QRasterWindow::exposeEvent(event);
+    if (isExposed() && isVisible() && windowState() != Qt::WindowMinimized) {
+        m_Surface.setGeometry(QRect(QPoint(), size()));
+        m_Surface.show();
+    }
+    // Covered-parent exposure is not a reason to unmap the video child.
+    // Explicit hide/minimize is handled above, independently of frame callbacks.
 }
 
 void QtSessionShell::resizeEvent(QResizeEvent* event)

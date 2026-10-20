@@ -13,12 +13,15 @@ class QtSessionShell final : public QRasterWindow
 public:
     // Call before QGuiApplication creates any Wayland surfaces.
     static void configureWaylandExposure();
+    static QSize defaultWindowedSize(QSize available, QSize desktop);
     QtSessionShell();
     QtSessionWindow& surface() { return m_Surface; }
+    void prepareForSession(QSize desktop, bool fullscreen);
 
 protected:
     bool event(QEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
+    void exposeEvent(QExposeEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void showEvent(QShowEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
