@@ -399,14 +399,21 @@ private slots:
             QTRY_COMPARE(shell.size(), windowedSize);
             QTRY_COMPARE(scene.size(), windowedSize);
         }
-        QVERIFY(QTest::qWaitForWindowActive(&shell));
+        // Hover works without keyboard activation. The isolated compositor has
+        // no physical input seat to activate this shell, so wait for exposure
+        // and an actual frame, not keyboard focus.
+        QVERIFY(QTest::qWaitForWindowExposed(&shell));
         QVERIFY(!scene.grabWindow().isNull());
         QCoreApplication::processEvents();
+        scene.setPresentation(fullFrame(scene.size()));
+        scene.setRemoteInputEnabled(true);
         scene.setWaiting(true);
         mouse(scene, QEvent::MouseMove, {20, 8});
         QTest::qWait(1100);
         QVERIFY(!scene.toolbarVisible());
         scene.setWaiting(false);
+        QVERIFY(!scene.grabWindow().isNull());
+        QCoreApplication::processEvents();
         mouse(scene, QEvent::MouseMove, {20, 8});
         QTRY_VERIFY_WITH_TIMEOUT(scene.toolbarVisible(), 1600);
         QVERIFY(!scene.pinned());
