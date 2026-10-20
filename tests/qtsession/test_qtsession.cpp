@@ -248,7 +248,9 @@ private slots:
             {999, QStringLiteral("999 ms")},
             {1000, QStringLiteral(">999 ms")},
             {std::numeric_limits<quint32>::max(), QStringLiteral(">999 ms")},
-            {-1, QStringLiteral("— ms")},
+            // QVariant promotes signed -1 to UINT_MAX when comparing integers.
+            // A real-valued negative is distinct from the previous sample.
+            {-1.0, QStringLiteral("— ms")},
             {QStringLiteral("invalid"), QStringLiteral("— ms")}
         };
         for (const auto& sample : samples) {
