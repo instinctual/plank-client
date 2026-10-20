@@ -3,6 +3,7 @@
 #include "streaming/avsynccontroller.h"
 #include <QtTest>
 #include <SDL3/SDL.h>
+#include <dbus/dbus.h>
 #include <thread>
 extern "C" {
 #include <libavutil/channel_layout.h>
@@ -15,6 +16,22 @@ class PipeWireAudioTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void initTestCase()
+    {
+        // The RTKit module loads libdbus during each PipeWire context's
+        // construction. Without a process-lifetime owner, dlclose loses its
+        // global caches/locks between our isolated repeated-lifecycle cases.
+        // Keep it linked and use libdbus's documented leak-checker cleanup.
+        QVERIFY(dbus_threads_init_default());
+    }
+    void cleanupTestCase()
+    {
+        // All renderers and their threads have been destroyed here. Never do
+        // this from the renderer: other components of a real GUI use D-Bus.
+        // This frees only library globals, not outstanding application objects.
+        // https://dbus.freedesktop.org/doc/api/html/group__DBusMemory.html
+        dbus_shutdown();
+    }
     void boundedRingPreservesOrder()
     {
         PcmRing ring(8, 2);
