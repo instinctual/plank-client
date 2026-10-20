@@ -292,6 +292,7 @@ void QtEglVideoItem::connectPresentationFeedback()
     // Direct: frameSwapped comes from Qt's render thread. No queue of GUI
     // events, no raw item/window capture, and one clock source for a span.
     m_SwapConnection = connect(window(), &QQuickWindow::frameSwapped, this, [status, primary] {
+        ++status->swaps;
         QtVideoFrame::Ptr frame;
         std::chrono::steady_clock::time_point started;
         {
@@ -336,6 +337,7 @@ void QtEglVideoItem::setPresentation(const QtSessionGeometry& geometry)
 
 QSGNode* QtEglVideoItem::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*)
 {
+    ++m_Status->synchronizations;
     if (window()->rendererInterface()->graphicsApi() != QSGRendererInterface::OpenGL) {
         m_Status->error = QtEglVideoStatus::WrongBackend;
         delete oldNode;

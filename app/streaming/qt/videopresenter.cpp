@@ -217,7 +217,22 @@ std::function<QtDecodedVideoDelivery()> QtVideoPresenter::deliveryFactory() cons
                 std::unique_lock<std::mutex> lock(status->presentationMutex);
                 status->presentationChanged.wait_for(lock, std::chrono::milliseconds(10));
             }
-            error = QStringLiteral("Qt exact-format draw on a visible output was cancelled, failed or exceeded two seconds");
+            QStringList outputs;
+            {
+                std::lock_guard<std::mutex> lock(state->mutex);
+                for (size_t index = 0; index < state->outputs.size(); ++index) {
+                    const auto& output = state->outputs[index];
+                    std::lock_guard<std::mutex> feedbackLock(output->presentationMutex);
+                    outputs.append(QStringLiteral("output=%1 required=%2 delivery_visible=%3 delivery_exposed=%4 sync=%5 imports=%6 draws=%7 swaps=%8 error=%9")
+                        .arg(index).arg(state->required[index]).arg(output->visibleAtDelivery)
+                        .arg(output->exposedAtDelivery).arg(output->synchronizations.load())
+                        .arg(output->imports.load()).arg(output->draws.load())
+                        .arg(output->swaps.load()).arg(output->error.load()));
+                }
+                error = QStringLiteral("Qt exact-format presentation failed (current=%1 delivered=%2; %3)")
+                    .arg(producer.isCurrent() && state->owner).arg(state->probeDelivered)
+                    .arg(outputs.join(QStringLiteral("; ")));
+            }
             return false;
         };
         return delivery;
@@ -249,6 +264,11 @@ void QtVideoPresenter::deliver(QtVideoFrame::Ptr frame, const QtVideoMailbox::Pr
         if (!output.item || !output.window) continue;
         if (generation != m_DisplayedGeneration) {
             output.item->beginGeneration(outputs[index]);
+        }
+        if (probe) {
+            std::lock_guard<std::mutex> lock(outputs[index]->presentationMutex);
+            outputs[index]->visibleAtDelivery = output.window->isVisible();
+            outputs[index]->exposedAtDelivery = output.window->isExposed();
         }
         auto geometry = output.geometry;
         if (probe) {

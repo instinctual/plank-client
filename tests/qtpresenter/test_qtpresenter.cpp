@@ -153,6 +153,32 @@ private slots:
         QVERIFY(!presenter.hasPresentedLiveFrame());
     }
 
+    void failedQualificationReportsDeliveryAndRenderStages()
+    {
+        QQuickWindow window; // deliberately hidden: no render/swap feedback
+        QtVideoPresenter presenter;
+        presenter.addOutput(&window, {}, true);
+        auto* item = dynamic_cast<QtEglVideoItem*>(window.contentItem()->childItems().value(0));
+        QVERIFY(item);
+        const auto previous = item->presentationFeedback();
+        auto delivery = presenter.deliveryFactory()();
+        auto result = std::async(std::launch::async, [&] {
+            QString error;
+            const bool accepted = delivery.qualify(frame(QtVideoFrame::Purpose::DecoderQualification), error);
+            return qMakePair(accepted, error);
+        });
+        QTRY_VERIFY(item->presentationFeedback() != previous);
+        QTRY_VERIFY(result.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready);
+        const auto failure = result.get();
+        QVERIFY(!failure.first);
+        QVERIFY2(failure.second.contains("delivered=1"), qPrintable(failure.second));
+        QVERIFY(failure.second.contains("required=1"));
+        QVERIFY(failure.second.contains("delivery_visible=0"));
+        QVERIFY(failure.second.contains("delivery_exposed=0"));
+        QVERIFY(failure.second.contains("sync=0 imports=0 draws=0 swaps=0 error=0"));
+        QVERIFY(!presenter.hasPresentedLiveFrame());
+    }
+
     void destroyedPresenterRetiresWorkerHandles()
     {
         QQuickWindow window;

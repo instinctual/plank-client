@@ -15,6 +15,9 @@ struct QtEglVideoStatus
     std::atomic<Error> error{None};
     std::atomic<uint64_t> draws{0};
     std::atomic<uint64_t> imports{0};
+    std::atomic<uint64_t> synchronizations{0};
+    std::atomic<uint64_t> swaps{0};
+    bool visibleAtDelivery = false, exposedAtDelivery = false; // protected by presentationMutex
     std::atomic<bool> livePresented{false};
     std::mutex presentationMutex;
     std::condition_variable presentationChanged;
