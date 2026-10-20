@@ -86,6 +86,10 @@ void QtSessionShell::prepareForSession(QSize desktop, bool fullscreen)
     // records this restore size even if the first show is fullscreen. Creation
     // is not mapping: neither the shell nor its child is visible yet.
     create();
+    // Native creation can reselect the screen containing the default (0,0)
+    // position. Preserve the explicitly selected fullscreen output without
+    // pretending we can position a Wayland top-level window ourselves.
+    if (target) setScreen(target);
     // Establish state before either surface is shown. Qt then retains normal
     // user resizes across toggles; no application-owned resize loop is needed.
     setWindowState(fullscreen ? Qt::WindowFullScreen : Qt::WindowNoState);

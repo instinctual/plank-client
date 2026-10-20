@@ -172,6 +172,28 @@ private slots:
         QCOMPARE(shell.surface().size(), expected);
     }
 
+    void selectedScreenSurvivesHiddenCreation()
+    {
+        const auto screens = QGuiApplication::screens();
+        if (qEnvironmentVariableIntValue("PLANK_QT_CHECK_SCREEN_SELECTION"))
+            QCOMPARE(screens.size(), 2);
+        for (auto* screen : screens) {
+            QtSessionShell shell;
+            shell.setScreen(screen);
+            shell.prepareForSession(QSize(3840, 2160), true);
+            QCOMPARE(shell.screen(), screen);
+            QVERIFY(!shell.isVisible());
+            shell.showFullScreen();
+            QTRY_VERIFY(shell.surface().isExposed());
+            QTRY_COMPARE(shell.size(), screen->geometry().size());
+            QCOMPARE(shell.screen(), screen);
+            QCOMPARE(shell.surface().screen(), screen);
+            QCOMPARE(shell.surface().size(), shell.size());
+            shell.hide();
+            QTRY_VERIFY(!shell.surface().isVisible());
+        }
+    }
+
     void coordinateScale_data()
     {
         QTest::addColumn<qreal>("scale");
