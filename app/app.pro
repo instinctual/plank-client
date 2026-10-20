@@ -313,6 +313,13 @@ HEADERS += \
     streaming/video/overlaymanager.h \
     backend/systemproperties.h
 
+contains(CONFIG, plank-qt-session) {
+    SOURCES -= streaming/audio/renderers/sdlaud.cpp
+    HEADERS -= streaming/audio/renderers/sdl.h
+    SOURCES += streaming/audio/renderers/pipewire.cpp
+    HEADERS += streaming/audio/renderers/pipewire.h streaming/audio/renderers/pipewirebuffer.h
+}
+
 contains(DEFINES, HAVE_LIBINPUT_TABLET) {
     SOURCES += streaming/input/linuxwacom.cpp
     HEADERS += streaming/input/linuxwacom.h

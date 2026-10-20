@@ -5,7 +5,11 @@
 #include "renderers/slaud.h"
 #endif
 
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#include "renderers/pipewire.h"
+#else
 #include "renderers/sdl.h"
+#endif
 
 #include <Limelight.h>
 
@@ -19,6 +23,13 @@
 
 IAudioRenderer* Session::createAudioRenderer(const POPUS_MULTISTREAM_CONFIGURATION opusConfig)
 {
+#ifdef PLANK_QT_CLIENT_EXPERIMENT
+    // No SDL output device/stream or inherited ML_AUDIO override in Qt.
+    TRY_INIT_RENDERER(PipeWireAudioRenderer, opusConfig,
+                      m_Computer->plankAuthentication,
+                      m_PlankCaptureSource == StreamingPreferences::PLANK_CAPTURE_SCREENCAPTUREKIT)
+    return nullptr;
+#else
     // Handle explicit ML_AUDIO setting and fail if the requested backend fails
     QString mlAudio = qgetenv("ML_AUDIO").toLower();
     if (mlAudio == "sdl") {
@@ -53,6 +64,7 @@ IAudioRenderer* Session::createAudioRenderer(const POPUS_MULTISTREAM_CONFIGURATI
                       m_PlankCaptureSource == StreamingPreferences::PLANK_CAPTURE_SCREENCAPTUREKIT)
 
     return nullptr;
+#endif
 }
 
 bool Session::initializeAudioRenderer()

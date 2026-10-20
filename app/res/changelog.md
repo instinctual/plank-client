@@ -1,3 +1,14 @@
+## 1.1.049 — Ubuntu Qt native audio candidate
+
+### Client
+- Use PipeWire directly for Qt audio playback, following the system's selected output and volume.
+- Measure output timing and protect audio headroom while smoothly correcting synchronization.
+- Recover a depleted audio queue with a short refill instead of repeated fragments of sound.
+- Keep the ordinary Client and microphone/camera forwarding unchanged.
+
+### Host
+- No changes; no Host update is needed.
+
 ## 1.1.048 — Ubuntu Qt connection appearance
 
 ### Client
