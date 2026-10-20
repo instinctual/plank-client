@@ -3,7 +3,9 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QScreen>
+#include <QScopeGuard>
 #include <QSignalSpy>
+#include <fontconfig/fontconfig.h>
 #include <limits>
 
 #include "sessionwindow.h"
@@ -983,6 +985,10 @@ private slots:
 
 int main(int argc, char** argv)
 {
+    // Material initializes Fontconfig's process-wide alias/configuration cache.
+    // Finalize it only after all test scenes and QGuiApplication are destroyed;
+    // keep leak detection enabled rather than suppressing library allocations.
+    const auto fontconfigCleanup = qScopeGuard([] { FcFini(); });
     // Match the production launcher. Default-style-only qualification missed
     // the Material edge padding that squeezed compact toolbar icons.
     qputenv("QT_QUICK_CONTROLS_MATERIAL_THEME", "Dark");
