@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Templates as T
 import QtQuick.Window
 
 Item {
@@ -53,21 +54,26 @@ Item {
         styleColor: "#000000"
     }
 
-    component ToolButton: Button {
-        implicitWidth: 24
-        implicitHeight: 24
+    // Own the compact control's geometry instead of inheriting Material's
+    // text-button padding/insets, which can squeeze the icon to a few pixels.
+    // Qt's button template still owns activation, hover and accessibility.
+    component ToolButton: T.Button {
+        id: control
+        property url iconSource
+        property string iconName
+        implicitWidth: 32
+        implicitHeight: 32
         focusPolicy: Qt.NoFocus
-        padding: 0
+        hoverEnabled: true
+        padding: 4
+        Accessible.name: ToolTip.text
         background: Rectangle {
             radius: 4
-            color: parent.down ? "#525862" : parent.hovered ? "#444a53" : "#343941"
+            color: control.down ? "#525862" : control.hovered ? "#444a53" : "transparent"
         }
-        contentItem: Text {
-            text: parent.text
-            font.pixelSize: 15
-            color: "#f0f1f4"
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
+        contentItem: ToolbarIcon {
+            objectName: control.iconName
+            source: control.iconSource
         }
         ToolTip.visible: hovered
     }
@@ -154,13 +160,10 @@ Item {
             }
             ToolButton {
                 objectName: "pinButton"
+                iconName: "pinIcon"
+                iconSource: sessionWindow.pinned ? "icons/pin.svg" : "icons/pin-off.svg"
                 ToolTip.text: sessionWindow.pinned ? "Unpin toolbar" : "Pin toolbar"
-                Accessible.name: ToolTip.text
                 onClicked: sessionWindow.pinned = !sessionWindow.pinned
-                contentItem: ToolbarIcon {
-                    objectName: "pinIcon"
-                    source: sessionWindow.pinned ? "icons/pin.svg" : "icons/pin-off.svg"
-                }
             }
             StatReadout {
                 objectName: "fpsStat"
@@ -224,41 +227,40 @@ Item {
                 }
             }
             ToolButton {
+                objectName: "microphoneButton"
+                iconName: "microphoneIcon"
                 visible: !!sessionWindow.telemetry.microphoneSupported
-                text: sessionWindow.telemetry.microphoneState === 2 ? "●" : "○"
+                // Green only after the Host acknowledges capture.
+                iconSource: sessionWindow.telemetry.microphoneState === 2 ? "icons/microphone-active.svg" : "icons/microphone.svg"
                 ToolTip.text: ["Microphone off", "Starting microphone", "Microphone on", "Microphone unavailable"][sessionWindow.telemetry.microphoneState || 0]
                 onClicked: sessionWindow.toggleMicrophone()
-                // Compact microphone glyph; colour indicates actual Host acknowledgement.
-                contentItem: Item {
-                    Rectangle { x: 9; y: 3; width: 6; height: 11; radius: 3; color: sessionWindow.telemetry.microphoneState === 2 ? "#61d991" : "#c7cbd2" }
-                    Rectangle { x: 6; y: 9; width: 12; height: 9; radius: 5; color: "transparent"; border.color: "#c7cbd2" }
-                    Rectangle { x: 11; y: 17; width: 2; height: 4; color: "#c7cbd2" }
-                }
             }
             ToolButton {
+                objectName: "cameraButton"
+                iconName: "cameraIcon"
                 visible: !!sessionWindow.telemetry.cameraSupported
-                text: "▣"
+                iconSource: sessionWindow.telemetry.cameraState === 2 ? "icons/camera-active.svg" : "icons/camera.svg"
                 ToolTip.text: ["Camera off", "Starting camera", "Camera on", "Camera unavailable"][sessionWindow.telemetry.cameraState || 0]
                 onClicked: sessionWindow.toggleCamera()
             }
             ToolButton {
                 objectName: "fullscreenButton"
+                iconName: "fullscreenIcon"
+                iconSource: sessionWindow.fullscreen ? "icons/fullscreen-exit.svg" : "icons/fullscreen-enter.svg"
                 ToolTip.text: sessionWindow.fullscreen ? "Restore window" : "Enter fullscreen"
-                Accessible.name: ToolTip.text
-                contentItem: ToolbarIcon {
-                    objectName: "fullscreenIcon"
-                    source: sessionWindow.fullscreen ? "icons/fullscreen-exit.svg" : "icons/fullscreen-enter.svg"
-                }
                 onClicked: sessionWindow.toggleFullscreen()
             }
             ToolButton {
-                text: "−"
+                objectName: "minimizeButton"
+                iconName: "minimizeIcon"
+                iconSource: "icons/minimize.svg"
                 ToolTip.text: "Minimize"
                 onClicked: sessionWindow.minimize()
             }
             ToolButton {
                 objectName: "disconnectButton"
-                text: "×"
+                iconName: "disconnectIcon"
+                iconSource: "icons/close.svg"
                 ToolTip.text: "Disconnect"
                 onClicked: sessionWindow.disconnectSession()
             }

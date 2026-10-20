@@ -1,3 +1,14 @@
+## 1.1.047 — Ubuntu Qt toolbar icons
+
+### Client
+- Give toolbar icons consistent size and line weight, including minimize and close.
+- Remove the permanent button boxes; show a subtle highlight only while hovering or pressing.
+- Keep larger invisible click targets, without increasing toolbar height.
+- Retain stacked stats, windowed toolbar access and automatic network recovery.
+
+### Host
+- No changes; no Host update is needed.
+
 ## 1.1.046 — Ubuntu Qt toolbar and recovery
 
 ### Client

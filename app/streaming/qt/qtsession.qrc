@@ -5,5 +5,11 @@
         <file>icons/pin-off.svg</file>
         <file>icons/fullscreen-enter.svg</file>
         <file>icons/fullscreen-exit.svg</file>
+        <file>icons/minimize.svg</file>
+        <file>icons/close.svg</file>
+        <file>icons/microphone.svg</file>
+        <file>icons/microphone-active.svg</file>
+        <file>icons/camera.svg</file>
+        <file>icons/camera-active.svg</file>
     </qresource>
 </RCC>

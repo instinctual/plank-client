@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QGuiApplication>
 #include <QQuickItem>
+#include <QQuickStyle>
 #include <QScreen>
 #include <QSignalSpy>
 #include <limits>
@@ -292,6 +293,108 @@ private slots:
         QTRY_COMPARE(fullscreen->property("source").toUrl().fileName(), QStringLiteral("fullscreen-enter.svg"));
         QVERIFY(hasRenderedGlyph(renderedControl(scene, fullscreen)));
         QVERIFY(hasRenderedGlyph(renderedControl(scene, pin)));
+        QVERIFY(remote.isEmpty());
+    }
+
+    void toolbarIconsKeepTheirSizeUnderMaterial()
+    {
+        QCOMPARE(QQuickStyle::name(), QStringLiteral("Material"));
+        QtSessionWindow window;
+        QCOMPARE(window.status(), QQuickView::Ready);
+        QVERIFY(window.rootObject());
+        prepare(window);
+        window.setPinned(true);
+        window.setTelemetry({{"microphoneSupported", true}, {"microphoneState", 0},
+                             {"cameraSupported", true}, {"cameraState", 0}});
+        QVERIFY(!window.grabWindow().isNull());
+        const auto toolbar = window.rootObject()->findChild<QQuickItem*>("sessionToolbar");
+        QVERIFY(toolbar);
+        mouse(window, QEvent::MouseMove, toolbar->mapToScene({1, 20}));
+        for (const QString& name : {QStringLiteral("pin"), QStringLiteral("microphone"),
+                                   QStringLiteral("camera"), QStringLiteral("fullscreen"),
+                                   QStringLiteral("minimize"), QStringLiteral("disconnect")}) {
+            const auto button = toolbar->findChild<QQuickItem*>(name + QStringLiteral("Button"));
+            const auto icon = toolbar->findChild<QQuickItem*>(name + QStringLiteral("Icon"));
+            QVERIFY(button && icon);
+            QVERIFY(button->isVisible());
+            QCOMPARE(button->size(), QSizeF(32, 32));
+            QCOMPARE(icon->size(), QSizeF(24, 24));
+            QCOMPARE(icon->position(), QPointF(4, 4));
+            for (const char* inset : {"leftInset", "rightInset", "topInset", "bottomInset"})
+                QCOMPARE(button->property(inset).toReal(), 0.0);
+            const auto background = button->property("background").value<QQuickItem*>();
+            QVERIFY(background);
+            QCOMPARE(background->size(), button->size());
+            QCOMPARE(background->property("color").value<QColor>().alpha(), 0);
+            QTRY_COMPARE(icon->property("status").toInt(), 1);
+            const auto pixels = renderedControl(window, icon);
+            QVERIFY(hasRenderedGlyph(pixels));
+            // A nonempty image is insufficient: the production Material padding
+            // previously squeezed otherwise valid SVG resources to tiny marks.
+            int first = pixels.width(), last = -1;
+            for (int y = 0; y < pixels.height(); ++y) {
+                for (int x = 0; x < pixels.width(); ++x) {
+                    const auto color = pixels.pixelColor(x, y);
+                    if (color.red() > 128 && color.green() > 128 && color.blue() > 128) {
+                        first = qMin(first, x);
+                        last = qMax(last, x);
+                    }
+                }
+            }
+            QVERIFY2(last - first + 1 >= 10 * window.devicePixelRatio(), qPrintable(name));
+        }
+        QVERIFY(saveUiSnapshot(window, QStringLiteral("toolbar-borderless-all-controls")));
+        window.setTelemetry({{"microphoneSupported", true}, {"microphoneState", 2},
+                             {"cameraSupported", true}, {"cameraState", 2}});
+        const auto mic = toolbar->findChild<QQuickItem*>("microphoneIcon");
+        const auto camera = toolbar->findChild<QQuickItem*>("cameraIcon");
+        QVERIFY(mic && camera);
+        QTRY_COMPARE(mic->property("source").toUrl().fileName(), QStringLiteral("microphone-active.svg"));
+        QTRY_COMPARE(camera->property("source").toUrl().fileName(), QStringLiteral("camera-active.svg"));
+        QVERIFY(saveUiSnapshot(window, QStringLiteral("toolbar-borderless-capture-active")));
+    }
+
+    void toolbarButtonsKeepInvisibleHitTargets()
+    {
+        QtSessionWindow window;
+        QCOMPARE(window.status(), QQuickView::Ready);
+        QVERIFY(window.rootObject());
+        prepare(window);
+        window.setLiveSession(true);
+        window.setPinned(true);
+        window.setTelemetry({{"microphoneSupported", true}, {"cameraSupported", true}});
+        QVERIFY(!window.grabWindow().isNull());
+        QSignalSpy remote(&window, &QtSessionWindow::remoteButton);
+        QSignalSpy microphone(&window, &QtSessionWindow::microphoneRequested);
+        QSignalSpy camera(&window, &QtSessionWindow::cameraRequested);
+        QSignalSpy fullscreen(&window, &QtSessionWindow::fullscreenRequested);
+        QSignalSpy minimize(&window, &QtSessionWindow::minimizeRequested);
+        QSignalSpy disconnect(&window, &QtSessionWindow::disconnectRequested);
+        for (const char* name : {"pinButton", "microphoneButton", "cameraButton", "fullscreenButton",
+                                 "minimizeButton", "disconnectButton"}) {
+            const auto button = window.rootObject()->findChild<QQuickItem*>(name);
+            QVERIFY(button);
+            const auto background = button->property("background").value<QQuickItem*>();
+            QVERIFY(background);
+            // Click outside the 24px artwork but inside its invisible 32px target.
+            const auto point = button->mapToScene({1, 1});
+            mouse(window, QEvent::MouseMove, point);
+            QTRY_VERIFY(button->property("hovered").toBool());
+            QCOMPARE(background->property("color").value<QColor>(), QColor("#444a53"));
+            QVERIFY(saveUiSnapshot(window, QString::fromLatin1(name) + QStringLiteral("-hover")));
+            mouse(window, QEvent::MouseButtonPress, point, Qt::LeftButton, Qt::LeftButton);
+            QVERIFY(button->property("down").toBool());
+            QCOMPARE(background->property("color").value<QColor>(), QColor("#525862"));
+            QVERIFY(saveUiSnapshot(window, QString::fromLatin1(name) + QStringLiteral("-pressed")));
+            mouse(window, QEvent::MouseButtonRelease, point, Qt::LeftButton);
+            QVERIFY(!button->property("down").toBool());
+        }
+        QVERIFY(!window.pinned());
+        QCOMPARE(microphone.count(), 1);
+        QCOMPARE(camera.count(), 1);
+        QCOMPARE(fullscreen.count(), 1);
+        QCOMPARE(minimize.count(), 1);
+        QCOMPARE(disconnect.count(), 1);
         QVERIFY(remote.isEmpty());
     }
 
@@ -880,6 +983,12 @@ private slots:
 
 int main(int argc, char** argv)
 {
+    // Match the production launcher. Default-style-only qualification missed
+    // the Material edge padding that squeezed compact toolbar icons.
+    qputenv("QT_QUICK_CONTROLS_MATERIAL_THEME", "Dark");
+    qputenv("QT_QUICK_CONTROLS_MATERIAL_VARIANT", "Dense");
+    qputenv("QT_QUICK_CONTROLS_MATERIAL_ACCENT", "#5A9CE6");
+    QQuickStyle::setStyle(QStringLiteral("Material"));
     QGuiApplication app(argc, argv);
     QtSessionTest test;
     return QTest::qExec(&test, argc, argv);
