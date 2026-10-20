@@ -126,6 +126,8 @@ private slots:
         shell.showFullScreen();
         QTRY_VERIFY(scene.isExposed());
         QVERIFY(!shownSizes.isEmpty());
+        qInfo() << "Initial fullscreen child geometry:" << shownSizes.first()
+                << "configured shell:" << shell.size() << "state:" << shell.windowState();
         // The first child show must already use the configured fullscreen
         // geometry, not the normal restore size or the QML's 1280x720 default.
         QCOMPARE(shownSizes.first(), shell.screen()->geometry().size());
@@ -1016,6 +1018,7 @@ private slots:
         shell.resize(1280, 720);
         shell.show();
         QTRY_COMPARE(scene.size(), shell.size());
+        QTRY_VERIFY(scene.isExposed());
         QVERIFY(!scene.isTopLevel());
         QCOMPARE(scene.parent(), &shell);
         scene.setPinned(true);
@@ -1025,7 +1028,8 @@ private slots:
         mouse(scene, QEvent::MouseButtonPress, {500, 300}, Qt::LeftButton, Qt::LeftButton);
         shell.resize(1100, 680);
         QTRY_COMPARE(scene.size(), QSize(1100, 680));
-        QCOMPARE(buttons.count(), 2);
+        // Geometry properties update before native resize-event delivery.
+        QTRY_COMPARE(buttons.count(), 2);
 
         for (int round = 0; round < 3; ++round) {
             const auto button = controlCenter(scene, "fullscreenButton");

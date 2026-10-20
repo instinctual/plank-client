@@ -31,16 +31,26 @@ QtSessionShell::QtSessionShell() : m_Surface(this)
         if (visibility == QWindow::Hidden || visibility == QWindow::Minimized) {
             m_Surface.cancelInput();
             m_Surface.hide();
-        } else if (isExposed()) {
-            // Some platform backends keep the parent exposed while minimized
-            // and do not send another expose on restore.
-            m_Surface.setGeometry(QRect(QPoint(), size()));
-            m_Surface.show();
+        } else {
+            // Also covers backends that stay exposed while minimized and do
+            // not send another expose on restore.
+            queueSurfaceShow();
         }
-        // Show only after the shell's expose, when the compositor has supplied
-        // its actual size. visibilityChanged precedes initial native creation;
-        // showing the child here can expose its small pre-fullscreen geometry.
     });
+}
+
+void QtSessionShell::queueSurfaceShow()
+{
+    if (m_Surface.isVisible()) return;
+    // Qt Wayland can report exposure from inside a native configure, before
+    // it has applied that configure's final size. Finish that GUI event before
+    // mapping the child. No timer, resize loop or guessed fullscreen dimensions.
+    QMetaObject::invokeMethod(&m_Surface, [this] {
+        if (m_Surface.isVisible() || !isVisible() || !isExposed() ||
+                windowState() == Qt::WindowMinimized) return;
+        m_Surface.setGeometry(QRect(QPoint(), size()));
+        m_Surface.show();
+    }, Qt::QueuedConnection);
 }
 
 QSize QtSessionShell::defaultWindowedSize(QSize available, QSize desktop)
@@ -100,10 +110,7 @@ void QtSessionShell::paintEvent(QPaintEvent*)
 void QtSessionShell::exposeEvent(QExposeEvent* event)
 {
     QRasterWindow::exposeEvent(event);
-    if (isExposed() && isVisible() && windowState() != Qt::WindowMinimized) {
-        m_Surface.setGeometry(QRect(QPoint(), size()));
-        m_Surface.show();
-    }
+    queueSurfaceShow();
     // Covered-parent exposure is not a reason to unmap the video child.
     // Explicit hide/minimize is handled above, independently of frame callbacks.
 }
