@@ -1,3 +1,13 @@
+## 1.1.051 — Ubuntu Qt toolbar spacing
+
+### Client
+- Bring microphone, camera and window controls closer together, without shrinking their icons or click targets.
+- Make the RTT column narrower and show whole milliseconds, with an indication for delays above 999 ms.
+- Keep the Encoder Target slider and existing toolbar behavior unchanged.
+
+### Host
+- No changes; no Host update is needed.
+
 ## 1.1.050 — Ubuntu Qt connection recovery
 
 ### Client

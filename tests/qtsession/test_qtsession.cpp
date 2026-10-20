@@ -199,7 +199,7 @@ private slots:
         const auto fullscreen = controlCenter(window, "fullscreenButton");
         const QStringList names{"fpsStat", "videoStat", "lossStat", "rttStat"};
         const QStringList labels{"FPS", "Video Mbps", "Loss", "RTT"};
-        const QStringList values{"59.9", "76.5", "1.550%", "12.3 ms"};
+        const QStringList values{"59.9", "76.5", "1.550%", "12 ms"};
         for (int i = 0; i < names.size(); ++i) {
             const auto stat = toolbar->findChild<QQuickItem*>(names[i]);
             QVERIFY(stat);
@@ -224,6 +224,76 @@ private slots:
         QCOMPARE(toolbar->width(), originalWidth);
         QCOMPARE(controlCenter(window, "fullscreenButton"), fullscreen);
         QCOMPARE(toolbar->height(), 39.0);
+    }
+
+    void toolbarRttUsesCompactWholeMilliseconds()
+    {
+        QtSessionWindow window;
+        prepare(window);
+        window.setPinned(true);
+        QVERIFY(!window.grabWindow().isNull());
+        const auto toolbar = window.rootObject()->findChild<QQuickItem*>("sessionToolbar");
+        const auto rtt = window.rootObject()->findChild<QQuickItem*>("rttStat");
+        QVERIFY(toolbar && rtt);
+        const auto value = rtt->findChild<QQuickItem*>("statValue");
+        QVERIFY(value);
+        const qreal width = toolbar->width();
+        const auto slider = controlCenter(window, "bitrateSlider");
+        const auto fullscreen = controlCenter(window, "fullscreenButton");
+        const QList<QPair<QVariant, QString>> samples{
+            {0, QStringLiteral("— ms")},
+            {9, QStringLiteral("9 ms")},
+            {12.6, QStringLiteral("13 ms")},
+            {99, QStringLiteral("99 ms")},
+            {999, QStringLiteral("999 ms")},
+            {1000, QStringLiteral(">999 ms")},
+            {std::numeric_limits<quint32>::max(), QStringLiteral(">999 ms")},
+            {-1, QStringLiteral("— ms")},
+            {QStringLiteral("invalid"), QStringLiteral("— ms")}
+        };
+        for (const auto& sample : samples) {
+            window.setTelemetry({{"rtt", sample.first}});
+            QVERIFY(!window.grabWindow().isNull());
+            QCOMPARE(value->property("text").toString(), sample.second);
+            QVERIFY(value->width() <= rtt->width());
+            QCOMPARE(toolbar->width(), width);
+            QCOMPARE(controlCenter(window, "bitrateSlider"), slider);
+            QCOMPARE(controlCenter(window, "fullscreenButton"), fullscreen);
+        }
+        window.setTelemetry({});
+        QCOMPARE(value->property("text").toString(), QStringLiteral("— ms"));
+        QVERIFY(saveUiSnapshot(window, QStringLiteral("toolbar-compact-rtt")));
+    }
+
+    void toolbarControlsHaveCompactGaps()
+    {
+        QtSessionWindow window;
+        prepare(window);
+        window.setPinned(true);
+        const auto group = window.rootObject()->findChild<QQuickItem*>("toolbarControls");
+        QVERIFY(group);
+        // Unsupported microphone/camera controls must not leave empty slots.
+        for (int supported = 0; supported < 4; ++supported) {
+            const bool microphone = supported & 1;
+            const bool camera = supported & 2;
+            window.setTelemetry({{"microphoneSupported", microphone}, {"cameraSupported", camera}});
+            QVERIFY(!window.grabWindow().isNull());
+            QStringList names;
+            if (microphone) names << QStringLiteral("microphoneButton");
+            if (camera) names << QStringLiteral("cameraButton");
+            names << QStringLiteral("fullscreenButton") << QStringLiteral("minimizeButton")
+                  << QStringLiteral("disconnectButton");
+            qreal previousRight = 0;
+            for (const auto& name : names) {
+                const auto button = group->findChild<QQuickItem*>(name);
+                QVERIFY(button && button->isVisible());
+                QCOMPARE(button->size(), QSizeF(32, 32));
+                QCOMPARE(button->x(), previousRight);
+                previousRight = button->x() + button->width() + 4;
+            }
+            QCOMPARE(group->width(), previousRight - 4);
+        }
+        QVERIFY(saveUiSnapshot(window, QStringLiteral("toolbar-compact-controls")));
     }
 
     void toolbarIconsSurviveRevealAndModeChanges()

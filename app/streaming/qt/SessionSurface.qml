@@ -194,9 +194,11 @@ Item {
             }
             StatReadout {
                 objectName: "rttStat"
+                readonly property real milliseconds: Number(sessionWindow.telemetry.rtt || 0)
                 label: "RTT"
-                value: (sessionWindow.telemetry.rtt || "—") + " ms"
-                widthSample: "9999.9 ms"
+                value: (milliseconds > 0 && isFinite(milliseconds) ?
+                            (milliseconds > 999 ? ">999" : Math.round(milliseconds).toString()) : "—") + " ms"
+                widthSample: ">999 ms"
             }
             ColumnLayout {
                 spacing: 0
@@ -226,43 +228,47 @@ Item {
                     onMoved: sessionWindow.bitrateKbps = Math.round(value)
                 }
             }
-            ToolButton {
-                objectName: "microphoneButton"
-                iconName: "microphoneIcon"
-                visible: !!sessionWindow.telemetry.microphoneSupported
-                // Green only after the Host acknowledges capture.
-                iconSource: sessionWindow.telemetry.microphoneState === 2 ? "icons/microphone-active.svg" : "icons/microphone.svg"
-                ToolTip.text: ["Microphone off", "Starting microphone", "Microphone on", "Microphone unavailable"][sessionWindow.telemetry.microphoneState || 0]
-                onClicked: sessionWindow.toggleMicrophone()
-            }
-            ToolButton {
-                objectName: "cameraButton"
-                iconName: "cameraIcon"
-                visible: !!sessionWindow.telemetry.cameraSupported
-                iconSource: sessionWindow.telemetry.cameraState === 2 ? "icons/camera-active.svg" : "icons/camera.svg"
-                ToolTip.text: ["Camera off", "Starting camera", "Camera on", "Camera unavailable"][sessionWindow.telemetry.cameraState || 0]
-                onClicked: sessionWindow.toggleCamera()
-            }
-            ToolButton {
-                objectName: "fullscreenButton"
-                iconName: "fullscreenIcon"
-                iconSource: sessionWindow.fullscreen ? "icons/fullscreen-exit.svg" : "icons/fullscreen-enter.svg"
-                ToolTip.text: sessionWindow.fullscreen ? "Restore window" : "Enter fullscreen"
-                onClicked: sessionWindow.toggleFullscreen()
-            }
-            ToolButton {
-                objectName: "minimizeButton"
-                iconName: "minimizeIcon"
-                iconSource: "icons/minimize.svg"
-                ToolTip.text: "Minimize"
-                onClicked: sessionWindow.minimize()
-            }
-            ToolButton {
-                objectName: "disconnectButton"
-                iconName: "disconnectIcon"
-                iconSource: "icons/close.svg"
-                ToolTip.text: "Disconnect"
-                onClicked: sessionWindow.disconnectSession()
+            RowLayout {
+                objectName: "toolbarControls"
+                spacing: 4
+                ToolButton {
+                    objectName: "microphoneButton"
+                    iconName: "microphoneIcon"
+                    visible: !!sessionWindow.telemetry.microphoneSupported
+                    // Green only after the Host acknowledges capture.
+                    iconSource: sessionWindow.telemetry.microphoneState === 2 ? "icons/microphone-active.svg" : "icons/microphone.svg"
+                    ToolTip.text: ["Microphone off", "Starting microphone", "Microphone on", "Microphone unavailable"][sessionWindow.telemetry.microphoneState || 0]
+                    onClicked: sessionWindow.toggleMicrophone()
+                }
+                ToolButton {
+                    objectName: "cameraButton"
+                    iconName: "cameraIcon"
+                    visible: !!sessionWindow.telemetry.cameraSupported
+                    iconSource: sessionWindow.telemetry.cameraState === 2 ? "icons/camera-active.svg" : "icons/camera.svg"
+                    ToolTip.text: ["Camera off", "Starting camera", "Camera on", "Camera unavailable"][sessionWindow.telemetry.cameraState || 0]
+                    onClicked: sessionWindow.toggleCamera()
+                }
+                ToolButton {
+                    objectName: "fullscreenButton"
+                    iconName: "fullscreenIcon"
+                    iconSource: sessionWindow.fullscreen ? "icons/fullscreen-exit.svg" : "icons/fullscreen-enter.svg"
+                    ToolTip.text: sessionWindow.fullscreen ? "Restore window" : "Enter fullscreen"
+                    onClicked: sessionWindow.toggleFullscreen()
+                }
+                ToolButton {
+                    objectName: "minimizeButton"
+                    iconName: "minimizeIcon"
+                    iconSource: "icons/minimize.svg"
+                    ToolTip.text: "Minimize"
+                    onClicked: sessionWindow.minimize()
+                }
+                ToolButton {
+                    objectName: "disconnectButton"
+                    iconName: "disconnectIcon"
+                    iconSource: "icons/close.svg"
+                    ToolTip.text: "Disconnect"
+                    onClicked: sessionWindow.disconnectSession()
+                }
             }
         }
     }
