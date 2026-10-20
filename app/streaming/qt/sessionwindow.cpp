@@ -39,6 +39,7 @@ QtSessionWindow::QtSessionWindow(QWindow* parent) : QQuickView(parent),
         if (m_Fullscreen == fullscreen) return;
         m_Fullscreen = fullscreen;
         m_RevealTimer.stop();
+        emit fullscreenChanged();
     });
     rootContext()->setContextProperty(QStringLiteral("sessionWindow"), this);
     setSource(QUrl(QStringLiteral("qrc:/qt-session/SessionSurface.qml")));

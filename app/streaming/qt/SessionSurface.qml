@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 
 Item {
     id: surface
@@ -71,6 +72,46 @@ Item {
         ToolTip.visible: hovered
     }
 
+    // Fixed vector resources avoid font substitutions and Canvas repaint state
+    // when the toolbar is hidden, shown or moved between display scales.
+    component ToolbarIcon: Image {
+        implicitWidth: 24
+        implicitHeight: 24
+        fillMode: Image.PreserveAspectFit
+        sourceSize.width: Math.round(width * Screen.devicePixelRatio)
+        sourceSize.height: Math.round(height * Screen.devicePixelRatio)
+    }
+
+    component StatReadout: Item {
+        id: stat
+        required property string label
+        required property string value
+        required property string widthSample
+        property color valueColor: "#f6f8fa"
+        implicitWidth: Math.max(labelText.implicitWidth, valueText.implicitWidth, Math.ceil(valueMetrics.advanceWidth))
+        implicitHeight: labelText.implicitHeight + valueText.implicitHeight
+        Text {
+            id: labelText
+            objectName: "statLabel"
+            text: stat.label
+            color: "#97a1ae"
+            font.pixelSize: 11
+        }
+        Text {
+            id: valueText
+            objectName: "statValue"
+            y: labelText.height
+            text: stat.value
+            color: stat.valueColor
+            font.pixelSize: 13
+        }
+        TextMetrics {
+            id: valueMetrics
+            font: valueText.font
+            text: stat.widthSample
+        }
+    }
+
     Rectangle {
         id: toolbar
         z: 2
@@ -108,32 +149,32 @@ Item {
             ToolButton {
                 objectName: "pinButton"
                 ToolTip.text: sessionWindow.pinned ? "Unpin toolbar" : "Pin toolbar"
+                Accessible.name: ToolTip.text
                 onClicked: sessionWindow.pinned = !sessionWindow.pinned
-                contentItem: Canvas {
-                    id: pinCanvas
-                    Connections { target: sessionWindow; function onToolbarChanged() { pinCanvas.requestPaint() } }
-                    onPaint: {
-                        const c = getContext("2d")
-                        c.reset()
-                        c.strokeStyle = "#f0f1f4"
-                        c.lineWidth = 1.5
-                        c.beginPath()
-                        c.moveTo(8, 4); c.lineTo(16, 4); c.lineTo(15, 11)
-                        c.lineTo(18, 14); c.lineTo(6, 14); c.lineTo(9, 11); c.closePath()
-                        c.moveTo(12, 14); c.lineTo(12, 21); c.stroke()
-                        if (!sessionWindow.pinned) {
-                            c.beginPath(); c.moveTo(4, 3); c.lineTo(21, 21); c.stroke()
-                        }
-                    }
+                contentItem: ToolbarIcon {
+                    objectName: "pinIcon"
+                    source: sessionWindow.pinned ? "icons/pin.svg" : "icons/pin-off.svg"
                 }
             }
-            Text { text: "FPS " + (sessionWindow.telemetry.fps || 0).toFixed(1); color: "#eff1f4"; font.pixelSize: 12 }
-            Text { text: "Video " + (sessionWindow.telemetry.videoMbps || 0).toFixed(1) + " Mbps"; color: "#eff1f4"; font.pixelSize: 12 }
-            Text {
+            StatReadout {
+                objectName: "fpsStat"
+                label: "FPS"
+                value: (sessionWindow.telemetry.fps || 0).toFixed(1)
+                widthSample: "999.9"
+            }
+            StatReadout {
+                objectName: "videoStat"
+                label: "Video Mbps"
+                value: (sessionWindow.telemetry.videoMbps || 0).toFixed(1)
+                widthSample: "999.9"
+            }
+            StatReadout {
+                objectName: "lossStat"
                 property real loss: sessionWindow.telemetry.loss === undefined ? -1 : sessionWindow.telemetry.loss
-                text: "Loss " + (loss < 0 ? "—" : loss.toFixed(3)) + "%"
-                font.pixelSize: 12
-                color: {
+                label: "Loss"
+                value: (loss < 0 ? "—" : loss.toFixed(3)) + "%"
+                widthSample: "100.000%"
+                valueColor: {
                     if (loss < 0) return "#8aa6c9"
                     const blue = [52, 132, 228], green = [52, 199, 110], red = [239, 88, 88]
                     const a = loss <= 5 ? blue : green, b = loss <= 5 ? green : red
@@ -142,18 +183,30 @@ Item {
                                    (a[2] + (b[2] - a[2]) * t) / 255, 1)
                 }
             }
-            Text { text: "RTT " + (sessionWindow.telemetry.rtt || "—") + " ms"; color: "#eff1f4"; font.pixelSize: 12 }
+            StatReadout {
+                objectName: "rttStat"
+                label: "RTT"
+                value: (sessionWindow.telemetry.rtt || "—") + " ms"
+                widthSample: "9999.9 ms"
+            }
             ColumnLayout {
                 spacing: 0
+                TextMetrics {
+                    id: targetWidthMetrics
+                    font: targetText.font
+                    text: "Encoder Target " + (sessionWindow.maximumBitrateKbps / 1000).toFixed(1) + " Mbps"
+                }
                 Text {
                     id: targetText
+                    Layout.preferredWidth: Math.max(implicitWidth, Math.ceil(targetWidthMetrics.advanceWidth))
                     text: "Encoder Target " + (sessionWindow.bitrateKbps / 1000).toFixed(1) + " Mbps"
                     color: sessionWindow.liveSession && !sessionWindow.telemetry.bitrateConfirmed ? "#edc76b" : "#eff1f4"
                     font.pixelSize: 13
                 }
                 Slider {
                     objectName: "bitrateSlider"
-                    Layout.preferredWidth: targetText.implicitWidth
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: Math.ceil(targetWidthMetrics.advanceWidth)
                     Layout.preferredHeight: 16
                     from: sessionWindow.minimumBitrateKbps
                     to: sessionWindow.maximumBitrateKbps
@@ -184,8 +237,12 @@ Item {
             }
             ToolButton {
                 objectName: "fullscreenButton"
-                text: "□"
-                ToolTip.text: "Fullscreen / windowed"
+                ToolTip.text: sessionWindow.fullscreen ? "Restore window" : "Enter fullscreen"
+                Accessible.name: ToolTip.text
+                contentItem: ToolbarIcon {
+                    objectName: "fullscreenIcon"
+                    source: sessionWindow.fullscreen ? "icons/fullscreen-exit.svg" : "icons/fullscreen-enter.svg"
+                }
                 onClicked: sessionWindow.toggleFullscreen()
             }
             ToolButton {

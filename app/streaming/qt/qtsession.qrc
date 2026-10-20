@@ -1,5 +1,9 @@
 <RCC>
     <qresource prefix="/qt-session">
         <file>SessionSurface.qml</file>
+        <file>icons/pin.svg</file>
+        <file>icons/pin-off.svg</file>
+        <file>icons/fullscreen-enter.svg</file>
+        <file>icons/fullscreen-exit.svg</file>
     </qresource>
 </RCC>

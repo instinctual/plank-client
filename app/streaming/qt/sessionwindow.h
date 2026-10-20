@@ -17,6 +17,7 @@ class QtSessionWindow : public QQuickView
 {
     Q_OBJECT
     Q_PROPERTY(bool toolbarVisible READ toolbarVisible NOTIFY toolbarChanged)
+    Q_PROPERTY(bool fullscreen READ fullscreen NOTIFY fullscreenChanged)
     Q_PROPERTY(bool pinned READ pinned WRITE setPinned NOTIFY toolbarChanged)
     Q_PROPERTY(qreal toolbarPosition READ toolbarPosition NOTIFY toolbarChanged)
     Q_PROPERTY(bool waiting READ waiting WRITE setWaiting NOTIFY waitingChanged)
@@ -86,6 +87,7 @@ signals:
     void physicalMouseActivity();
     void inputRecaptureRequested();
     void fullscreenRequested();
+    void fullscreenChanged();
     void minimizeRequested();
     void microphoneRequested();
     void cameraRequested();

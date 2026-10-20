@@ -45,6 +45,31 @@ bool saveUiSnapshot(QtSessionWindow& window, const QString& name)
     return directory.isEmpty() || window.grabWindow().save(directory + QLatin1Char('/') +
         name + QLatin1Char('-') + QString::number(window.devicePixelRatio(), 'f', 2) + QStringLiteral(".png"));
 }
+
+QImage renderedControl(QtSessionWindow& window, QQuickItem* item)
+{
+    const QImage rendered = window.grabWindow();
+    if (rendered.isNull() || !item) return {};
+    const QRectF bounds = item->mapRectToScene(QRectF(QPointF(), item->size()));
+    const qreal sx = qreal(rendered.width()) / window.width();
+    const qreal sy = qreal(rendered.height()) / window.height();
+    return rendered.copy(QRectF(bounds.x() * sx, bounds.y() * sy,
+                                bounds.width() * sx, bounds.height() * sy).toAlignedRect());
+}
+
+bool hasRenderedGlyph(const QImage& image)
+{
+    int brightPixels = 0;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor color = image.pixelColor(x, y);
+            if (color.red() > 180 && color.green() > 180 && color.blue() > 180) ++brightPixels;
+        }
+    }
+    // The button background is dark. Require actual foreground strokes,
+    // not merely a loaded resource or the surrounding button rectangle.
+    return brightPixels >= 8;
+}
 }
 
 class QtSessionTest : public QObject
@@ -153,6 +178,115 @@ private slots:
         QCOMPARE(window.status(), QQuickView::Ready);
         QVERIFY(window.rootObject());
         QVERIFY(window.rootObject()->findChild<QQuickItem*>("sessionToolbar"));
+    }
+
+    void toolbarReadoutsAreStackedAndStable()
+    {
+        QtSessionWindow window;
+        prepare(window);
+        window.setPinned(true);
+        window.setTelemetry({{"fps", 59.9}, {"videoMbps", 76.5}, {"loss", 1.55}, {"rtt", "12.3"}});
+        QVERIFY(!window.grabWindow().isNull());
+        const auto toolbar = window.rootObject()->findChild<QQuickItem*>("sessionToolbar");
+        QVERIFY(toolbar);
+        const qreal originalWidth = toolbar->width();
+        const auto fullscreen = controlCenter(window, "fullscreenButton");
+        const QStringList names{"fpsStat", "videoStat", "lossStat", "rttStat"};
+        const QStringList labels{"FPS", "Video Mbps", "Loss", "RTT"};
+        const QStringList values{"59.9", "76.5", "1.550%", "12.3 ms"};
+        for (int i = 0; i < names.size(); ++i) {
+            const auto stat = toolbar->findChild<QQuickItem*>(names[i]);
+            QVERIFY(stat);
+            const auto label = stat->findChild<QQuickItem*>("statLabel");
+            const auto value = stat->findChild<QQuickItem*>("statValue");
+            QVERIFY(label && value);
+            QCOMPARE(label->property("text").toString(), labels[i]);
+            QCOMPARE(value->property("text").toString(), values[i]);
+            QVERIFY(value->y() >= label->y() + label->height());
+            QCOMPARE(value->x(), label->x());
+            QVERIFY(value->width() <= stat->width());
+            QVERIFY(label->width() <= stat->width());
+        }
+        window.setTelemetry({{"fps", 240.0}, {"videoMbps", 150.0}, {"loss", 100.0}, {"rtt", "9999.9"}});
+        window.setBitrateKbps(window.maximumBitrateKbps());
+        QVERIFY(!window.grabWindow().isNull());
+        QCOMPARE(toolbar->width(), originalWidth);
+        QCOMPARE(controlCenter(window, "fullscreenButton"), fullscreen);
+        window.setTelemetry({});
+        window.setBitrateKbps(window.minimumBitrateKbps());
+        QVERIFY(!window.grabWindow().isNull());
+        QCOMPARE(toolbar->width(), originalWidth);
+        QCOMPARE(controlCenter(window, "fullscreenButton"), fullscreen);
+        QCOMPARE(toolbar->height(), 39.0);
+    }
+
+    void toolbarIconsSurviveRevealAndModeChanges()
+    {
+        QtSessionShell shell;
+        auto& scene = shell.surface();
+        shell.resize(1280, 720);
+        shell.show();
+        QTRY_COMPARE(scene.size(), shell.size());
+        QVERIFY(QTest::qWaitForWindowExposed(&shell));
+        const QSize windowedSize = shell.size();
+        scene.setPresentation(fullFrame(scene.size()));
+        scene.setRemoteInputEnabled(true);
+        scene.setPinned(true);
+        scene.setTelemetry({{"fps", 59.9}, {"videoMbps", 76.5}, {"loss", 1.55}, {"rtt", "12.3"}});
+        scene.setBitrateKbps(76500);
+        const auto pin = scene.rootObject()->findChild<QQuickItem*>("pinIcon");
+        const auto fullscreen = scene.rootObject()->findChild<QQuickItem*>("fullscreenIcon");
+        QVERIFY(pin && fullscreen);
+        // Image.Ready is 1. Validate the actual bundled image and rendered
+        // pixels, including the state changes that previously left a blank box.
+        QTRY_COMPARE(pin->property("status").toInt(), 1);
+        QTRY_COMPARE(fullscreen->property("status").toInt(), 1);
+        QCOMPARE(pin->property("source").toUrl().fileName(), QStringLiteral("pin.svg"));
+        QCOMPARE(fullscreen->property("source").toUrl().fileName(), QStringLiteral("fullscreen-enter.svg"));
+        const auto pinnedImage = renderedControl(scene, pin);
+        const auto enterImage = renderedControl(scene, fullscreen);
+        QVERIFY(hasRenderedGlyph(pinnedImage));
+        QVERIFY(hasRenderedGlyph(enterImage));
+        QSignalSpy remote(&scene, &QtSessionWindow::remoteButton);
+        const auto pinPoint = controlCenter(scene, "pinButton");
+        mouse(scene, QEvent::MouseMove, pinPoint);
+        mouse(scene, QEvent::MouseButtonPress, pinPoint, Qt::LeftButton, Qt::LeftButton);
+        mouse(scene, QEvent::MouseButtonRelease, pinPoint, Qt::LeftButton);
+        QVERIFY(!scene.pinned());
+        QTRY_COMPARE(pin->property("source").toUrl().fileName(), QStringLiteral("pin-off.svg"));
+        const auto unpinnedImage = renderedControl(scene, pin);
+        QVERIFY(hasRenderedGlyph(unpinnedImage));
+        QVERIFY(unpinnedImage != pinnedImage);
+        scene.setWaiting(true);
+        QVERIFY(!scene.grabWindow().isNull());
+        scene.setWaiting(false);
+        QVERIFY(hasRenderedGlyph(renderedControl(scene, pin)));
+        scene.setPinned(true);
+        QVERIFY(saveUiSnapshot(scene, QStringLiteral("toolbar-windowed-stacked")));
+
+        const auto fullPoint = controlCenter(scene, "fullscreenButton");
+        mouse(scene, QEvent::MouseButtonPress, fullPoint, Qt::LeftButton, Qt::LeftButton);
+        mouse(scene, QEvent::MouseButtonRelease, fullPoint, Qt::LeftButton);
+        QTRY_VERIFY(scene.fullscreen());
+        QTRY_COMPARE(shell.size(), shell.screen()->geometry().size());
+        QTRY_COMPARE(scene.size(), shell.size());
+        QCOMPARE(scene.windowState(), Qt::WindowNoState);
+        QTRY_COMPARE(fullscreen->property("source").toUrl().fileName(), QStringLiteral("fullscreen-exit.svg"));
+        const auto exitImage = renderedControl(scene, fullscreen);
+        QVERIFY(hasRenderedGlyph(exitImage));
+        QVERIFY(exitImage != enterImage);
+        QVERIFY(saveUiSnapshot(scene, QStringLiteral("toolbar-fullscreen-stacked")));
+
+        const auto restorePoint = controlCenter(scene, "fullscreenButton");
+        mouse(scene, QEvent::MouseButtonPress, restorePoint, Qt::LeftButton, Qt::LeftButton);
+        mouse(scene, QEvent::MouseButtonRelease, restorePoint, Qt::LeftButton);
+        QTRY_VERIFY(!scene.fullscreen());
+        QTRY_COMPARE(shell.size(), windowedSize);
+        QTRY_COMPARE(scene.size(), windowedSize);
+        QTRY_COMPARE(fullscreen->property("source").toUrl().fileName(), QStringLiteral("fullscreen-enter.svg"));
+        QVERIFY(hasRenderedGlyph(renderedControl(scene, fullscreen)));
+        QVERIFY(hasRenderedGlyph(renderedControl(scene, pin)));
+        QVERIFY(remote.isEmpty());
     }
 
     void remoteDragCrossesToolbar()

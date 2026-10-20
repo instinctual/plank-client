@@ -1,3 +1,14 @@
+## 1.1.046 — Ubuntu Qt toolbar presentation
+
+### Client
+- Restore the pin icon and the fullscreen/restore corner icons in the Qt toolbar.
+- Put FPS, Video Mbps, Loss and RTT labels above their values, matching the regular client.
+- Keep the toolbar and controls steady as numbers change, without increasing its height.
+- Retain the accepted windowed toolbar reveal behavior.
+
+### Host
+- No changes; no Host update is needed.
+
 ## 1.1.045 — Ubuntu Qt window controls
 
 ### Client
