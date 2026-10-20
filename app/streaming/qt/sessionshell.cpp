@@ -34,9 +34,23 @@ bool QtSessionShell::event(QEvent* event)
         // Wayland keyboard focus belongs to the top-level. Use the identical
         // scene input policy, including local reconnect-dialog controls.
         return QCoreApplication::sendEvent(&m_Surface, event);
-    case QEvent::WindowDeactivate:
     case QEvent::Hide:
+        // Show is explicit below, so keep hiding equally explicit. Wayland
+        // unmaps the subsurface with its parent, but Qt can retain the child's
+        // old exposed flag unless it receives its own visibility transition.
+        m_Surface.hide();
+        [[fallthrough]];
+    case QEvent::WindowDeactivate:
         m_Surface.cancelInput();
+        break;
+    case QEvent::WindowStateChange:
+        if (windowState() == Qt::WindowMinimized) {
+            m_Surface.cancelInput();
+            m_Surface.hide();
+        }
+        else if (isVisible()) {
+            m_Surface.show();
+        }
         break;
     default:
         break;
@@ -60,7 +74,8 @@ void QtSessionShell::showEvent(QShowEvent* event)
 {
     QRasterWindow::showEvent(event);
     m_Surface.setGeometry(QRect(QPoint(), size()));
-    m_Surface.show();
+    if (windowState() != Qt::WindowMinimized)
+        m_Surface.show();
 }
 
 void QtSessionShell::closeEvent(QCloseEvent* event)

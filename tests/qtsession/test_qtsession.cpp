@@ -944,6 +944,8 @@ private slots:
         QTRY_VERIFY(scene.isExposed());
         shell.showMinimized();
         QTRY_COMPARE(shell.windowState(), Qt::WindowMinimized);
+        QTRY_VERIFY(!scene.isVisible());
+        QTRY_VERIFY(!scene.isExposed());
         shell.showNormal();
         QTRY_VERIFY(scene.isExposed());
         const int before = swaps.count();
