@@ -39,7 +39,7 @@ QtSessionRuntime::QtSessionRuntime(Session* session) : QObject(session), m_Sessi
     connect(session, &Session::connectionStarted, this, [this] {
         if (m_Stop.load()) return;
         for (size_t i = 0; i < m_Windows.size(); ++i) {
-            if (m_Fullscreen) m_Windows[i]->showFullScreen();
+            if (m_Fullscreen) m_Windows[i]->showSession(true);
             else if (!i) m_Windows[i]->show();
         }
     });
@@ -219,7 +219,7 @@ void QtSessionRuntime::start(QWindow* launcher)
         emit m_Session->displayLaunchError(reason); stop();
     });
     for (size_t i = 0; i < m_Windows.size(); ++i) {
-        if (m_Fullscreen) m_Windows[i]->showFullScreen();
+        if (m_Fullscreen) m_Windows[i]->showSession(true);
         else if (!i) m_Windows[i]->show();
     }
     m_Tick.start();
@@ -458,7 +458,7 @@ void QtSessionRuntime::updateGeometry()
     for (size_t index = 0; index < m_Windows.size(); ++index) {
         auto& shell = *m_Windows[index];
         if (index && !multi) { shell.hide(); continue; }
-        if (index && !shell.isVisible()) shell.showFullScreen();
+        if (index && !shell.isVisible()) shell.showSession(true);
         auto& surface = shell.surface();
         const QSize drawable(qRound(surface.width() * surface.devicePixelRatio()), qRound(surface.height() * surface.devicePixelRatio()));
         if (!drawable.isValid()) continue;
@@ -527,8 +527,7 @@ void QtSessionRuntime::toggleFullscreen()
     m_Fullscreen = !m_Fullscreen;
     for (size_t i = 0; i < m_Windows.size(); ++i) {
         m_Windows[i]->surface().cancelInput();
-        if (m_Fullscreen) m_Windows[i]->showFullScreen();
-        else if (!i) m_Windows[i]->showNormal();
+        if (m_Fullscreen || !i) m_Windows[i]->showSession(m_Fullscreen);
         else m_Windows[i]->hide();
     }
     updateGeometry();

@@ -17,6 +17,7 @@ public:
     QtSessionShell();
     QtSessionWindow& surface() { return m_Surface; }
     void prepareForSession(QSize desktop, bool fullscreen);
+    void showSession(bool fullscreen);
 
 protected:
     bool event(QEvent* event) override;
@@ -30,5 +31,7 @@ private:
     bool initialGeometryReady() const;
     void queueSurfaceShow();
     bool m_AwaitInitialFullscreenGeometry = false;
+    bool m_RestoreWindowedSize = false;
+    QSize m_WindowedSize;
     QtSessionWindow m_Surface;
 };

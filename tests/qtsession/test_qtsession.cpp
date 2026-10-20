@@ -124,7 +124,7 @@ private slots:
         connect(&scene, &QWindow::visibleChanged, &observations, [&](bool visible) {
             if (visible) shownSizes.append(scene.size());
         });
-        shell.showFullScreen();
+        shell.showSession(true);
         QTRY_VERIFY(scene.isExposed());
         QVERIFY(!shownSizes.isEmpty());
         qInfo() << "Initial fullscreen child geometry:" << shownSizes.first()
@@ -133,7 +133,7 @@ private slots:
         // geometry, not the normal restore size or the QML's 1280x720 default.
         QCOMPARE(shownSizes.first(), shell.screen()->geometry().size());
         QTRY_COMPARE(scene.size(), shell.size());
-        shell.showNormal();
+        shell.showSession(false);
         QTRY_COMPARE(shell.size(), expected);
         QTRY_COMPARE(scene.size(), expected);
         QVERIFY(saveUiSnapshot(scene, QStringLiteral("windowed-default")));
@@ -144,17 +144,17 @@ private slots:
         shell.resize(manual);
         QTRY_COMPARE(scene.size(), manual);
         for (int round = 0; round < 3; ++round) {
-            shell.showFullScreen();
+            shell.showSession(true);
             QTRY_COMPARE(shell.size(), shell.screen()->geometry().size());
             QTRY_COMPARE(scene.size(), shell.size());
-            shell.showNormal();
+            shell.showSession(false);
             QTRY_COMPARE(shell.size(), manual);
             QTRY_COMPARE(scene.size(), manual);
         }
         // Takeover/recovery can temporarily unmap the same shell.
         shell.hide();
         QTRY_VERIFY(!scene.isVisible());
-        shell.show();
+        shell.showSession(false);
         QTRY_VERIFY(scene.isExposed());
         QCOMPARE(shell.size(), manual);
     }
@@ -165,11 +165,18 @@ private slots:
         shell.prepareForSession(QSize(3840, 2160), false);
         const QSize expected = QtSessionShell::defaultWindowedSize(
             shell.screen()->availableGeometry().size(), QSize(3840, 2160));
-        shell.show();
+        shell.showSession(false);
         QTRY_VERIFY(shell.surface().isExposed());
         QCOMPARE(shell.windowState(), Qt::WindowNoState);
         QCOMPARE(shell.size(), expected);
         QCOMPARE(shell.surface().size(), expected);
+        shell.resize(850, 600);
+        QTRY_COMPARE(shell.surface().size(), QSize(850, 600));
+        shell.showSession(true);
+        QTRY_COMPARE(shell.size(), shell.screen()->geometry().size());
+        shell.showSession(false);
+        QTRY_COMPARE(shell.size(), QSize(850, 600));
+        QTRY_COMPARE(shell.surface().size(), shell.size());
     }
 
     void selectedScreenSurvivesHiddenCreation()
@@ -183,7 +190,7 @@ private slots:
             shell.prepareForSession(QSize(3840, 2160), true);
             QCOMPARE(shell.screen(), screen);
             QVERIFY(!shell.isVisible());
-            shell.showFullScreen();
+            shell.showSession(true);
             QTRY_VERIFY(shell.surface().isExposed());
             QTRY_COMPARE(shell.size(), screen->geometry().size());
             QCOMPARE(shell.screen(), screen);

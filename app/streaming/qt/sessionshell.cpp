@@ -90,14 +90,39 @@ void QtSessionShell::prepareForSession(QSize desktop, bool fullscreen)
     // position. Preserve the explicitly selected fullscreen output without
     // pretending we can position a Wayland top-level window ourselves.
     if (target) setScreen(target);
-    // Establish state before either surface is shown. Qt then retains normal
-    // user resizes across toggles; no application-owned resize loop is needed.
+    m_WindowedSize = size();
+    // Establish state before either surface is shown.
     setWindowState(fullscreen ? Qt::WindowFullScreen : Qt::WindowNoState);
+}
+
+void QtSessionShell::showSession(bool fullscreen)
+{
+    if (fullscreen) {
+        // Retain content dimensions, not frame geometry or maximized size.
+        // Qt Wayland's CSD transition can otherwise subtract the decoration
+        // margins from its saved normal size on every fullscreen round trip.
+        if (windowState() == Qt::WindowNoState) m_WindowedSize = size();
+        m_RestoreWindowedSize = false;
+        showFullScreen();
+    } else {
+        if (windowState() == Qt::WindowFullScreen)
+            m_RestoreWindowedSize = !m_WindowedSize.isEmpty();
+        showNormal();
+    }
 }
 
 bool QtSessionShell::event(QEvent* event)
 {
     switch (event->type()) {
+    case QEvent::WindowStateChange:
+        // Apply once, after the compositor acknowledges leaving fullscreen
+        // and Qt has recreated the decorations. Resizing at request time is
+        // too early on Wayland. No fixed border offset, timer or resize loop.
+        if (m_RestoreWindowedSize && windowState() == Qt::WindowNoState) {
+            m_RestoreWindowedSize = false;
+            resize(m_WindowedSize);
+        }
+        break;
     case QEvent::Paint:
     case QEvent::UpdateRequest:
         // Do not map a smaller raster backing buffer while waiting for the
