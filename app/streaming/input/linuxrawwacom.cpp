@@ -488,6 +488,7 @@ bool LinuxRawWacomInput::discover()
     }
 
     bool allEventsOpened = true;
+    bool penReady = false;
     enumerate = udev_enumerate_new(context);
     if (enumerate == nullptr) {
         udev_unref(context);
@@ -510,6 +511,14 @@ bool LinuxRawWacomInput::discover()
             const int fd = open(node, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
             if (fd >= 0) {
                 m_EventFds.push_back(fd);
+                // hidraw may appear before wacom_register_inputs() publishes
+                // the pen. Do not resume with only a surviving touch node
+                // grabbed, leaving the newly arriving pen on the local desktop.
+                std::array<unsigned char, (KEY_MAX + 8) / 8> keys = {};
+                if (ioctl(fd, EVIOCGBIT(EV_KEY, keys.size()), keys.data()) >= 0 &&
+                        (keys[BTN_TOOL_PEN / 8] & (1u << (BTN_TOOL_PEN % 8)))) {
+                    penReady = true;
+                }
             } else {
                 allEventsOpened = false;
             }
@@ -521,7 +530,7 @@ bool LinuxRawWacomInput::discover()
     udev_enumerate_unref(enumerate);
     udev_unref(context);
 
-    return allEventsOpened && !m_Interfaces.empty() && !m_EventFds.empty();
+    return allEventsOpened && penReady && !m_Interfaces.empty();
 }
 
 bool LinuxRawWacomInput::sendAttach()

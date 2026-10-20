@@ -101,7 +101,7 @@ udev_device* add(Tree& tree, const std::string& subsystem, const std::string& ty
 }
 
 void topology(bool renumbered, bool missingPen = false, bool invalidNumber = false,
-              unsigned product = 0x0358)
+              unsigned product = 0x0358, bool missingPenEvents = false)
 {
     auto tree = std::make_shared<Tree>();
     auto usb = add(*tree, "usb", "usb_device", "/sys/plank-fixture/1-1");
@@ -117,6 +117,7 @@ void topology(bool renumbered, bool missingPen = false, bool invalidNumber = fal
         const std::string suffix = number == 0 ? (renumbered ? "7" : "0") : "1";
         add(*tree, "hidraw", "", interface->path + "/hidraw" + suffix,
             interface, "/dev/plank-fixture-hidraw" + suffix, number, product);
+        if (missingPenEvents && number == 0) continue;
         add(*tree, "input", "", interface->path + "/event" + suffix,
             interface, "/dev/input/event-plank-fixture" + suffix, number, product);
     }
@@ -317,6 +318,11 @@ int __wrap_ioctl(int fd, unsigned long request, ...)
         auto id = static_cast<input_id*>(data);
         *id = {}; id->version = 0x100;
     }
+    else if (request == EVIOCGBIT(EV_KEY, (KEY_MAX + 8) / 8)) {
+        std::memset(data, 0, (KEY_MAX + 8) / 8);
+        if (device.interfaceNumber == 0)
+            static_cast<unsigned char*>(data)[BTN_TOOL_PEN / 8] |= 1u << (BTN_TOOL_PEN % 8);
+    }
     else if (request == HIDIOCGRAWNAME(128) || request == HIDIOCGRAWPHYS(64) ||
              request == HIDIOCGRAWUNIQ(64)) {
         std::string value = "fixture-interface-" + std::to_string(device.interfaceNumber);
@@ -418,16 +424,25 @@ int main()
         {
             std::unique_lock<std::mutex> lock(mutex);
             const auto before = discoveryCount;
-            CHECK(changed.wait_for(lock, 2s, [&] { return discoveryCount > before; }));
+            CHECK(changed.wait_for(lock, 3s, [&] { return discoveryCount >= before + 2; }));
             CHECK(count(PLANK_RAW_HID_DEVICE) == 1);
             CHECK(count(PLANK_RAW_HID_DETACH) == 0);
+        }
+        // The HID descriptor can arrive before the pen's evdev node. A
+        // surviving touch input node alone must not make this group ready.
+        topology(true, false, false, 0x0358, true);
+        {
+            std::unique_lock<std::mutex> lock(mutex);
+            const auto before = discoveryCount;
+            CHECK(changed.wait_for(lock, 3s, [&] { return discoveryCount >= before + 2; }));
+            CHECK(count(PLANK_RAW_HID_DEVICE) == 1);
         }
         // Invalid identity must also fail closed, never invent an ordering.
         topology(true, false, true);
         {
             std::unique_lock<std::mutex> lock(mutex);
             const auto before = discoveryCount;
-            CHECK(changed.wait_for(lock, 2s, [&] { return discoveryCount > before; }));
+            CHECK(changed.wait_for(lock, 3s, [&] { return discoveryCount >= before + 2; }));
             CHECK(count(PLANK_RAW_HID_DEVICE) == 1);
         }
         topology(true);
