@@ -31,6 +31,11 @@ QtSessionShell::QtSessionShell() : m_Surface(this)
         if (visibility == QWindow::Hidden || visibility == QWindow::Minimized) {
             m_Surface.cancelInput();
             m_Surface.hide();
+        } else if (isExposed()) {
+            // Some platform backends keep the parent exposed while minimized
+            // and do not send another expose on restore.
+            m_Surface.setGeometry(QRect(QPoint(), size()));
+            m_Surface.show();
         }
         // Show only after the shell's expose, when the compositor has supplied
         // its actual size. visibilityChanged precedes initial native creation;
@@ -58,9 +63,12 @@ void QtSessionShell::prepareForSession(QSize desktop, bool fullscreen)
         // These are logical pixels, not the stream's backing-pixel dimensions.
         resize(defaultWindowedSize(available, desktop));
     }
-    // Establish state before either native surface is shown. Qt retains the
-    // normal size (including subsequent user resizes) across fullscreen toggles.
-    // Do not impose an aspect constraint on interactive window resizing.
+    // Create native resources while hidden and still in normal state, so Qt
+    // records this restore size even if the first show is fullscreen. Creation
+    // is not mapping: neither the shell nor its child is visible yet.
+    create();
+    // Establish state before either surface is shown. Qt then retains normal
+    // user resizes across toggles; no application-owned resize loop is needed.
     setWindowState(fullscreen ? Qt::WindowFullScreen : Qt::WindowNoState);
 }
 
