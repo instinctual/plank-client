@@ -100,6 +100,7 @@ private slots:
         QCOMPARE(out[1150], 0.0f); QCOMPARE(out[2047], 0.0f);
         for (int n = 0; n < 10; ++n) QCOMPARE(player.render(out.data(), 1024), 0U);
         QCOMPARE(player.clock().underruns, 1ULL);
+        QCOMPARE(player.clock().missingFrames, 10688ULL);
         QVERIFY(ring.push(in.data(), 1600));
         QCOMPARE(player.render(out.data(), 1024), 1024U);
         QVERIFY(!player.clock().priming);

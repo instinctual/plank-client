@@ -181,10 +181,16 @@ public:
         std::fill_n(output, frames * m_Channels, 0.0f);
         m_Clock.quantum = frames;
         ++m_Clock.pulls;
-        if (m_Clock.priming && m_Ring.queued() < frames + m_Rate * ReserveUs / 1000000)
+        if (m_Clock.priming && m_Ring.queued() < frames + m_Rate * ReserveUs / 1000000) {
+            // Do not count intentional initial priming as an underrun. Once
+            // playback has started, include all recovery silence in the total.
+            if (m_Started) m_Clock.missingFrames += frames;
+            m_Clock.headroom = m_Ring.queued();
             return 0;
+        }
         if (m_Clock.priming) m_FadeIn = std::max(1U, m_Rate / 400);
         m_Clock.priming = false;
+        m_Started = true;
         const unsigned read = m_Ring.pop(output, frames);
         const unsigned fade = std::max(1U, m_Rate / 400); // 2.5ms only at start/recovery
         for (unsigned f = 0; f < read && m_FadeIn; ++f, --m_FadeIn)
@@ -208,6 +214,7 @@ private:
     PcmRing& m_Ring;
     const unsigned m_Rate, m_Channels;
     unsigned m_FadeIn = 0;
+    bool m_Started = false;
     OutputClock m_Clock;
 };
 

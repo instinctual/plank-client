@@ -7,7 +7,6 @@
 #include <spa/param/audio/format-utils.h>
 #include <spa/param/audio/raw-utils.h>
 #include <chrono>
-#include <mutex>
 #include <thread>
 extern "C" {
 #include <libavutil/channel_layout.h>
@@ -21,9 +20,9 @@ struct PipeWireAudioRenderer::Impl {
     explicit Impl(bool correction, bool epoch) : correctionEnabled(correction), commonEpoch(epoch) {}
     pw_thread_loop* loop = nullptr;
     pw_stream* stream = nullptr;
-    bool loopStarted = false;
+    bool loopStarted = false, initialized = false;
     std::atomic<int> state {PW_STREAM_STATE_UNCONNECTED};
-    std::atomic<bool> formatted {false}, failed {false};
+    std::atomic<bool> formatted {false}, failed {false}, stopping {false};
     int rate = 0, channels = 0, samplesPerFrame = 0;
     bool correctionEnabled, commonEpoch;
     std::unique_ptr<PlankPipeWire::PcmRing> ring;
@@ -44,8 +43,8 @@ struct PipeWireAudioRenderer::Impl {
     static void stateChanged(void* data, pw_stream_state old, pw_stream_state current, const char* error) {
         auto* self = static_cast<Impl*>(data);
         self->state.store(current);
-        if (current == PW_STREAM_STATE_ERROR ||
-            (current == PW_STREAM_STATE_UNCONNECTED && old != PW_STREAM_STATE_UNCONNECTED)) {
+        if (!self->stopping.load() && (current == PW_STREAM_STATE_ERROR ||
+            (current == PW_STREAM_STATE_UNCONNECTED && old != PW_STREAM_STATE_UNCONNECTED))) {
             self->failed.store(true);
             SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "PLANK PipeWire stream failed: %s", error ? error : "disconnected");
         }
@@ -108,11 +107,16 @@ struct PipeWireAudioRenderer::Impl {
         while (reserve < previous && !self->minimumHeadroom.compare_exchange_weak(previous, reserve)) {}
     }
     ~Impl() {
-        // Stop the ordinary loop, then disconnect/destroy synchronizes the
-        // stream's realtime data loop before any callback state is freed.
-        if (loopStarted) pw_thread_loop_stop(loop);
+        stopping.store(true);
+        // Destroy under the ordinary loop lock, while its context/modules can
+        // still complete cleanup. Stream destruction synchronizes the realtime
+        // data loop before any PCM/callback state is freed.
+        if (loop) pw_thread_loop_lock(loop);
         if (stream) pw_stream_destroy(stream);
+        if (loop) pw_thread_loop_unlock(loop);
+        if (loopStarted) pw_thread_loop_stop(loop);
         if (loop) pw_thread_loop_destroy(loop);
+        if (initialized) pw_deinit();
         swr_free(&swr);
     }
 };
@@ -144,8 +148,10 @@ bool PipeWireAudioRenderer::prepareForPlayback(const OPUS_MULTISTREAM_CONFIGURAT
         if (result < 0 || !p.swr || av_opt_set_int(p.swr, "flags", SWR_FLAG_RESAMPLE, 0) < 0 ||
             swr_init(p.swr) < 0) return false;
     }
-    static std::once_flag initialized;
-    std::call_once(initialized, [] { pw_init(nullptr, nullptr); });
+    // PipeWire reference-counts initialization. Balance our reference even
+    // when setup fails, without retiring another capture/playback user's ref.
+    pw_init(nullptr, nullptr);
+    p.initialized = true;
     p.loop = pw_thread_loop_new("PLANK Qt playback", nullptr);
     if (!p.loop) return false;
     static const pw_stream_events events = [] {
@@ -277,7 +283,8 @@ bool PipeWireAudioRenderer::submitAudio(int bytes, qint64 sourceUs)
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
             "PLANK PipeWire playback: common=%d valid=%d lead_us=%lld delay_us=%lld queue_ms=%d quantum=%u reserve_us=%d requested_ppm=%d applied_ppm=%d pulls=%llu underruns=%llu missing_frames=%llu priming=%d gaps=%llu",
             p.commonEpoch, timing.phaseValid, static_cast<long long>(timing.estimatedLeadUs),
-            static_cast<long long>(delayUs), getQueuedAudioDurationMs(), clock.quantum, minimumUs,
+            static_cast<long long>(delayUs), getQueuedAudioDurationMs(), clock.quantum,
+            static_cast<int>(clock.headroom * 1000000LL / p.rate),
             p.requestedPpm, p.appliedPpm, static_cast<unsigned long long>(clock.pulls),
             static_cast<unsigned long long>(clock.underruns), static_cast<unsigned long long>(clock.missingFrames),
             clock.priming, static_cast<unsigned long long>(timing.discontinuities));
