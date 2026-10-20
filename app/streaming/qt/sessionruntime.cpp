@@ -413,7 +413,7 @@ void QtSessionRuntime::setStreaming(QSize size)
     m_Streaming = true;
     m_ReconnectNoticeDeadline = 0;
     updateGeometry();
-    setStatus({});
+    setStatus(m_Presenter->hasPresentedLiveFrame() ? QString() : tr("Connecting to workstation…"));
     for (auto& shell : m_Windows) {
         shell->surface().setWaiting(false);
         shell->surface().setEmbeddedCursor(!(LiGetHostFeatureFlags() & LI_FF_LOCAL_CURSOR));
@@ -579,7 +579,8 @@ void QtSessionRuntime::tick()
     }
     if (m_Streaming) {
         const bool silent = PlankHostRecovery::videoSilent(SDL_GetTicks(), m_Session->m_LastPlankVideoReceived.load());
-        setStatus(silent ? tr("Waiting for workstation…") : QString());
+        setStatus(silent ? tr("Waiting for workstation…") :
+                  m_Presenter->hasPresentedLiveFrame() ? QString() : tr("Connecting to workstation…"));
     }
     const auto now = SDL_GetTicks();
     const auto requested = m_Session->m_ConfirmedBitrateRequestKbps.load();

@@ -16,7 +16,6 @@ struct QtVideoPresenter::State {
     std::vector<bool> required;
     size_t primaryIndex = 0;
     bool probeDelivered = false;
-    std::weak_ptr<const QtVideoFrame> probeFrame;
     bool live = false;
 };
 
@@ -155,7 +154,6 @@ std::function<QtDecodedVideoDelivery()> QtVideoPresenter::deliveryFactory() cons
             state->producer = producer;
             state->live = false;
             state->probeDelivered = false;
-            state->probeFrame.reset();
             retired = std::move(state->primary);
             for (auto& output : state->outputs) output = std::make_shared<QtEglVideoStatus>();
             std::fill(state->required.begin(), state->required.end(), false);
@@ -163,11 +161,11 @@ std::function<QtDecodedVideoDelivery()> QtVideoPresenter::deliveryFactory() cons
         }
         wakeQualification(retired);
         delivery.submit = [producer, weak](QtVideoFrame::Ptr frame) {
+            if (!frame || frame->isQualification()) return false;
             if (const auto state = weak.lock()) {
                 std::lock_guard<std::mutex> lock(state->mutex);
                 if (!producer.isCurrent()) return false;
                 state->live = true;
-                state->probeFrame.reset();
             } else return false;
             return producer.submit(std::move(frame));
         };
@@ -193,9 +191,8 @@ std::function<QtDecodedVideoDelivery()> QtVideoPresenter::deliveryFactory() cons
             }
             const auto state = weak.lock();
             if (!state || !frame || !producer.isCurrent()) return false;
-            {
-                std::lock_guard<std::mutex> lock(state->mutex);
-                state->probeFrame = frame;
+            if (!frame->isQualification()) {
+                error = QStringLiteral("Decoder qualification requires a marked test frame"); return false;
             }
             if (!producer.submit(frame)) return false;
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
@@ -237,7 +234,7 @@ void QtVideoPresenter::deliver(QtVideoFrame::Ptr frame, const QtVideoMailbox::Pr
         // The mailbox may have claimed an old frame immediately before the
         // decoder restarted it. Never relabel that frame as the new generation.
         if (!m_State->owner || !producer.isCurrent()) return;
-        probe = m_State->probeFrame.lock() == frame;
+        probe = frame->isQualification();
         generation = m_State->primary;
         outputs = m_State->outputs;
         if (probe) {
@@ -268,6 +265,13 @@ void QtVideoPresenter::deliver(QtVideoFrame::Ptr frame, const QtVideoMailbox::Pr
         output.item->setFrame(frame);
     }
     m_DisplayedGeneration = generation;
+}
+
+bool QtVideoPresenter::hasPresentedLiveFrame() const
+{
+    std::lock_guard<std::mutex> lock(m_State->mutex);
+    return m_State->owner && m_State->producer.isCurrent() && m_State->primary &&
+        m_State->primary->livePresented.load();
 }
 
 void QtVideoPresenter::stop()

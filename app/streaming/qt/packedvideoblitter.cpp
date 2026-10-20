@@ -83,7 +83,8 @@ void main() {
 }
 
 bool QtPackedVideoBlitter::draw(GLuint texture, PlankPackedVideo::Mapping mapping,
-                               const QtSessionGeometry& geometry, QString& error, GLuint chromaTexture)
+                               const QtSessionGeometry& geometry, QString& error, GLuint chromaTexture,
+                               bool concealQualification)
 {
     error.clear();
     if (!texture || !geometry.valid() || mapping == PlankPackedVideo::Mapping::Unsupported ||
@@ -167,6 +168,18 @@ bool QtPackedVideoBlitter::draw(GLuint texture, PlankPackedVideo::Mapping mappin
     if (gl->glGetError() != GL_NO_ERROR) {
         error = QStringLiteral("Qt packed video draw failed");
         return false;
+    }
+    if (concealQualification) {
+        // Keep the real import/shader/target-precision checks above. Clear in
+        // this same GPU command stream before Qt draws controls and swaps;
+        // no extra window, framebuffer, delay or CPU readback is needed.
+        // glClearBufferfv does not modify Qt's persistent clear-color state.
+        const GLfloat black[] = {0, 0, 0, 1};
+        gl->glClearBufferfv(GL_COLOR, 0, black);
+        if (gl->glGetError() != GL_NO_ERROR) {
+            error = QStringLiteral("Qt could not conceal the decoder qualification image");
+            return false;
+        }
     }
     return true;
 }

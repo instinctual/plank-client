@@ -13,8 +13,11 @@ class QtPackedVideoBlitter final
 {
 public:
     ~QtPackedVideoBlitter();
+    // Qualification still samples the exact texture into the real output.
+    // Clear its pixels before swap, without hiding the item or skipping a draw.
     bool draw(GLuint texture, PlankPackedVideo::Mapping mapping,
-              const QtSessionGeometry& geometry, QString& error, GLuint chromaTexture = 0);
+              const QtSessionGeometry& geometry, QString& error, GLuint chromaTexture = 0,
+              bool concealQualification = false);
     void release();
 
 private:

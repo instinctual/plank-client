@@ -1,3 +1,14 @@
+## 1.1.048 — Ubuntu Qt connection appearance
+
+### Client
+- Keep the screen black while checking the decoder, instead of briefly showing its test image.
+- Keep the connecting message until the first real Host frame is displayed.
+- Apply the same protection when a reconnect needs to restart the decoder.
+- Retain exact-format decoder checks and the accepted toolbar improvements.
+
+### Host
+- No changes; no Host update is needed.
+
 ## 1.1.047 — Ubuntu Qt toolbar icons
 
 ### Client

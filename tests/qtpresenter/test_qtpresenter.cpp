@@ -6,7 +6,7 @@
 #include <thread>
 
 namespace {
-QtVideoFrame::Ptr frame()
+QtVideoFrame::Ptr frame(QtVideoFrame::Purpose purpose = QtVideoFrame::Purpose::Live)
 {
     auto* decoded = av_frame_alloc();
     if (!decoded) return {};
@@ -16,7 +16,7 @@ QtVideoFrame::Ptr frame()
     decoded->color_range = AVCOL_RANGE_JPEG;
     if (av_frame_get_buffer(decoded, 64) < 0) { av_frame_free(&decoded); return {}; }
     QString error;
-    auto retained = QtVideoFrame::software(decoded, AV_PIX_FMT_GBRP10LE, error);
+    auto retained = QtVideoFrame::software(decoded, AV_PIX_FMT_GBRP10LE, error, {}, purpose);
     av_frame_free(&decoded);
     return retained;
 }
@@ -61,7 +61,7 @@ private slots:
         QtVideoPresenter presenter;
         presenter.addOutput(&window, {}, true);
         auto delivery = presenter.deliveryFactory()();
-        auto decoded = frame(); QVERIFY(decoded);
+        auto decoded = frame(QtVideoFrame::Purpose::DecoderQualification); QVERIFY(decoded);
         std::promise<void> started;
         std::promise<bool> result;
         auto finished = result.get_future();
@@ -79,9 +79,78 @@ private slots:
         QVERIFY(!finished.get());
         QVERIFY(!delivery.submit(decoded));
         auto resumed = presenter.deliveryFactory()();
-        QVERIFY(resumed.submit(decoded));
+        QVERIFY(resumed.submit(frame()));
         presenter.stop();
-        QVERIFY(!resumed.submit(decoded));
+        QVERIFY(!resumed.submit(frame()));
+    }
+
+    void qualificationIsHiddenUntilActualLivePresentation()
+    {
+        QQuickWindow window;
+        QtVideoPresenter presenter;
+        presenter.addOutput(&window, {}, true);
+        auto* item = dynamic_cast<QtEglVideoItem*>(window.contentItem()->childItems().value(0));
+        QVERIFY(item);
+        auto delivery = presenter.deliveryFactory()();
+        const auto probe = frame(QtVideoFrame::Purpose::DecoderQualification);
+        const auto live = frame();
+        QVERIFY(probe && probe->isQualification());
+        QVERIFY(live && !live->isQualification());
+        QVERIFY(!delivery.submit(probe));
+        QVERIFY(!presenter.hasPresentedLiveFrame());
+
+        const auto previous = item->presentationFeedback();
+        auto qualification = std::async(std::launch::async, [&] {
+            QString error;
+            return delivery.qualify(probe, error);
+        });
+        QTRY_VERIFY(item->presentationFeedback() != previous);
+        // Controlled render-feedback fixture only; real GPU draw/concealment
+        // and pixel precision are independently tested in the compositor probe.
+        const auto swap = [&](const QtVideoFrame::Ptr& decoded) {
+            const auto feedback = item->presentationFeedback();
+            {
+                std::lock_guard<std::mutex> lock(feedback->presentationMutex);
+                feedback->drawnFrame = decoded;
+                feedback->drawStarted = std::chrono::steady_clock::now();
+            }
+            return QMetaObject::invokeMethod(&window, "frameSwapped", Qt::DirectConnection);
+        };
+        QVERIFY(swap(probe));
+        QVERIFY(qualification.get());
+        QVERIFY(!presenter.hasPresentedLiveFrame());
+        QVERIFY(delivery.submit(live));
+        QCoreApplication::processEvents();
+        QVERIFY(!presenter.hasPresentedLiveFrame()); // submission is not presentation
+        QVERIFY(swap(live));
+        QVERIFY(presenter.hasPresentedLiveFrame());
+
+        auto reconnected = presenter.deliveryFactory()();
+        QVERIFY(!presenter.hasPresentedLiveFrame());
+        QVERIFY(swap(live)); // old-generation completion cannot reveal startup
+        QVERIFY(!presenter.hasPresentedLiveFrame());
+        QVERIFY(!delivery.submit(live));
+        QVERIFY(reconnected.submit(live));
+        QCoreApplication::processEvents();
+        QVERIFY(swap(live));
+        QVERIFY(presenter.hasPresentedLiveFrame());
+        presenter.stop();
+        QVERIFY(!presenter.hasPresentedLiveFrame());
+    }
+
+    void liveFrameCannotBypassQualificationMarking()
+    {
+        QQuickWindow window;
+        QtVideoPresenter presenter;
+        presenter.addOutput(&window, {}, true);
+        auto delivery = presenter.deliveryFactory()();
+        auto result = std::async(std::launch::async, [&] {
+            QString error;
+            const bool accepted = delivery.qualify(frame(), error);
+            return !accepted && error.contains("marked test frame");
+        });
+        QVERIFY(result.get());
+        QVERIFY(!presenter.hasPresentedLiveFrame());
     }
 
     void destroyedPresenterRetiresWorkerHandles()

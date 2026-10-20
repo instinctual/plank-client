@@ -21,6 +21,7 @@ public:
     void initializeDevice();
     QtSoftwareVideoDevice::Ptr softwareDevice() const { return m_SoftwareDevice; }
     QString vaapiRenderNode() const { return m_RenderNode; }
+    bool hasPresentedLiveFrame() const;
     std::function<QtDecodedVideoDelivery()> deliveryFactory() const;
     void stop();
 

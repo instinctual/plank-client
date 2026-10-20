@@ -125,7 +125,8 @@ public:
                     !m_Geometry.valid() || m_Frame->size() != m_Geometry.streamSize) return;
             QString error;
             if (!m_Blitter.draw(m_SoftwareImage->glTexture(),
-                                PlankPackedVideo::Mapping::Identity10, m_Geometry, error)) {
+                                PlankPackedVideo::Mapping::Identity10, m_Geometry, error, 0,
+                                m_ConvertedFrame->isQualification())) {
                 qWarning().noquote() << error;
                 fail(QtEglVideoStatus::PrecisionOrDrawFailed);
                 return;
@@ -139,7 +140,8 @@ public:
             return;
         QString error;
         if (!m_Blitter.draw(m_Current->textures[0],
-                            m_Current->frame->mapping(), m_Geometry, error, m_Current->textures[1])) {
+                            m_Current->frame->mapping(), m_Geometry, error, m_Current->textures[1],
+                            m_Current->delivery->isQualification())) {
             qWarning().noquote() << error;
             fail(QtEglVideoStatus::PrecisionOrDrawFailed);
             return;
@@ -296,7 +298,10 @@ void QtEglVideoItem::connectPresentationFeedback()
             std::lock_guard<std::mutex> lock(status->presentationMutex);
             frame = std::move(status->drawnFrame);
             started = status->drawStarted;
-            if (frame) status->swappedFrame = frame;
+            if (frame) {
+                status->swappedFrame = frame;
+                if (!frame->isQualification()) status->livePresented.store(true);
+            }
             status->presentationChanged.notify_all();
         }
         if (frame && primary) {

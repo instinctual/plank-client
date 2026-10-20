@@ -83,7 +83,7 @@ public:
     bool testRenderFrame(AVFrame* frame) override
     {
         QString error;
-        auto retained = retain(frame, {}, error);
+        auto retained = retain(frame, {}, error, QtVideoFrame::Purpose::DecoderQualification);
         const bool accepted = retained && m_Delivery.qualify(std::move(retained), error);
         if (!accepted) qWarning().noquote() << "Qt exact-profile presentation test failed:" << error;
         return accepted;
@@ -156,7 +156,8 @@ public:
     }
 
 private:
-    QtVideoFrame::Ptr retain(const AVFrame* frame, QtVideoFrame::Feedback feedback, QString& error)
+    QtVideoFrame::Ptr retain(const AVFrame* frame, QtVideoFrame::Feedback feedback, QString& error,
+                            QtVideoFrame::Purpose purpose = QtVideoFrame::Purpose::Live)
     {
         // Both Linux and Apple codec contracts require full-range samples.
         // The legacy STREAM_CONFIGURATION colorRange field is not proof of
@@ -170,10 +171,10 @@ private:
             const bool allowP010 = !m_Identity && (m_VideoFormat & VIDEO_FORMAT_MASK_10BIT) &&
                 !(m_VideoFormat & (VIDEO_FORMAT_MASK_YUV444 | VIDEO_FORMAT_MASK_YUV422));
             auto surface = QtVaapiVideoFrame::create(frame, (m_VideoFormat & VIDEO_FORMAT_MASK_10BIT) ? 10 : 8, error, allowP010);
-            return QtVideoFrame::hardware(std::move(surface), std::move(feedback));
+            return QtVideoFrame::hardware(std::move(surface), std::move(feedback), purpose);
         }
         const auto format = getPreferredPixelFormat(m_VideoFormat);
-        return QtVideoFrame::software(frame, format, error, std::move(feedback));
+        return QtVideoFrame::software(frame, format, error, std::move(feedback), purpose);
     }
 
     const bool m_Hardware;
