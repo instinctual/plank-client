@@ -84,8 +84,8 @@ private:
                      std::uint32_t transactionId,
                      const unsigned char* payload, std::size_t payloadLength);
     bool setGrabbed(bool grabbed);
-    void suspendForFocusLoss();
-    void release(bool notifyHost);
+    void suspendForwarding();
+    void release();
 
     std::atomic<bool> m_Active;
     std::atomic<bool> m_Stopping;

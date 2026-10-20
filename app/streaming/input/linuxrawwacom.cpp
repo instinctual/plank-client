@@ -18,6 +18,7 @@
 #include <linux/uhid.h>
 #include <poll.h>
 #include <set>
+#include <tuple>
 #include <utility>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -57,6 +58,58 @@ bool isWacomUsbDevice(udev_device* device)
     char* end = nullptr;
     const unsigned long value = std::strtoul(vendor, &end, 16);
     return end != vendor && *end == '\0' && value == kWacomVendorId;
+}
+
+int usbByteAttribute(udev_device* device, const char* attribute)
+{
+    const char* text = device != nullptr ?
+        udev_device_get_sysattr_value(device, attribute) : nullptr;
+    if (text == nullptr) return -1;
+    char* end = nullptr;
+    const unsigned long value = std::strtoul(text, &end, 16);
+    return end != text && *end == '\0' && value <= 0xff ?
+        static_cast<int>(value) : -1;
+}
+
+int usbInterfaceNumber(udev_device* device)
+{
+    return usbByteAttribute(udev_device_get_parent_with_subsystem_devtype(
+        device, "usb", "usb_interface"), "bInterfaceNumber");
+}
+
+bool hasCompleteHidInterfaces(udev* context, const std::string& parent,
+                              const std::set<int>& available)
+{
+    // During a USB driver rebind, hidraw nodes disappear independently. Never
+    // replace a retained pen/pad/touch group with the temporarily visible
+    // subset. The physical USB descriptors, not a model table, define it.
+    udev_enumerate* enumerate = udev_enumerate_new(context);
+    if (enumerate == nullptr) return false;
+    std::set<int> expected;
+    bool valid = udev_enumerate_add_match_subsystem(enumerate, "usb") == 0 &&
+                 udev_enumerate_scan_devices(enumerate) == 0;
+    udev_list_entry* entry = nullptr;
+    if (valid) {
+        udev_list_entry_foreach(entry, udev_enumerate_get_list_entry(enumerate)) {
+            udev_device* device = udev_device_new_from_syspath(
+                context, udev_list_entry_get_name(entry));
+            if (device != nullptr) {
+                const char* type = udev_device_get_devtype(device);
+                if (type != nullptr && std::strcmp(type, "usb_interface") == 0 &&
+                        usbParentPath(device) == parent) {
+                    const int interfaceClass = usbByteAttribute(device, "bInterfaceClass");
+                    if (interfaceClass < 0) valid = false;
+                    if (interfaceClass == 3) {
+                        const int number = usbByteAttribute(device, "bInterfaceNumber");
+                        if (number < 0 || !expected.insert(number).second) valid = false;
+                    }
+                }
+                udev_device_unref(device);
+            }
+        }
+    }
+    udev_enumerate_unref(enumerate);
+    return valid && !expected.empty() && expected == available;
 }
 
 PlankWacomTransportDecision connectedWacomTransportDecision()
@@ -251,7 +304,7 @@ void LinuxRawWacomInput::run()
                 m_ControlOverflow = false;
                 m_Controls.clear();
                 lock.unlock();
-                suspendForFocusLoss();
+                suspendForwarding();
                 if (overflow) {
                     SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "Wacom control queue full; restarting attachment");
                     m_AttachFailed.store(true);
@@ -264,7 +317,7 @@ void LinuxRawWacomInput::run()
         }
         if (!m_Active.load() || m_Reconnecting.load()) {
             if (!m_Interfaces.empty()) {
-                suspendForFocusLoss();
+                suspendForwarding();
             }
             waitForWork(std::chrono::milliseconds(10));
             continue;
@@ -282,7 +335,7 @@ void LinuxRawWacomInput::run()
                 if (result.type == 0) continue; // UHID_OUTPUT has no reply.
                 if (!sendFrame(result.type, result.interfaceId, result.transaction,
                                result.payload.data(), result.payload.size())) {
-                    suspendForFocusLoss();
+                    suspendForwarding();
                     m_AttachFailed.store(true);
                     break;
                 }
@@ -291,7 +344,7 @@ void LinuxRawWacomInput::run()
                     std::chrono::steady_clock::now() >= m_AttachDeadline) {
                 SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
                             "Timed out waiting for exact Wacom host attachment; retrying");
-                release(false);
+                suspendForwarding();
                 delayRetry = true;
             }
             else if (m_Interfaces.empty()) {
@@ -301,7 +354,7 @@ void LinuxRawWacomInput::run()
                 else if (!discover() || !sendAttach()) {
                     SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
                                 "Unable to attach exact Wacom device; will retry after checking hidraw and input permissions");
-                    release(false);
+                    release();
                     m_AttachFailed.store(true);
                 }
             }
@@ -318,7 +371,7 @@ void LinuxRawWacomInput::run()
     // Normal stream teardown may be followed by a resume into the same host
     // application. Release the physical tablet locally, but let the host keep
     // its stable UHID/XInput endpoints.
-    release(false);
+    release();
     std::lock_guard<std::mutex> lock(m_Mutex);
     m_Finished = true;
     m_Changed.notify_all();
@@ -331,10 +384,25 @@ bool LinuxRawWacomInput::discover()
         return false;
     }
 
-    std::vector<std::pair<std::string, std::string> > candidates;
+    // USB interface numbers are stable across hidraw renumbering. Their order
+    // defines both the wire interface IDs and the retained Host descriptors.
+    struct Candidate {
+        std::string parent;
+        int interfaceNumber;
+        std::string node;
+    };
+    std::vector<Candidate> candidates;
     udev_enumerate* enumerate = udev_enumerate_new(context);
-    udev_enumerate_add_match_subsystem(enumerate, "hidraw");
-    udev_enumerate_scan_devices(enumerate);
+    if (enumerate == nullptr) {
+        udev_unref(context);
+        return false;
+    }
+    if (udev_enumerate_add_match_subsystem(enumerate, "hidraw") < 0 ||
+            udev_enumerate_scan_devices(enumerate) < 0) {
+        udev_enumerate_unref(enumerate);
+        udev_unref(context);
+        return false;
+    }
     udev_list_entry* devices = udev_enumerate_get_list_entry(enumerate);
     udev_list_entry* entry = nullptr;
     udev_list_entry_foreach(entry, devices) {
@@ -342,7 +410,7 @@ bool LinuxRawWacomInput::discover()
             context, udev_list_entry_get_name(entry));
         const char* node = device != nullptr ? udev_device_get_devnode(device) : nullptr;
         if (device != nullptr && node != nullptr && isWacomUsbDevice(device)) {
-            candidates.push_back(std::make_pair(usbParentPath(device), node));
+            candidates.push_back({usbParentPath(device), usbInterfaceNumber(device), node});
         }
         if (device != nullptr) {
             udev_device_unref(device);
@@ -354,24 +422,30 @@ bool LinuxRawWacomInput::discover()
         udev_unref(context);
         return false;
     }
-    std::sort(candidates.begin(), candidates.end());
-    const std::string selectedParent = candidates.front().first;
-    const std::size_t selectedCount = static_cast<std::size_t>(std::count_if(
-        candidates.begin(), candidates.end(),
-        [&selectedParent](const std::pair<std::string, std::string>& candidate) {
-            return candidate.first == selectedParent;
-        }));
-    if (selectedCount == 0 || selectedCount > PLANK_RAW_HID_MAX_INTERFACES) {
+    std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
+        return std::tie(a.parent, a.interfaceNumber, a.node) <
+               std::tie(b.parent, b.interfaceNumber, b.node);
+    });
+    const std::string selectedParent = candidates.front().parent;
+    std::set<int> interfaces;
+    bool valid = !selectedParent.empty();
+    for (const auto& candidate : candidates) {
+        if (candidate.parent != selectedParent) continue;
+        if (candidate.interfaceNumber < 0 ||
+                !interfaces.insert(candidate.interfaceNumber).second) valid = false;
+    }
+    if (!valid || interfaces.size() > PLANK_RAW_HID_MAX_INTERFACES ||
+            !hasCompleteHidInterfaces(context, selectedParent, interfaces)) {
         udev_unref(context);
         return false;
     }
 
     hidraw_devinfo expectedInfo = {};
     for (const auto& candidate : candidates) {
-        if (candidate.first != selectedParent) {
+        if (candidate.parent != selectedParent) {
             continue;
         }
-        const int fd = open(candidate.second.c_str(),
+        const int fd = open(candidate.node.c_str(),
                             O_RDWR | O_CLOEXEC | O_NONBLOCK);
         if (fd < 0) {
             udev_unref(context);
@@ -400,7 +474,8 @@ bool LinuxRawWacomInput::discover()
         }
         hidraw_report_descriptor descriptor = {};
         descriptor.size = descriptorSize;
-        if (ioctl(fd, HIDIOCGRDESC, &descriptor) < 0) {
+        if (ioctl(fd, HIDIOCGRDESC, &descriptor) < 0 ||
+                descriptor.size != static_cast<unsigned int>(descriptorSize)) {
             close(fd);
             udev_unref(context);
             return false;
@@ -414,8 +489,16 @@ bool LinuxRawWacomInput::discover()
 
     bool allEventsOpened = true;
     enumerate = udev_enumerate_new(context);
-    udev_enumerate_add_match_subsystem(enumerate, "input");
-    udev_enumerate_scan_devices(enumerate);
+    if (enumerate == nullptr) {
+        udev_unref(context);
+        return false;
+    }
+    if (udev_enumerate_add_match_subsystem(enumerate, "input") < 0 ||
+            udev_enumerate_scan_devices(enumerate) < 0) {
+        udev_enumerate_unref(enumerate);
+        udev_unref(context);
+        return false;
+    }
     devices = udev_enumerate_get_list_entry(enumerate);
     udev_list_entry_foreach(entry, devices) {
         udev_device* device = udev_device_new_from_syspath(
@@ -536,16 +619,23 @@ void LinuxRawWacomInput::handlePhysicalReports()
         pollFds.push_back(descriptor);
     }
     const int result = poll(pollFds.data(), pollFds.size(), 10);
-    if (result < 0 && errno != EINTR) {
-        release(true);
-        m_AttachFailed.store(false);
+    if (result < 0) {
+        if (errno != EINTR) {
+            SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
+                        "Wacom USB polling failed: %s; preserving host tablet during recovery",
+                        std::strerror(errno));
+            suspendForwarding();
+            m_AttachFailed.store(false);
+        }
         return;
     }
 
     std::array<unsigned char, PLANK_RAW_HID_MAX_REPORT_SIZE> report = {};
     for (std::size_t index = 0; index < pollFds.size(); ++index) {
         if ((pollFds[index].revents & (POLLHUP | POLLERR | POLLNVAL)) != 0) {
-            release(true);
+            SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
+                        "Wacom USB interface became unavailable; preserving host tablet during recovery");
+            suspendForwarding();
             m_AttachFailed.store(false);
             return;
         }
@@ -560,12 +650,15 @@ void LinuxRawWacomInput::handlePhysicalReports()
             if (bytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
             if (bytes < 0 && errno == EINTR) continue;
             if (bytes <= 0) {
-                release(true);
+                SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
+                            "Wacom USB read ended: %s; preserving host tablet during recovery",
+                            bytes == 0 ? "device closed" : std::strerror(errno));
+                suspendForwarding();
                 return;
             }
             if (!sendFrame(PLANK_RAW_HID_INPUT, static_cast<std::uint16_t>(index),
                            ++m_InputSequence, report.data(), static_cast<std::size_t>(bytes))) {
-                suspendForFocusLoss();
+                suspendForwarding();
                 m_AttachFailed.store(true);
                 return;
             }
@@ -631,7 +724,7 @@ void LinuxRawWacomInput::processControl(const unsigned char* data,
                         "Host rejected exact Wacom attach: %s",
                         std::strerror(result));
             if (result == 0) sendFrame(PLANK_RAW_HID_SUSPEND, 0, 0, nullptr, 0);
-            suspendForFocusLoss();
+            suspendForwarding();
             m_AttachFailed.store(true);
         }
     }
@@ -692,7 +785,7 @@ void LinuxRawWacomInput::queueReport(std::uint16_t type,
         const std::int32_t status = qToLittleEndian<std::int32_t>(error);
         if (!sendFrame(replyType, interfaceId, transactionId,
                        reinterpret_cast<const unsigned char*>(&status), sizeof(status))) {
-            suspendForFocusLoss();
+            suspendForwarding();
         }
     }
 }
@@ -716,7 +809,7 @@ bool LinuxRawWacomInput::setGrabbed(bool grabbed)
     return success;
 }
 
-void LinuxRawWacomInput::suspendForFocusLoss()
+void LinuxRawWacomInput::suspendForwarding()
 {
     if (m_AttachPending || m_Attached) {
         if (sendFrame(PLANK_RAW_HID_SUSPEND, 0, 0, nullptr, 0)) {
@@ -728,15 +821,12 @@ void LinuxRawWacomInput::suspendForFocusLoss()
                         "Unable to suspend exact Wacom forwarding cleanly");
         }
     }
-    release(false);
+    release();
 }
 
-void LinuxRawWacomInput::release(bool notifyHost)
+void LinuxRawWacomInput::release()
 {
     m_ReportWorker.invalidate();
-    if (notifyHost && (m_AttachPending || m_Attached)) {
-        sendFrame(PLANK_RAW_HID_DETACH, 0, 0, nullptr, 0);
-    }
     if (m_Attached) {
         setGrabbed(false);
     }
