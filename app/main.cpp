@@ -1,5 +1,5 @@
 #include <QGuiApplication>
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
 #include <QQuickWindow>
 #include <QEvent>
 #include "streaming/qt/sessionshell.h"
@@ -366,9 +366,9 @@ int SDLCALL signalHandlerThread(void* data)
                 _Exit(1);
             }
 
-            // Qt owns dispatch throughout the experimental session. Its Quit
+            // Qt owns dispatch throughout the Linux session. Its Quit
             // filter keeps the event loop alive until asynchronous teardown.
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
             QCoreApplication::postEvent(QCoreApplication::instance(), new QEvent(QEvent::Quit));
 #else
             // Route termination through the normal client disconnect path.
@@ -414,7 +414,7 @@ void configureSignalHandlers()
 
 int main(int argc, char *argv[])
 {
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
 #endif
     SDL_SetMainReady();
@@ -436,7 +436,7 @@ int main(int argc, char *argv[])
     QCoreApplication::setOrganizationDomain("instinctual.la");
     QCoreApplication::setApplicationName(PlankClientIdentity::applicationName);
 
-    if (!PlankClientIdentity::experimental && QFile(QDir::currentPath() + "/portable.dat").exists()) {
+    if (QFile(QDir::currentPath() + "/portable.dat").exists()) {
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QDir::currentPath());
         QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, QDir::currentPath());
@@ -671,7 +671,7 @@ int main(int argc, char *argv[])
     // Qt 5 and the threaded render loop on Qt 6.
     qputenv("QSG_RENDER_LOOP", "basic");
 #endif
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
     QtSessionShell::configureWaylandExposure();
 #endif
 
@@ -1059,7 +1059,7 @@ int main(int argc, char *argv[])
         if (engine.rootObjects().isEmpty()) {
             return -1;
         }
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
         qInfo() << "Qt launcher ready; decoder qualification deferred to the stream surface";
 #endif
     }

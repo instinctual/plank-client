@@ -1,4 +1,4 @@
-!linux: error("The Qt video experiment is Ubuntu-only")
+!linux: error("The Qt video frontend is Linux-only")
 QT += opengl quick
 include(qtgpuinterop.pri)
 CONFIG += c++17 link_pkgconfig

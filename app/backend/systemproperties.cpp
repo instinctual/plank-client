@@ -8,7 +8,7 @@
 #include <QSysInfo>
 #include <QThread>
 
-#ifndef PLANK_QT_CLIENT_EXPERIMENT
+#ifndef PLANK_QT_SESSION
 #include "streaming/session.h"
 #include "streaming/streamutils.h"
 #endif
@@ -67,7 +67,7 @@ SystemProperties::SystemProperties()
         friendlyNativeArchName = nativeArch.toUpper();
     }
 
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
     // The exact-profile decoder is qualified on the actual Qt session surface.
     // A temporary SDL window would probe a different GPU/context and reintroduce
     // the independent SDL Wayland connection this frontend deliberately avoids.
@@ -110,7 +110,7 @@ int SystemProperties::getRefreshRate(int displayIndex)
     return monitorRefreshRates.value(displayIndex);
 }
 
-#ifndef PLANK_QT_CLIENT_EXPERIMENT
+#ifndef PLANK_QT_SESSION
 class QuerySdlVideoThread : public QThread
 {
 public:
@@ -197,7 +197,7 @@ public:
 
 void SystemProperties::refreshDisplays()
 {
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
     refreshDisplaysInternal();
 #else
     if (WMUtils::isRunningX11() || WMUtils::isRunningWayland()) {
@@ -215,7 +215,7 @@ void SystemProperties::refreshDisplays()
 
 void SystemProperties::refreshDisplaysInternal()
 {
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
     Q_ASSERT(QThread::currentThread() == qGuiApp->thread());
     monitorNativeResolutions.clear();
     monitorSafeAreaResolutions.clear();

@@ -41,7 +41,7 @@ QtSoftwareVideoDevice::Ptr QtSoftwareVideoDevice::createForCurrentContext(QStrin
         error = QStringLiteral("Qt could not read the presentation GPU identity"); return {};
     }
     // Exclusive external images have one Vulkan ownership queue. These
-    // settings affect this experimental device only, not the existing renderer.
+    // settings affect this Qt device only, not the SDL renderer.
     params.async_compute = params.async_transfer = false;
     const char* extensions[] = {VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
                                 VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME};

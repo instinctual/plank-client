@@ -3,7 +3,7 @@
 #include <cstdint>
 
 // The storage interpretation used by both the established EGL renderer and
-// the Qt experiment. These are code values, not sRGB-linearized textures.
+// the Qt frontend. These are code values, not sRGB-linearized textures.
 namespace PlankPackedVideo {
 enum class Mapping { Unsupported, Identity8, Identity10, Bt709Full10, Bt709Limited10 };
 

@@ -142,7 +142,7 @@ void QtSessionRuntime::start(QWindow* launcher)
         auto shell = std::make_unique<QtSessionShell>();
         shell->setScreen(screens[int(display.displayId) - 1]);
         m_Screens.append(shell->screen());
-        shell->setTitle(m_Session->m_Computer->name + QStringLiteral(" — PLANK Client Qt"));
+        shell->setTitle(m_Session->m_Computer->name + QStringLiteral(" — PLANK Client"));
         shell->prepareForSession(desktop, m_Fullscreen);
         auto& surface = shell->surface();
         surface.setLiveSession(true);

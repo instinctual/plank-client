@@ -34,7 +34,7 @@ public:
 
 private:
     bool automaticSessionRecovery() const {
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
         return true;
 #else
         return false;

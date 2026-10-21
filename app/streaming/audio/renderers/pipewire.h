@@ -3,8 +3,8 @@
 #include "renderer.h"
 #include <memory>
 
-// Native playback is deliberately limited to PLANK Client Qt. The ordinary
-// Linux/macOS Client's SDL renderer and Host capture are not changed.
+// Native playback for the Linux Qt frontend. macOS retains its SDL renderer;
+// Host audio capture is independent of the Client playback backend.
 class PipeWireAudioRenderer : public IAudioRenderer
 {
 public:

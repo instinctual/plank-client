@@ -162,10 +162,10 @@ bool PipeWireAudioRenderer::prepareForPlayback(const OPUS_MULTISTREAM_CONFIGURAT
         result.process = Impl::process;
         return result;
     }();
-    p.stream = pw_stream_new_simple(pw_thread_loop_get_loop(p.loop), "PLANK Client Qt audio",
+    p.stream = pw_stream_new_simple(pw_thread_loop_get_loop(p.loop), "PLANK Client audio",
         pw_properties_new(PW_KEY_MEDIA_TYPE, "Audio", PW_KEY_MEDIA_CATEGORY, "Playback",
-            PW_KEY_MEDIA_ROLE, "Movie", PW_KEY_APP_NAME, "PLANK Client Qt",
-            PW_KEY_NODE_NAME, "plank-client-qt-playback", PW_KEY_NODE_LATENCY, "480/48000", nullptr),
+            PW_KEY_MEDIA_ROLE, "Movie", PW_KEY_APP_NAME, "PLANK Client",
+            PW_KEY_NODE_NAME, "plank-client-playback", PW_KEY_NODE_LATENCY, "480/48000", nullptr),
         &events, &p);
     if (!p.stream) return false;
     std::uint8_t storage[1024];

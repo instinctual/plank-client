@@ -48,11 +48,11 @@ unix:contains(CONFIG, plank-transport) {
 
 TARGET = plank-client
 PLANK_PRIVATE_LIB_NAME = plank
+# Linux uses the Qt session frontend by default; macOS keeps its SDL session.
+linux: CONFIG += plank-qt-session
 contains(CONFIG, plank-qt-session) {
-    !linux: error("The Qt session experiment is Ubuntu-only")
-    TARGET = plank-client-qt
-    PLANK_PRIVATE_LIB_NAME = plank-client-qt
-    DEFINES += PLANK_QT_CLIENT_EXPERIMENT
+    !linux: error("The Qt session frontend is Linux-only")
+    DEFINES += PLANK_QT_SESSION
     include(streaming/qt/qtsession.pri)
     include(streaming/qt/qtvideo.pri)
     include(streaming/qt/qtwaylandguard.pri)

@@ -12,7 +12,7 @@ class ClientIdentityTest : public QObject
 {
     Q_OBJECT
 private slots:
-    void independentState()
+    void preservesExistingState()
     {
         QTemporaryDir storage;
         QVERIFY(storage.isValid());
@@ -39,28 +39,18 @@ private slots:
         QSettings current;
         Path::initialize(false);
         const QString currentTrust = HostTrustStore::defaultDirectory();
-        if (PlankClientIdentity::experimental) {
-            QVERIFY(current.fileName() != production.fileName());
-            QVERIFY(!current.contains("bookmark/fixture"));
-            QVERIFY(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) != productionData);
-            QVERIFY(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) != productionCache);
-            QVERIFY(currentTrust != productionTrust);
-            QCOMPARE(Path::getLogDir(), storage.path() + "/state/plank-client-qt/logs");
-            QCOMPARE(PlankClientPolicy::defaultConfigPath(), QString("/etc/plank/client-qt.conf"));
-            HostTrustStore separate(currentTrust);
-            QCOMPARE(separate.check(endpoint, productionKey, false).status, HostTrustStore::Status::Unknown);
-            QCOMPARE(separate.check(endpoint, QByteArray(32, 'b'), true).status, HostTrustStore::Status::Trusted);
-            current.setValue("bookmark/fixture", "experiment");
-            current.sync();
-            QCOMPARE(production.value("bookmark/fixture").toString(), QString("production"));
-            QCOMPARE(original.check(endpoint, productionKey, false).status, HostTrustStore::Status::Trusted);
-        } else {
-            QCOMPARE(current.fileName(), production.fileName());
-            QCOMPARE(currentTrust, productionTrust);
-            QCOMPARE(Path::getLogDir(), productionLogs);
-            QCOMPARE(Path::getLogDir(), storage.path() + "/state/plank/logs");
-            QCOMPARE(PlankClientPolicy::defaultConfigPath(), QString("/etc/plank/client.conf"));
-        }
+        QCOMPARE(current.fileName(), production.fileName());
+        QCOMPARE(current.value("bookmark/fixture").toString(), QString("production"));
+        QCOMPARE(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation), productionData);
+        QCOMPARE(QStandardPaths::writableLocation(QStandardPaths::CacheLocation), productionCache);
+        QCOMPARE(currentTrust, productionTrust);
+        HostTrustStore retained(currentTrust);
+        QCOMPARE(retained.check(endpoint, productionKey, false).status, HostTrustStore::Status::Trusted);
+        QCOMPARE(Path::getLogDir(), productionLogs);
+        QCOMPARE(Path::getLogDir(), storage.path() + "/state/plank/logs");
+        QCOMPARE(PlankClientPolicy::defaultConfigPath(), QString("/etc/plank/client.conf"));
+        QCOMPARE(QString::fromLatin1(PlankClientIdentity::desktopId), QString("la.instinctual.Plank.Client"));
+        QCOMPARE(QString::fromLatin1(PlankClientIdentity::executable), QString("plank-client"));
     }
 };
 QTEST_GUILESS_MAIN(ClientIdentityTest)

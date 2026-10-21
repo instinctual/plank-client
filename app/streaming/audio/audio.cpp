@@ -5,7 +5,7 @@
 #include "renderers/slaud.h"
 #endif
 
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
 #include "renderers/pipewire.h"
 #else
 #include "renderers/sdl.h"
@@ -23,7 +23,7 @@
 
 IAudioRenderer* Session::createAudioRenderer(const POPUS_MULTISTREAM_CONFIGURATION opusConfig)
 {
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
     // No SDL output device/stream or inherited ML_AUDIO override in Qt.
     TRY_INIT_RENDERER(PipeWireAudioRenderer, opusConfig,
                       m_Computer->plankAuthentication,

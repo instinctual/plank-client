@@ -166,7 +166,7 @@ public:
 
     static void postTabletCursorActivationEvent();
 
-    // Worker-to-UI requests. The experimental Qt owner receives queued
+    // Worker-to-UI requests. The Linux Qt owner receives queued
     // signals; ordinary sessions keep their existing SDL event dispatch.
     static void requestSessionQuit();
     static void requestDecoderReset();
@@ -479,7 +479,7 @@ private:
     PlankPresentationLayout m_PresentationLayout;
     SdlInputHandler* m_InputHandler;
     PlankCallbackTarget<SdlInputHandler> m_InputCallbacks;
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
     PlankCallbackTarget<QtSessionInput> m_QtInputCallbacks;
 #endif
     void destroyInputHandler();

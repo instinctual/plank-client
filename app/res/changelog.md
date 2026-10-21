@@ -1,3 +1,17 @@
+## 1.2.00 — Qt becomes the Ubuntu Client
+
+### Client
+- Use Qt for Ubuntu streaming windows, the toolbar, input and cursor handling.
+- Play Ubuntu audio directly through PipeWire, with the existing synchronization controls.
+- Improve window sizing, toolbar access and automatic recovery after network interruptions.
+- Preserve the Host's virtual Wacom tablet when the same USB tablet disconnects and returns.
+- Keep existing PLANK bookmarks, settings and trusted Hosts when upgrading.
+- Leave the macOS Client's window, audio and presentation implementation unchanged.
+
+### Host
+- Build the Linux Host with CUDA 13.2 Update 2 for the qualified NVIDIA driver baseline.
+- Retain the existing codec profiles and full supported GPU architecture set.
+
 ## 1.1.052 — Ubuntu Qt window sizing
 
 ### Client

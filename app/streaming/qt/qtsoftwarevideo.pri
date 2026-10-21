@@ -1,4 +1,4 @@
-!linux: error("The Qt software video experiment is Ubuntu-only")
+!linux: error("The Qt software video frontend is Linux-only")
 CONFIG += c++17 link_pkgconfig
 PKGCONFIG += libavcodec libavutil libplacebo vulkan libdrm
 INCLUDEPATH += $$PWD

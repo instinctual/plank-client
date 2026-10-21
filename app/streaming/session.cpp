@@ -92,7 +92,7 @@
 #include <tuple>
 #include <utility>
 #include <vector>
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
 #include "qt/sessionruntime.h"
 #include "qt/sessioninput.h"
 #endif
@@ -314,7 +314,7 @@ void Session::clSetHdrMode(bool enabled)
 void Session::clRawHidControl(const unsigned char* data, unsigned int length)
 {
     if (s_ActiveSession != nullptr) {
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
         s_ActiveSession->m_QtInputCallbacks.invoke([&](QtSessionInput& input) { input.handleRawHidControl(data, length); });
 #endif
         s_ActiveSession->m_InputCallbacks.invoke([&](SdlInputHandler& input) {
@@ -350,7 +350,7 @@ void Session::clCursorChunk(const unsigned char* data, unsigned int length)
     if (s_ActiveSession == nullptr) {
         return;
     }
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
     s_ActiveSession->m_QtInputCallbacks.invoke([&](QtSessionInput& input) { input.handleCursorShape(data, length); });
 #endif
     s_ActiveSession->m_InputCallbacks.invoke([&](SdlInputHandler& input) {
@@ -368,7 +368,7 @@ void Session::clCursorPosition(const unsigned char* data, unsigned int length)
     if (s_ActiveSession == nullptr) {
         return;
     }
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
     s_ActiveSession->m_QtInputCallbacks.invoke([&](QtSessionInput& input) { input.handleCursorPosition(data, length); });
 #endif
     s_ActiveSession->m_InputCallbacks.invoke([&](SdlInputHandler& input) {
@@ -3801,7 +3801,7 @@ public:
 
 void Session::exec(QWindow* qtWindow)
 {
-#ifdef PLANK_QT_CLIENT_EXPERIMENT
+#ifdef PLANK_QT_SESSION
     // This returns immediately. Qt retains its normal GUI event loop through
     // connect, takeover, streaming, recovery and asynchronous cleanup.
     auto* runtime = new QtSessionRuntime(this);
