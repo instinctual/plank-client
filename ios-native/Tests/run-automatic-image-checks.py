@@ -70,6 +70,7 @@ enum PlankPencilEvent:Sendable { case ready,verification(String),messagesAvailab
 }
 enum PlankPencilImagePeerEvent:Sendable { case ready,frame(PlankPencilImageFrame),ended(String) }
 @MainActor final class PlankPencilImagePeer {
+    static func tcpParameters() -> NWParameters { .tcp }
     static var made:[PlankPencilImagePeer]=[]
     let binding:PlankPencilSessionBinding
     let event:@Sendable (PlankPencilImagePeerEvent)->Void

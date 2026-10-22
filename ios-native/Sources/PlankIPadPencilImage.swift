@@ -76,7 +76,7 @@ import UIKit
             status = "Start Pencil sharing to use the image overlay"; return
         }
         do {
-            let next = try NWListener(using: .tcp, on: .any)
+            let next = try NWListener(using: PlankPencilImagePeer.tcpParameters(), on: .any)
             next.service = .init(name: serviceName, type: "_plank-pencil-image._tcp", domain: "local.")
             next.service?.noAutoRename = true
             next.newConnectionLimit = 1

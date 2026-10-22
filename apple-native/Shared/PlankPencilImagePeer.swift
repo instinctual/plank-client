@@ -36,6 +36,14 @@ final class PlankPencilImagePeer: @unchecked Sendable {
     private static let prefix = Data([0x50,0x4c,0x49,0x4d,1])
     private enum PendingWrite { case handshake(Data), secure(PlankPencilImageRecord) }
 
+    static func tcpParameters() -> NWParameters {
+        let tcp = NWProtocolTCP.Options()
+        // The image lane already paces bounded records. Do not hold a small
+        // record for Nagle aggregation while waiting for a previous TCP ACK.
+        tcp.noDelay = true
+        return NWParameters(tls: nil, tcp: tcp)
+    }
+
     init(connection:NWConnection,privateKey:Data,binding:PlankPencilSessionBinding,initiator:Bool,
          event:@escaping @Sendable (PlankPencilImagePeerEvent)->Void) throws {
         guard privateKey.count == 32, binding.peerKey.count == 32, binding.transcriptHash.count == 64 else {
