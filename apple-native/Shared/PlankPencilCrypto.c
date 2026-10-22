@@ -43,6 +43,7 @@ int plank_pencil_crypto_accept_second(PlankPencilCrypto *c,const uint8_t *in,siz
 }
 int plank_pencil_crypto_code(PlankPencilCrypto *c,char out[13]) { if(!c || c->stage<1 || !out) return -1; memcpy(out,c->code,13); return 0; }
 int plank_pencil_crypto_peer(PlankPencilCrypto *c,uint8_t key[32]) { if(!c || c->stage<1 || !key) return -1; memcpy(key,c->noise.remote_static,32); return 0; }
+int plank_pencil_crypto_final_hash(PlankPencilCrypto *c,uint8_t hash[64]) { if(!c || c->stage!=2 || !hash) return -1; memcpy(hash,c->noise.handshake_hash,64); return 0; }
 int plank_pencil_crypto_encrypt(PlankPencilCrypto *c,const uint8_t *in,size_t n,uint8_t *out,size_t cap,size_t *written) {
     if(!c || c->stage!=2 || n>224 || pltr_noise_encrypt(&c->noise,in,n,out,cap,written)) return fail(c); return 0;
 }

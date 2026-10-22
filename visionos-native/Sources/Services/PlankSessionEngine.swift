@@ -30,6 +30,12 @@ private final class PlankTransportHandle: @unchecked Sendable {
 }
 
 private final class PlankInputSenderState: @unchecked Sendable {
+    struct DiagnosticSnapshot {
+        let acceptedEvents: UInt64, submittedPackets: UInt64, packetCountExact: Bool
+        let normalizedPenSubmits: UInt64, rawHidSubmits: UInt64
+        let maxSubmitNanos: UInt64, failedSubmitNanos: UInt64
+        let batchOutstanding: UInt64, batchAgeNanos: UInt64, maxBatchNanos: UInt64
+    }
     private let lock = NSLock()
     private var failed = false
     private var accepted: UInt64 = 0
@@ -38,6 +44,26 @@ private final class PlankInputSenderState: @unchecked Sendable {
     private var tabletReportsAccepted: UInt64 = 0
     private var tabletMessagesAccepted: UInt64 = 0
     private var lastTabletReportSend: UInt64 = 0
+    // Diagnostic-only accounting. The C raw-HID bridge may synthesize reset
+    // packets, so event-vs-QUIC subtraction is exact only without that source.
+    private var submittedPackets: UInt64 = 0, normalizedPenSubmits: UInt64 = 0, rawHidSubmits: UInt64 = 0
+    private var packetCountExact = true
+    private var batchOutstanding: UInt64 = 0, batchStartedAt: UInt64 = 0, maxBatchNanos: UInt64 = 0
+    private static func adding(_ a: UInt64, _ b: UInt64) -> UInt64 {
+        let (value, overflow) = a.addingReportingOverflow(b)
+        return overflow ? UInt64.max : value
+    }
+    static func packetCount(for event: PlankInputEvent) -> UInt64? {
+        switch event {
+        case .rawHid: return nil
+        case let .scroll(vertical, horizontal):
+            return UInt64((vertical == 0 ? 0 : 1) + (horizontal == 0 ? 0 : 1))
+        default: return 1
+        }
+    }
+    static func isNormalizedPen(_ event: PlankInputEvent) -> Bool {
+        if case .pen = event { return true }; return false
+    }
 
     func markFailed() {
         lock.lock()
@@ -45,10 +71,34 @@ private final class PlankInputSenderState: @unchecked Sendable {
         lock.unlock()
     }
 
-    func recordSend(nanos: UInt64, succeeded: Bool, tabletType: UInt16? = nil) {
+    func recordBatchStarted(count: Int, at: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        batchOutstanding = UInt64(max(0, count)); batchStartedAt = at
+    }
+    func recordBatchFinished(at: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        if batchStartedAt != 0, at >= batchStartedAt { maxBatchNanos = max(maxBatchNanos, at - batchStartedAt) }
+        batchOutstanding = 0; batchStartedAt = 0
+    }
+    func recordSend(nanos: UInt64, succeeded: Bool, tabletType: UInt16? = nil,
+                    normalizedPen: Bool = false, packetCount: UInt64? = 1) {
         lock.lock()
         maxSendNanos = max(maxSendNanos, nanos)
         if succeeded { accepted &+= 1 } else { failedSendNanos = nanos }
+        if batchOutstanding > 0 { batchOutstanding -= 1 }
+        if succeeded {
+            if normalizedPen { normalizedPenSubmits = Self.adding(normalizedPenSubmits, 1) }
+            if let packetCount { submittedPackets = Self.adding(submittedPackets, packetCount) }
+            else {
+                rawHidSubmits = Self.adding(rawHidSubmits, 1)
+                // At least one raw packet was accepted, possibly with a reset.
+                submittedPackets = Self.adding(submittedPackets, 1); packetCountExact = false
+            }
+        } else {
+            // A two-axis scroll or initial raw-HID reset can partially submit
+            // before an error; no exact native backlog claim is made afterward.
+            packetCountExact = false
+        }
         if succeeded, let tabletType {
             tabletMessagesAccepted &+= 1
             if tabletType == 3 {
@@ -57,6 +107,15 @@ private final class PlankInputSenderState: @unchecked Sendable {
             }
         }
         lock.unlock()
+    }
+
+    func diagnosticSnapshot(at: UInt64) -> DiagnosticSnapshot {
+        lock.lock(); defer { lock.unlock() }
+        return DiagnosticSnapshot(acceptedEvents: accepted, submittedPackets: submittedPackets,
+            packetCountExact: packetCountExact, normalizedPenSubmits: normalizedPenSubmits, rawHidSubmits: rawHidSubmits,
+            maxSubmitNanos: maxSendNanos, failedSubmitNanos: failedSendNanos, batchOutstanding: batchOutstanding,
+            batchAgeNanos: batchStartedAt != 0 && at >= batchStartedAt ? at - batchStartedAt : 0,
+            maxBatchNanos: maxBatchNanos)
     }
 
     var tabletSummary: (reports: UInt64, messages: UInt64, lastReport: UInt64) {
@@ -346,9 +405,13 @@ struct PlankSessionEngine: Sendable {
             var recovery = PlankVideoDecoderRecovery()
             let senderState = PlankInputSenderState()
             var lastTabletFlowLog = sessionStart
+            var lastInputFlowLog = sessionStart
             let sender = Task.detached(priority: .userInitiated) {
                 for await _ in inputQueue.signals {
-                    for event in inputQueue.drain() {
+                    let batch = inputQueue.drain()
+                    senderState.recordBatchStarted(count: batch.count, at: DispatchTime.now().uptimeNanoseconds)
+                    defer { senderState.recordBatchFinished(at: DispatchTime.now().uptimeNanoseconds) }
+                    for event in batch {
                         let sendStart = DispatchTime.now().uptimeNanoseconds
                         let sent = Self.send(
                             event, to: endpoint.pointer,
@@ -361,7 +424,9 @@ struct PlankSessionEngine: Sendable {
                             tabletType: {
                                 guard case let .rawHid(frame) = event, frame.count >= 8 else { return nil }
                                 return UInt16(frame[6]) | (UInt16(frame[7]) << 8)
-                            }()
+                            }(),
+                            normalizedPen: PlankInputSenderState.isNormalizedPen(event),
+                            packetCount: PlankInputSenderState.packetCount(for: event)
                         )
                         guard sent else {
                             senderState.markFailed()
@@ -390,6 +455,24 @@ struct PlankSessionEngine: Sendable {
                         payload.count - decoderPadding, &payloadSize, 30
                     )
                     let reportTime = DispatchTime.now().uptimeNanoseconds
+                    if reportTime >= lastInputFlowLog, reportTime - lastInputFlowLog >= 2_000_000_000 {
+                        let queued = inputQueue.diagnostics
+                        let sender = senderState.diagnosticSnapshot(at: reportTime)
+                        var stats = PlankVisionVideoStats()
+                        _ = plank_vision_transport_video_stats(transport, &stats)
+                        func ms(_ nanos: UInt64) -> Double { Double(nanos) / 1_000_000 }
+                        // submittedPackets is exact only when packetCountExact
+                        // holds. nativeQUICHanded is not wire/Host receipt; the
+                        // Swift queue excludes this drained, outstanding batch.
+                        NSLog("PLANK input flow diagnostics: session=%@ submittedEvents=%llu submittedPackets=%llu packetCountExact=%d normalizedPens=%llu rawHidEvents=%llu nativeQUICHanded=%llu maxSubmit=%.2fms failedSubmit=%.2fms batchOutstanding=%llu batchAge=%.2fms maxBatch=%.2fms queueDepth=%ld queueHighWater=%ld queueOldest=%.2fms queueMaxDrainAge=%.2fms quicRTT=%lluus quicLost=%llu kyprotoDrops=%llu",
+                              sessionLabel, sender.acceptedEvents, sender.submittedPackets, sender.packetCountExact ? 1 : 0,
+                              sender.normalizedPenSubmits, sender.rawHidSubmits, stats.input_packets_sent,
+                              ms(sender.maxSubmitNanos), ms(sender.failedSubmitNanos), sender.batchOutstanding,
+                              ms(sender.batchAgeNanos), ms(sender.maxBatchNanos), queued.depth, queued.highWaterDepth,
+                              ms(queued.oldestAgeNanos), ms(queued.maxDrainAgeNanos), stats.quic_rtt_us,
+                              stats.quic_packets_lost, stats.kyproto_packets_dropped)
+                        lastInputFlowLog = reportTime
+                    }
                     if reportTime - lastTabletFlowLog >= 5_000_000_000 {
                         let tablet = senderState.tabletSummary
                         let queued = inputQueue.diagnostics

@@ -21,7 +21,7 @@
   </array>
   <key>NSLocalNetworkUsageDescription</key><string>Connect to your PLANK workstation and approved tablet Relay.</string>
   <key>NSBonjourServices</key><array>
-    <string>_nvstream._tcp</string><string>_plank-tablet._tcp</string><string>_plank-pencil._tcp</string>
+    <string>_nvstream._tcp</string><string>_plank-tablet._tcp</string><string>_plank-pencil._tcp</string><string>_plank-pencil-image._tcp</string>
   </array>
   <key>NSBluetoothAlwaysUsageDescription</key><string>Connect to your approved tablet Relay for drawing.</string>
   <key>NSAppTransportSecurity</key><dict>

@@ -4,7 +4,7 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     message(FATAL_ERROR "Use an iOS device or simulator SDK")
 endif()
 set(CMAKE_Swift_LANGUAGE_VERSION 6)
-set(PLANK_IPAD_BUILD_NUMBER "33" CACHE STRING "Separate iPad pilot build")
+set(PLANK_IPAD_BUILD_NUMBER "47" CACHE STRING "Separate iPad pilot build")
 set(VISION "${CMAKE_CURRENT_SOURCE_DIR}/../visionos-native")
 foreach(required PLANK_TRANSPORT_DIR PLANK_FFMPEG_DIR PLANK_OPUS_DIR PLANK_RELAY_SOURCE_DIR PLANK_RELAY_SODIUM_PREFIX)
     if(NOT ${required})
@@ -22,20 +22,27 @@ add_executable(PlankIPad MACOSX_BUNDLE
     ${VISION}/Bridge/PlankTransportBridge.c
     ${VISION}/Bridge/PlankRawHidFrame.c
     ${VISION}/Bridge/PlankVideoDecoder.c
+    ${VISION}/Bridge/PlankPencilImageConversion.c
     ${VISION}/Sources/Views/PlankMetalVideoView.swift
     Sources/PlankIPadApp.swift Sources/PlankIPadInput.swift
     Sources/PlankIPadInputPolicy.swift Sources/PlankIPadVideo.swift
     Sources/PlankIPadKeys.swift Sources/PlankIPadKeyboardViewport.swift ${VISION}/PrivacyInfo.xcprivacy)
+set_source_files_properties(${VISION}/Bridge/PlankPencilImageConversion.c PROPERTIES
+    COMPILE_OPTIONS "-O2;-fno-fast-math;-ffp-contract=off")
 target_sources(PlankIPad PRIVATE Sources/PlankIPadDisplayOptions.swift Sources/PlankIPadPencilPolicy.swift
-    Sources/PlankIPadPencilRelay.swift Sources/PlankIPadPencilPadSettings.swift
+    Sources/PlankIPadPencilRelay.swift Sources/PlankIPadPencilPadSettings.swift Sources/PlankIPadPencilImage.swift
     Sources/PlankIPadCustomControls.swift Sources/PlankIPadCustomControlModel.swift
     Sources/PlankIPadControlContactPolicy.swift Sources/PlankIPadControlAppearance.swift
-    Sources/PlankIPadWorkingSurface.swift
+    Sources/PlankIPadWorkingSurface.swift Sources/PlankIPadZoom.swift Sources/PlankIPadZoomControls.swift
+    Sources/PlankIPadZoomNavigatorPlacement.swift
     ../apple-native/Shared/PlankControlKeyOwnership.swift ../apple-native/Shared/PlankPencilModifiers.swift
     ../apple-native/Shared/PlankPencilRelayWire.swift
     ../apple-native/Shared/PlankPencilRelayKeys.swift
     ../apple-native/Shared/PlankPencilRelayPeer.swift
-    ../apple-native/Shared/PlankPencilCrypto.c)
+    ../apple-native/Shared/PlankPencilCrypto.c
+    ../apple-native/Shared/PlankPencilImageCrypto.c
+    ../apple-native/Shared/PlankPencilImageWire.swift
+    ../apple-native/Shared/PlankPencilImagePeer.swift)
 target_include_directories(PlankIPad PRIVATE ../apple-native/Shared)
 target_compile_definitions(PlankIPad PRIVATE PLANK_PENCIL_RELAY=1)
 set_source_files_properties(${VISION}/PrivacyInfo.xcprivacy PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
@@ -74,7 +81,8 @@ target_link_libraries(PlankIPad PRIVATE ${rust_library} PlankIPadRelayCrypto
     "-framework Security" "-framework SystemConfiguration" "-framework GameController"
     "-framework AVFAudio" "-framework CoreAudio" "-framework CoreBluetooth"
     "-framework AudioToolbox" "-framework VideoToolbox" "-framework CoreFoundation"
-    "-framework CoreMedia" "-framework CoreVideo" -lz -liconv)
+    "-framework CoreMedia" "-framework CoreVideo" "-framework CoreGraphics"
+    "-framework ImageIO" "-framework UniformTypeIdentifiers" -lz -liconv)
 set_target_properties(PlankIPad PROPERTIES
     MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in
     XCODE_ATTRIBUTE_SWIFT_OBJC_BRIDGING_HEADER ${VISION}/Bridge/PlankVision-Bridging-Header.h

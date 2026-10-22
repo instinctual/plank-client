@@ -5,6 +5,96 @@ versioned records and physical comparison approval are implemented. Compilation,
 local protocol checks and physical device acceptance are separate gates.
 This is not yet a qualified drawing transport.
 
+### Current browser action — Vision55
+
+At the user's request, **Show Workstations** is now under **Window** in the
+desktop's **Session Controls** menu. Selecting it closes the menu and opens the
+existing single workstation browser. The separate button above the desktop is
+removed. Vision54's unique browser and launch selection are retained.
+
+The production menu, app scenes, ornament and registered-window helpers pass a
+native Simulator check: the action is absent outside the menu, remains reachable
+inside it, closes the menu and reopens one browser while the stand-in session
+stays available. The fresh full device build, exact signed package/dependencies
+and independent installed app/process checks pass. Vision55 is installed under
+the user's disconnected authorization. The user subsequently reports it worked
+great, accepting this placement. Input, focus, tablet and image/transport
+behavior are unchanged.
+
+### Image control placement — Vision56
+
+At the user's request, Vision56 moves **Share desktop image with this iPad** and
+its sending status into **Session Controls → iPad image**. Vision's Apple Pencil
+setup retains discovery, selection and comparison approval. The session toggle
+is disabled until an iPad is connected and uses the existing consent setter;
+opening the menu does not enable sharing. Native Mac's active settings source
+is byte identical and its installed client is unchanged.
+
+Two exact-production-menu Simulator cases pass disconnected admission, absence
+from connected setup, on/off consent, status updates and retention across menu
+reopening, with one stand-in peer/session and no disconnect. Show Workstations
+remains reachable. All receiver, image and input lifetime/protocol sources and
+425 protected native/recipe paths remain exact. Fresh device compilation and
+independent signature/profile/resources/dependency checks pass. The user then
+confirmed the AVP desktop was disconnected and authorized installation. Vision56
+is installed and launched; separate app and process inventories verify56/0.1.0
+and the exact running executable. Signed55 remains available for rollback.
+The user subsequently accepts the56 menu placement. native Mac build 31 and iPad46 were
+unchanged by56. Native checks and installation do not establish
+new physical image delivery or latency acceptance.
+
+### Automatic image reception — iPad47
+
+The user accepts Vision56's placement and requests automatic image readiness on
+the Sharing pad. iPad47 is built/signed, independently verified and installed after the user's
+disconnected authorization. Exact47/0.1.0/container inventory passes. After the
+user unlocked and opened PLANK, separate process inventory verifies the exact
+installed47 executable. The existing process was preserved. The iPad's receive switch is
+removed. The existing **Share desktop image with this iPad** choice on Mac/AVP
+is the sole image on/off control and remains default off. Dimming and local
+zoom/navigation remain on the iPad; installed senders need no update.
+
+Only foreground Sharing listens, using the registered Pencil name and exact
+current approved pen binding. Automatic readiness does not itself change
+mapping. An authenticated image session selects proportional image/Pencil
+geometry; ending it restores the saved input-only mapping. Contact and Artist
+holds retire before either geometry change. Picture expiry alone does not
+remap. Sharing stop/background removes image authority. Exact lifecycle and
+contact fixtures pass. The user reports automatic reception working nicely,
+accepting that ordinary-use trial; sender transitions and duration were not
+separately described, and sustained image latency remains open. See the
+[automatic-reception boundary](ipad-live-image.md#automatic-reception--ipad47).
+
+### October18 AVP trial and browser recovery
+
+On installed Vision53, the user reports that the tablet worked perfectly in
+their trial. Reported interruptions involved losing window focus or accidentally
+disconnecting the iPad. Accept the reported tablet trial; its duration, image
+toggle state and final Host release receipt were not independently measured.
+This does not resolve the earlier Mac-to-workstation transport failures.
+
+The same report identifies a missing way to reopen the main workstation browser
+after closing it during a session. Vision54 adds a **Workstations** button above
+the desktop, alongside Session Controls. It opens the single browser window
+without starting, replacing or disconnecting the current session. The browser is
+the preferred launch scene and the desktop is suppressed from default launch.
+An explicit recovery control is still required: the isolated native trial found
+that reactivating an already-running app alone did not recreate a closed browser.
+Apple describes the distinction between launch selection and explicit scene
+reopening in its [window life cycle guidance](https://developer.apple.com/documentation/visionos/handling-the-window-life-cycle-with-multiple-scenes).
+
+Two focused native Simulator workflows pass repeated close/reopen with one
+browser and one stand-in session, and explicit reopening after Home/reactivation.
+Production input, focus, tablet and transport bodies remain unchanged. The fresh
+device build, unchanged recipe/dependencies, exact signature/profile/resources
+and independent installed app/process checks pass. Vision54 is installed under
+the user's disconnected authorization. The user confirms that Workstations
+reopens the main window and the desktop session stays available, accepting this
+targeted recovery check. Automatic reactivation alone remains unqualified.
+The mouse/keyboard focus-return delay and disjoint
+settings/transparency controls are recorded follow-ups, with no system-wide
+cause or focus repair claimed.
+
 ### First device result and contact correction — October 9
 
 The user reports hover and squeeze right-click working on iPad 18 / Vision 47,
@@ -312,3 +402,29 @@ foreground local-control priority, peer-retaining editing/settings, source
 retirement and Pencil forwarding. It uses the user's unchanged saved library,
 controlled landscape bounds and stubbed network/Host callbacks; it does not
 qualify physical rotation, new end-to-end input or final Host release receipt.
+
+
+## Optional live reference image — October10 development slice
+
+The separate image source for iPad34 / Vision50 / native Mac build 27 adds a dimmable full-desktop reference inside the existing Pencil viewport, enabled by explicit image choices on both devices. It uses its own bounded authenticated media lane tied to the complete current pen transcript; the accepted v3 pen/key wire, approvals, mapping and input queues stay unchanged. Image failure clears the picture and preserves Pencil operation. Device compilation/signing and physical mapping/input-under-image-load qualification are distinct from earlier accepted input tests. See [the current image boundary](ipad-live-image.md). Zoom/pan and focused output crops remain later coordinated-transform work. Installed iPad33/Vision49 and staged native Mac build 26 are unchanged at this source checkpoint.
+
+
+## Intermittent sharing latency diagnostics — candidates44/53
+
+The iPad43/Vision52 trial reported intermittent severe Pencil delay on Flame-01.
+The initial recovery with reference images disabled did not reproduce on the
+subsequent image-on/off comparison, and enabling AVP Tailscale made no difference.
+The cause remains unconfirmed; accepted earlier contact/input tests are retained.
+
+App-only diagnostics use existing peer ticks, receiver synchronization and
+session polling, with at most one aggregate per reporting path every two seconds.
+They retain bounded scalar counters and timestamps beside existing bounded
+mailbox entries. They log no coordinates, pressure, key contents or peer identity.
+Mailbox slot residence is distinct from the age of the latest coalesced value.
+Receiver task wait/drain, current submitted batch, native C submission and QUIC
+handoff are distinct boundaries. Timings use each device's local monotonic clock;
+unsynchronized endpoint clocks must not be subtracted. Network send completion
+and `nativeInputSent` do not prove delivery to the Host. Snapshot reads across
+separate ledgers are not atomic, and instrumentation adds unqualified overhead.
+No protocol, consent, source admission, queue capacity, ordering, timer cadence,
+QoS, Host, network or dependency-pin change is included.

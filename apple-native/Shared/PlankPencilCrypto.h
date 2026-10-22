@@ -14,5 +14,8 @@ int plank_pencil_crypto_approve(PlankPencilCrypto *, uint8_t *, size_t, size_t *
 int plank_pencil_crypto_accept_second(PlankPencilCrypto *, const uint8_t *, size_t);
 int plank_pencil_crypto_code(PlankPencilCrypto *, char code[13]);
 int plank_pencil_crypto_peer(PlankPencilCrypto *, uint8_t key[32]);
+// Read-only final transcript; available only after BOTH handshake messages.
+// Approval/readiness is additionally checked by the owning Swift peer queue.
+int plank_pencil_crypto_final_hash(PlankPencilCrypto *, uint8_t hash[64]);
 int plank_pencil_crypto_encrypt(PlankPencilCrypto *, const uint8_t *, size_t, uint8_t *, size_t, size_t *);
 int plank_pencil_crypto_decrypt(PlankPencilCrypto *, const uint8_t *, size_t, uint8_t *, size_t, size_t *);

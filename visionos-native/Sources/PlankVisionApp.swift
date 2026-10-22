@@ -47,7 +47,9 @@ struct PlankVisionApp: App {
 #endif
 
     var body: some Scene {
-        WindowGroup("PLANK", id: "plank-browser") {
+        // There is one workstation browser. Reopening it must reveal that
+        // browser instead of creating another owner of its local UI state.
+        Window("PLANK", id: "plank-browser") {
             HostBrowserView(store: store, client: client)
 #if PLANK_TABLET_RELAY
                 .onOpenURL { relayHandoff.receive($0, desktopSessionActive: desktopSessionActive) }
@@ -68,6 +70,7 @@ struct PlankVisionApp: App {
 #endif
         }
         .defaultSize(width: 980, height: 700)
+        .defaultLaunchBehavior(.presented)
 
         WindowGroup("PLANK Desktop", id: "plank-desktop") {
             // Group is layout-transparent, so the desktop window's presentation
@@ -89,6 +92,7 @@ struct PlankVisionApp: App {
         .defaultSize(width: 1280, height: 720)
         .windowStyle(.plain)
         .restorationBehavior(.disabled)
+        .defaultLaunchBehavior(.suppressed)
     }
 }
 

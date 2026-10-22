@@ -2,6 +2,8 @@
 // It enforces the parent-commit rule for subsurface positions. This is a
 // protocol regression test, not compositor/visual hardware qualification.
 #include "../../app/streaming/plankwaylandcursor.h"
+#include "../../app/streaming/plankwaylandtoolbar.h"
+#include "wayland-faults.h"
 
 #include <wayland-client.h>
 #include <wayland-server.h>
@@ -39,6 +41,7 @@ public:
         CHECK(wl_display_init_shm(display) == 0);
         CHECK(wl_global_create(display, &wl_compositor_interface, 4, this, bindCompositor));
         CHECK(wl_global_create(display, &wl_subcompositor_interface, 1, this, bindSubcompositor));
+        CHECK(wl_global_create(display, &wl_seat_interface, 7, this, bindSeat));
         CHECK(wl_client_create(display, fd));
         thread = std::thread([this] {
             while (!stopping.load()) {
@@ -68,6 +71,25 @@ private:
     static Surface* surface(wl_resource* resource)
     { return static_cast<Surface*>(wl_resource_get_user_data(resource)); }
     static void destroy(wl_client*, wl_resource* resource) { wl_resource_destroy(resource); }
+
+    static void bindSeat(wl_client* client, void*, uint32_t version, uint32_t id)
+    {
+        static const struct wl_seat_interface impl {
+            [](wl_client* client, wl_resource*, uint32_t id) {
+                static const struct wl_pointer_interface pointerImpl {
+                    [](wl_client*, wl_resource*, uint32_t, wl_resource*, int32_t, int32_t) {},
+                    destroy};
+                auto* resource = wl_resource_create(client, &wl_pointer_interface, 7, id);
+                wl_resource_set_implementation(resource, &pointerImpl, nullptr, nullptr);
+            },
+            [](wl_client*, wl_resource*, uint32_t) { CHECK(false); },
+            [](wl_client*, wl_resource*, uint32_t) { CHECK(false); },
+            destroy};
+        auto* resource = wl_resource_create(client, &wl_seat_interface, version, id);
+        wl_resource_set_implementation(resource, &impl, nullptr, nullptr);
+        wl_seat_send_capabilities(resource, WL_SEAT_CAPABILITY_POINTER);
+        wl_seat_send_name(resource, "test-seat");
+    }
 
     static void bindCompositor(wl_client* client, void* data, uint32_t version, uint32_t id)
     {
@@ -207,6 +229,49 @@ int main()
     }
     cursor->dispatchPending();
     cursor.reset();
+
+    // A compositor/proxy allocation failure must not pass NULL to generated
+    // Wayland methods. Repeat to exercise partially constructed cleanup too.
+    for (auto fault : {WaylandFault::Pool, WaylandFault::Buffer,
+                       WaylandFault::Seat, WaylandFault::Pointer}) {
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            waylandFault = fault;
+            const auto before = waylandFaultsInjected;
+            if (fault == WaylandFault::Pool || fault == WaylandFault::Buffer)
+                CHECK(!PlankWaylandCursor::create(window));
+            CHECK(!PlankWaylandToolbar::create(window, {}));
+            CHECK(waylandFaultsInjected > before);
+            waylandFault = WaylandFault::None;
+            CHECK(wl_display_roundtrip(display) >= 0);
+        }
+    }
+
+    // Replacement parents and late buffer releases must be safe after failed
+    // creation; a rejected update must not make an existing surface unusable.
+    for (int attempt = 0; attempt < 10; ++attempt) {
+        cursor = PlankWaylandCursor::create(window);
+        auto toolbar = PlankWaylandToolbar::create(window, {});
+        CHECK(cursor && toolbar);
+        toolbar->setLayout(320, 50, 150, 30);
+        toolbar->setVisible(true);
+        for (auto fault : {WaylandFault::Pool, WaylandFault::Buffer, WaylandFault::None}) {
+            waylandFault = fault;
+            cursor->setImage(icon, 3, 5);
+            toolbar->present(icon);
+        }
+        cursor->setVisible(true);
+        cursor->setPosition(100, 70);
+        CHECK(wl_display_roundtrip(display) >= 0);
+        // Destroy without dispatching the pending release notifications.
+        cursor.reset();
+        toolbar.reset();
+        auto* replacement = wl_compositor_create_surface(compositor);
+        CHECK(replacement);
+        CHECK(SDL_SetPointerProperty(properties, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, replacement));
+        wl_surface_destroy(videoSurface);
+        videoSurface = replacement;
+        CHECK(wl_display_roundtrip(display) >= 0);
+    }
     SDL_DestroyWindow(window);
     SDL_Quit();
     wl_surface_destroy(videoSurface);
@@ -214,5 +279,5 @@ int main()
     wl_registry_destroy(registry);
     CHECK(wl_display_roundtrip(display) >= 0);
     wl_display_disconnect(display);
-    std::cout << "Wayland cursor: position/hide updates without video commits passed\n";
+    std::cout << "Wayland cursor/toolbar: commits, allocation failure, recreation and late releases passed\n";
 }

@@ -5,10 +5,32 @@ existing native session/media services at their current source paths. Shipping
 Mac and Vision app identities and targets are unchanged. iPadOS 26 and Apple
 Silicon device/simulator are the initial compile scope, not a final OS matrix.
 
-## Current accepted development checkpoint — October 10
+## Automatic Sharing image reception — build47
 
-Installed iPad31 is the accepted editor checkpoint, with compatible Vision49
-installed and native Mac build 26 signed/staged for separate device qualification. The pilot
+Pencil Sharing automatically becomes ready to receive the desktop image from
+its approved Mac or AVP. Use **Share desktop image with this iPad** on that
+client to turn transmission on/off; its choice stays default off. There is no
+receive switch on the iPad. Image intensity and local zoom stay on the tablet.
+The authenticated image session temporarily uses proportional picture/Pencil
+mapping, restoring the saved input-only mapping when transmission ends.
+
+The bounded automatic-lifetime and contact checks are reproducible without a
+device or network:
+
+```sh
+python3 ios-native/Tests/run-automatic-image-checks.py
+python3 ios-native/Tests/run-zoom-input-integration-checks.py
+```
+
+See [the current checkpoint](../docs/development/ipad-client-checkpoint.md)
+for installation and physical acceptance. Earlier two-switch instructions in
+the development history below apply to older builds.
+
+## Current accepted development checkpoint — October 12
+
+Installed iPad43 adds the local Fit/2× operating-view candidate to the accepted
+authored editor aspect and movement/resize checkpoint42, with compatible
+Vision52 installed and native Mac build 29 signed/staged for separate device qualification. The pilot
 supports direct remote playback/input and foreground Apple Pencil sharing from
 the normal client screen, plus one saved artist-control library in both modes.
 Layouts, bindings, labels, button sizes and positions are editable; the toolbar
@@ -19,7 +41,56 @@ and moving or resizing clears it out of the way.
 See [the current checkpoint and review handoff](../docs/development/ipad-client-checkpoint.md)
 for exact runtime revisions, accepted tests and remaining gates. Earlier build
 sections below retain the development history and are superseded by that record.
-Live image overlays and magnification remain planned separately.
+The separate development image slice adds
+optional dimmable full-desktop references while Pencil Sharing, enabled from
+Pad Options and the receiver's Apple Pencil settings. Both ends require image
+consent. Installed iPad34 / Vision50, runtime `4a14a47`, failed the user's
+picture latency/stretching trial. The October11 iPad35 / Vision51 / native Mac build 28
+candidate from `a102d8c8460fc851b4c55e84fc9acdafda17a3a9` was freshly compiled,
+signed and independently verified. iPad35 was installed and open on the new
+iPad Pro 13-inch (M5), iPadOS26.6; Vision51 and native Mac build 28 remain staged. Only its
+bounded pixel converter is optimized; image consent uses proportional picture
+and Pencil mapping while preserving the saved input-only mapping preference.
+Sparse local phase timings support the next device trial. Mac encode checks
+are substantially faster but do not establish AVP latency or a physical fix.
+Picture usefulness, alignment and simultaneous input under image load remain
+unqualified; image promotion is held. A subsequent sharing trial on the new
+iPad reports no picture; receive consent and active Pencil are logged, with no
+accepted image frames. Current sender/receiver status is still needed to isolate
+that report. Vision52 / native Mac build 29 from `e8b928ffd8b253edc959c7669b2cc23b50aa99f2`
+add image-only retry after failed startup, preserving current consent and pen
+authority. Both are freshly built, signed and independently verified. Vision52
+is now installed/running; native Mac build 29 remains staged and unlaunched. native Mac build 27 also remains
+staged and unlaunched.
+See [the image boundary and next magnification slice](../docs/development/ipad-live-image.md).
+
+Local Fit/2× candidate43 adds a shared picture/cursor/input crop, deliberate Hand
+navigation and a small protected area navigator in both working modes. Its
+native/policy/contact and independent package checks pass; it is installed and
+open on the new M5 with exact43/0.1.0 and matching running executable verified.
+Physical zoom/Hand qualification remains pending; the current
+full-frame sharing image retains its existing detail and latency limits.
+
+## Finger input filter — build 36 candidate
+
+**Ignore finger input** is available in Client Options, desktop Session Controls
+and sharing Pad Options. It persists locally and defaults off. When enabled it
+blocks finger/palm clicks and drags on the remote desktop, including retiring an
+already held finger drag. Artist Controls, Pencil, physical mouse/wheel and
+keyboard remain usable. Local menus and text fields remain interactive. Pencil
+Sharing already ignores fingers outside Artist Controls; this preference also
+applies when returning to the direct iPad desktop.
+
+iPad36 from `7a5fe82d14f47c073e308af63a73ac6c6cb42014` is freshly built, signed
+for the new M5 and independently verified, then installed/open after the artist
+confirmed test readiness. Exact app/process inventories verify36 and Vision52.
+The new image-startup test is pending; touch acceptance follows separately. Focused exact
+router/contact-body checks pass; physical UIKit delivery and Host receipt remain
+separate. Reproduce the bounded source checks without a device:
+
+```sh
+python3 ios-native/Tests/run-finger-input-checks.py
+```
 
 ## Current keyboard behavior — build 17
 
@@ -383,3 +454,17 @@ accepted working; build22 adds saved shortcut ordering in Pad Options. The
 latest margin remapping report remains under investigation despite passing
 local corner checks. Image overlay is planned. Existing direct desktop input
 remains a separate accepted path.
+
+
+### Zoom map visibility and position — candidate45
+
+In either working mode, open the magnifying-glass menu and switch **Show Zoom
+Map** off to reveal controls beneath it. Use the map's **×** for quick hiding;
+drag the separate **Map** header to move it. Drag inside the map to choose the
+zoomed source region. **Reset Map Position** returns it to the default corner.
+The shared local preference survives app relaunch and adapts to window size;
+Artist layouts and the remote drawing transform are unchanged.
+
+This candidate is separate from installed43 and the staged44/53 diagnostic pair.
+Physical map movement/hit-routing qualification requires its authorized update;
+accepted earlier editor and input checks remain recorded.

@@ -1,6 +1,82 @@
 import AppKit
 import SwiftUI
 
+#if PLANK_PENCIL_RELAY_RECEIVER
+/// SwiftUI can retain Settings content after its window closes. Tie the local
+/// input pause to the actual window instead of the content's appearance alone.
+struct PlankMacPencilSettingsPause: NSViewRepresentable {
+    let client: PlankCoreClient
+    func makeNSView(context: Context) -> PlankMacSettingsPauseView {
+        let owner = UUID()
+        return PlankMacSettingsPauseView { client.setPencilLocalControls($0,owner:owner) }
+    }
+    func updateNSView(_ view: PlankMacSettingsPauseView,context: Context) { view.scheduleRefresh() }
+    static func dismantleNSView(_ view: PlankMacSettingsPauseView,coordinator: ()) { view.invalidate() }
+}
+
+final class PlankMacSettingsPauseView: NSView {
+    private let changed: @MainActor (Bool) -> Void
+    private weak var observedWindow: NSWindow?
+    private var visibilityObservation: NSKeyValueObservation?
+    private var observations: [NSObjectProtocol] = []
+    private var generation = UUID(), closing = false, refreshQueued = false
+    private var published = false
+    init(changed: @escaping @MainActor (Bool) -> Void) { self.changed = changed; super.init(frame:.zero) }
+    required init?(coder: NSCoder) { fatalError("init(coder:)") }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow(); invalidate()
+        guard let window else { return }
+        observedWindow = window; closing = false
+        let current = generation
+        visibilityObservation = window.observe(\.isVisible,options:[.new]) { [weak self] _,_ in
+            Task { @MainActor [weak self] in
+                guard let self, self.generation == current else { return }
+                self.scheduleRefresh()
+            }
+        }
+        for name in [NSWindow.willCloseNotification, NSWindow.didBecomeKeyNotification,
+                     NSWindow.didResignKeyNotification, NSWindow.didMiniaturizeNotification,
+                     NSWindow.didDeminiaturizeNotification, NSWindow.didChangeOcclusionStateNotification] {
+            observations.append(NotificationCenter.default.addObserver(forName:name,object:window,queue:.main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.generation == current else { return }
+                    if name == NSWindow.willCloseNotification { self.closing = true; self.publish(false) }
+                    if name == NSWindow.didBecomeKeyNotification { self.closing = false }
+                    self.scheduleRefresh()
+                }
+            })
+        }
+        scheduleRefresh()
+    }
+    func scheduleRefresh() {
+        guard !refreshQueued else { return }
+        refreshQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.refreshQueued = false
+            self.publish(!self.closing && self.observedWindow?.isVisible == true &&
+                         self.observedWindow?.isMiniaturized == false)
+        }
+    }
+    func invalidate() {
+        generation = UUID()
+        visibilityObservation?.invalidate(); visibilityObservation = nil
+        observations.forEach(NotificationCenter.default.removeObserver); observations = []
+        observedWindow = nil; closing = false; publish(false)
+    }
+    private func publish(_ value: Bool) {
+        guard value != published else { return }
+        published = value; changed(value)
+    }
+    isolated deinit {
+        visibilityObservation?.invalidate()
+        observations.forEach(NotificationCenter.default.removeObserver)
+        if published { changed(false) }
+    }
+}
+#endif
+
 // Native controls own their cursor region, including the separate titlebar
 // and popover windows AppKit uses in full screen. No global cursor hide count
 // is changed, and the region does not intercept clicks.

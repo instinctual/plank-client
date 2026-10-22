@@ -24,11 +24,16 @@ struct PlankIPadWorkingSurface<Content: View, Controls: View, Toolbar: View, Flo
     let toolbar: Toolbar
     let floating: Floating
     let consent: Consent
+    let navigation: AnyView?
+    let navigationPreferences: PlankIPadZoomNavigatorPreferences?
     @State private var insets = UIEdgeInsets.zero
     @State private var floatingFrame = CGRect.zero
     @State private var consentFrame = CGRect.zero
+    @State private var navigationFrame = CGRect.zero
     init(barsVisible: Bool, consentVisible: Bool = false, measured: @escaping (CGSize) -> Void,
          chromeChanged: @escaping (PlankControlChromeGeometry) -> Void = { _ in },
+         navigation: AnyView? = nil,
+         navigationPreferences: PlankIPadZoomNavigatorPreferences? = nil,
          @ViewBuilder content: () -> Content, @ViewBuilder controls: () -> Controls,
          @ViewBuilder toolbar: () -> Toolbar, @ViewBuilder floating: () -> Floating,
          @ViewBuilder consent: () -> Consent) {
@@ -36,6 +41,8 @@ struct PlankIPadWorkingSurface<Content: View, Controls: View, Toolbar: View, Flo
         self.measured = measured; self.chromeChanged = chromeChanged
         self.content = content(); self.controls = controls(); self.toolbar = toolbar()
         self.floating = floating(); self.consent = consent()
+        self.navigation = navigation
+        self.navigationPreferences = navigationPreferences
     }
     var body: some View {
         GeometryReader { geometry in
@@ -47,6 +54,14 @@ struct PlankIPadWorkingSurface<Content: View, Controls: View, Toolbar: View, Flo
                     .padding(.bottom,barsVisible ? insets.bottom : 0)
                 controls.frame(width:geometry.size.width,height:geometry.size.height)
                     .environment(\.plankControlChrome,chrome)
+                if let navigation, let navigationPreferences {
+                    PlankIPadZoomNavigatorPanel(preferences:navigationPreferences,
+                        usableBounds:navigationBounds(size:geometry.size),
+                        excludedRects:localReservedRects,
+                        panelRectChanged:{ navigationFrame = $0 ?? .zero }) {
+                            navigation
+                        }
+                }
                 VStack(spacing:0) {
                     if barsVisible {
                         Color.clear.frame(height:insets.top).allowsHitTesting(false)
@@ -76,6 +91,9 @@ struct PlankIPadWorkingSurface<Content: View, Controls: View, Toolbar: View, Flo
             .onAppear { chromeChanged(chrome) }
             .onChange(of:chrome) { _,value in chromeChanged(value) }
             .onChange(of:consentVisible) { _,visible in if !visible { consentFrame = .zero } }
+            .onChange(of:navigationPreferences?.navigatorVisible) { _,visible in
+                if visible != true { navigationFrame = .zero }
+            }
         }
         .ignoresSafeArea(.container)
         .ignoresSafeArea(.keyboard,edges:.bottom)
@@ -88,36 +106,63 @@ struct PlankIPadWorkingSurface<Content: View, Controls: View, Toolbar: View, Flo
                             height:max(0,size.height - top - insets.bottom))
         // Wait for the actual hidden-toolbar footprint, rather than guessing
         // its width or placing keys under local navigation for one frame.
-        let ready = barsVisible || PlankControlChromeGeometry.valid(floatingFrame)
+        let navigationPlaced = navigation != nil && navigationPreferences.map {
+            $0.navigatorVisible && PlankIPadZoomNavigatorPlacement.rect(position:$0.normalizedPosition,
+                usableBounds:navigationBounds(size:size),excluding:localReservedRects) != nil
+        } == true
+        let ready = (barsVisible || PlankControlChromeGeometry.valid(floatingFrame))
+            && (!navigationPlaced || PlankControlChromeGeometry.valid(navigationFrame))
         return PlankControlChromeGeometry(bounds:bounds,usableBounds:ready ? usable : .zero,
-            reservedRects:(barsVisible ? [] : [floatingFrame]) + (consentVisible ? [consentFrame] : []))
+            reservedRects:localReservedRects + (navigationPlaced ? [navigationFrame] : []))
+    }
+    private var localReservedRects: [CGRect] {
+        (barsVisible ? [] : [floatingFrame]) + (consentVisible ? [consentFrame] : [])
+    }
+    private func navigationBounds(size: CGSize) -> CGRect {
+        let top = barsVisible ? insets.top + 44 : insets.top
+        return CGRect(x:insets.left + 12,y:top + 12,
+            width:max(0,size.width - insets.left - insets.right - 24),
+            height:max(0,size.height - top - insets.bottom - 24))
     }
 }
 
 /// A public UIKit window measure also gives the idle editor the same reference
 /// as a working surface. It never derives dimensions from a toolbar or sheet.
 struct PlankIPadWindowMetrics: UIViewRepresentable {
+    var sceneChanged: (CGSize,Bool) -> Void = { _,_ in }
     let changed: (CGSize,UIEdgeInsets) -> Void
     func makeUIView(context: Context) -> PlankIPadWindowMetricsView {
-        let view = PlankIPadWindowMetricsView(); view.changed = changed; return view
+        let view = PlankIPadWindowMetricsView(); view.changed = changed; view.sceneChanged = sceneChanged; return view
     }
-    func updateUIView(_ view: PlankIPadWindowMetricsView,context: Context) { view.changed = changed; view.report() }
+    func updateUIView(_ view: PlankIPadWindowMetricsView,context: Context) {
+        view.changed = changed; view.sceneChanged = sceneChanged; view.report()
+    }
 }
 final class PlankIPadWindowMetricsView: UIView {
     var changed: (CGSize,UIEdgeInsets) -> Void = { _,_ in }
+    var sceneChanged: (CGSize,Bool) -> Void = { _,_ in }
     private var previousSize = CGSize.zero
     private var previousInsets = UIEdgeInsets.zero
+    private var previousScreenSize = CGSize.zero
+    private var previousLandscape: Bool?
     override func didMoveToWindow() { super.didMoveToWindow(); report() }
     override func layoutSubviews() { super.layoutSubviews(); report() }
     override func safeAreaInsetsDidChange() { super.safeAreaInsetsDidChange(); report() }
     func report() {
         guard let window else { return }
         let size = window.bounds.size, insets = window.safeAreaInsets
-        guard size != previousSize || insets != previousInsets else { return }
+        let screenSize = window.windowScene?.screen.bounds.size ?? size
+        let orientation = window.windowScene?.interfaceOrientation
+        let landscape = orientation?.isLandscape == true ? true
+            : orientation?.isPortrait == true ? false : (previousLandscape ?? (screenSize.width >= screenSize.height))
+        guard size != previousSize || insets != previousInsets
+                || screenSize != previousScreenSize || landscape != previousLandscape else { return }
         previousSize = size; previousInsets = insets
+        previousScreenSize = screenSize; previousLandscape = landscape
         // Defer the observable SwiftUI update out of UIKit's layout pass.
         DispatchQueue.main.async { [weak self] in
             guard let self,self.window != nil else { return }
+            self.sceneChanged(screenSize,landscape)
             self.changed(size,insets)
         }
     }

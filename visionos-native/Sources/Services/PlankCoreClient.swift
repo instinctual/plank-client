@@ -169,6 +169,11 @@ final class PlankCoreClient: ObservableObject {
         if presented { pencilLocalControls.insert(owner) } else { pencilLocalControls.remove(owner) }
         pencilRelay.sync()
     }
+    var pencilRelayInputDetails: String {
+        let streaming: Bool
+        if case .streaming = phase { streaming = true } else { streaming = false }
+        return "Pencil source: \(pencilRelaySourceAllowed ? "selected" : "unavailable") · Workstation support: \(hostSupportsNormalizedPen ? "yes" : "no")\nDesktop: \(streaming ? "streaming" : "not ready") · Focus: \(tabletSceneActive ? "active" : "paused")\nLocal control pauses: \(pencilLocalControls.count) · Closing: \(isClosingSession ? "yes" : "no")"
+    }
 #endif
     var pencilRelayCanDraw: Bool {
         guard pencilRelaySourceAllowed, hostSupportsNormalizedPen, tabletSceneActive,

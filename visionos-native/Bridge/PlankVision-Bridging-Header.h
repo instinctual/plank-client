@@ -3,12 +3,14 @@
 
 #if defined(PLANK_PENCIL_RELAY)
 #include "PlankPencilCrypto.h"
+#include "PlankPencilImageCrypto.h"
 #endif
 #include "PlankTransportBridge.h"
 #include "PlankVideoDecoder.h"
 #include "PlankAudioDecoder.h"
 #include "PlankAudioRing.h"
 #include "PlankRawHidFrame.h"
+#include "PlankPencilImageConversion.h"
 
 #if defined(PLANK_TABLET_RELAY)
 #include "client_link.h"

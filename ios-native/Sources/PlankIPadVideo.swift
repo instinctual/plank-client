@@ -9,34 +9,66 @@ final class PlankIPadVideoView: UIView {
     private var cursorShape: PlankRemoteCursorShape?
     private let cursorLayer = CALayer()
     private let cursorFallback = CALayer()
+    private let softwareImage = CALayer()
+    private let viewportClip = UIView(frame:.zero)
     private let metalVideo = PlankMetalVideoView(frame: .zero)
+    private var suppliedViewport: PlankIPadViewport?
+    private var ownsViewport = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .black
         isOpaque = true
         isUserInteractionEnabled = false
-        layer.contentsGravity = .resizeAspect
-        addSubview(metalVideo)
+        viewportClip.isUserInteractionEnabled = false
+        viewportClip.clipsToBounds = true
+        addSubview(viewportClip)
+        viewportClip.addSubview(metalVideo)
+        softwareImage.contentsGravity = .resize
+        viewportClip.layer.addSublayer(softwareImage)
         metalVideo.isHidden = true
         cursorLayer.contentsGravity = .resize
         cursorLayer.isHidden = true
-        layer.addSublayer(cursorLayer)
+        viewportClip.layer.addSublayer(cursorLayer)
         cursorFallback.bounds = CGRect(x: 0, y: 0, width: 12, height: 12)
         cursorFallback.cornerRadius = 6
         cursorFallback.borderWidth = 2
         cursorFallback.borderColor = UIColor.cyan.cgColor
         cursorFallback.isHidden = true
-        layer.addSublayer(cursorFallback)
+        viewportClip.layer.addSublayer(cursorFallback)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// Input owns this immutable transform. A local crop changes neither the
+    /// UIKit drawing surface nor the retained decoded source frame.
+    func setViewport(_ viewport: PlankIPadViewport?) {
+        ownsViewport = true
+        suppliedViewport = viewport
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layoutVideo()
+        layoutCursor()
+        CATransaction.commit()
+    }
+    private var viewport: PlankIPadViewport? {
+        guard let dimensions else { return nil }
+        if ownsViewport {
+            guard let suppliedViewport,
+                  suppliedViewport.width == dimensions.width,
+                  suppliedViewport.height == dimensions.height else { return nil }
+            return suppliedViewport
+        }
+        // Standalone presentation retains Fit; the desktop supplies exactly
+        // the same viewport used by its inverse input mapping.
+        return PlankIPadViewport(bounds:bounds,width:dimensions.width,height:dimensions.height)
+    }
 
     func display(_ frame: PlankRenderedFrame?) {
         if let frame, let pixelBuffer = frame.pixelBuffer, metalVideo.canRender {
             dimensions = PlankFrameDimensions(width: frame.width, height: frame.height)
             layoutVideo()
-            layer.contents = nil
+            softwareImage.contents = nil
             metalVideo.isHidden = false
             metalVideo.display(pixelBuffer)
             layoutCursor()
@@ -46,10 +78,11 @@ final class PlankIPadVideoView: UIView {
         guard let frame,
               let provider = CGDataProvider(data: frame.pixels as CFData),
               let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else {
-            layer.contents = nil
+            softwareImage.contents = nil
             dimensions = nil
             cursorLayer.isHidden = true
             cursorFallback.isHidden = true
+            viewportClip.isHidden = true
             return
         }
         let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(
@@ -71,7 +104,8 @@ final class PlankIPadVideoView: UIView {
         dimensions = PlankFrameDimensions(width: frame.width, height: frame.height)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.contents = image
+        softwareImage.contents = image
+        layoutVideo()
         layoutCursor()
         CATransaction.commit()
     }
@@ -115,48 +149,36 @@ final class PlankIPadVideoView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         layoutVideo()
         layoutCursor()
+        CATransaction.commit()
     }
 
     private func layoutVideo() {
-        guard let dimensions, bounds.width > 0, bounds.height > 0 else {
-            metalVideo.frame = bounds
+        guard let viewport else {
+            viewportClip.isHidden = true
             return
         }
-        let scale = min(
-            bounds.width / CGFloat(dimensions.width),
-            bounds.height / CGFloat(dimensions.height)
-        )
-        let width = CGFloat(dimensions.width) * scale
-        let height = CGFloat(dimensions.height) * scale
-        metalVideo.frame = CGRect(
-            x: (bounds.width - width) / 2,
-            y: (bounds.height - height) / 2,
-            width: width,
-            height: height
-        )
+        viewportClip.isHidden = false
+        viewportClip.frame = viewport.rect
+        let frame = viewport.fullImageFrame.offsetBy(dx:-viewport.rect.minX,dy:-viewport.rect.minY)
+        metalVideo.frame = frame
+        softwareImage.frame = frame
     }
 
     private func layoutCursor() {
-        guard let dimensions, let cursor,
+        guard let dimensions, let cursor, let viewport,
               dimensions.width == cursor.frameWidth,
               dimensions.height == cursor.frameHeight,
-              bounds.width > 0, bounds.height > 0 else {
+              let point = viewport.point(x:cursor.x,y:cursor.y) else {
             cursorLayer.isHidden = true
             cursorFallback.isHidden = true
             return
         }
-        let scale = min(
-            bounds.width / CGFloat(dimensions.width),
-            bounds.height / CGFloat(dimensions.height)
-        )
-        let imageWidth = CGFloat(dimensions.width) * scale
-        let imageHeight = CGFloat(dimensions.height) * scale
-        let pointer = CGPoint(
-            x: (bounds.width - imageWidth) / 2 + CGFloat(cursor.x) * scale,
-            y: (bounds.height - imageHeight) / 2 + CGFloat(cursor.y) * scale
-        )
+        let scale = viewport.fullImageFrame.width / CGFloat(dimensions.width)
+        let pointer = CGPoint(x:point.x-viewport.rect.minX,y:point.y-viewport.rect.minY)
         guard let cursorShape else {
             cursorLayer.isHidden = true
             cursorFallback.position = pointer

@@ -249,6 +249,13 @@ private:
 
         wl_shm_pool* pool = wl_shm_create_pool(m_Shm, fd,
                                                 static_cast<int32_t>(size));
+        if (pool == nullptr) {
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                        "Unable to create Wayland Wacom cursor SHM pool");
+            close(fd);
+            munmap(mapping, size);
+            return nullptr;
+        }
         wl_buffer* object = wl_shm_pool_create_buffer(
                 pool, 0, image.width(), image.height(), stride,
                 WL_SHM_FORMAT_ARGB8888);

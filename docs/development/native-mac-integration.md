@@ -2,6 +2,204 @@
 
 Tracking: [upstream coordination issue 9](https://github.com/instinctual/plank-client/issues/9).
 
+## October18 current checkpoint
+
+Native native Mac build 31 and iPad46 retain the targeted Sharing operating-view acceptance
+recorded below: local 2× selection survives Mac focus changes, Artist modifiers
+release cleanly, Fit waits for actual Pencil lift, and Hand pans only the local
+view before drawing resumes. The two workstation transport failures remain
+unresolved; these checks do not establish sustained reliability or final Host
+release receipt.
+
+The user resumed the deferred AVP update on October18. Existing signed Vision53
+from `fe965cf1d4f5c9a1502265ecea7ea8768425a30b` was reverified, installed and
+launched. Independent app and process inventories confirm build53 and its exact
+executable. It adds diagnostics, not a latency fix. The Mac/iPad apps, Qt fallback,
+Host, network settings, dependency pins and identities were unchanged.
+The subsequent user-accepted AVP tablet trial also reports the closed-browser
+recovery gap and an occasional mouse/keyboard focus-return delay. Vision54 is now
+installed with an explicit Workstations reopening button; the user confirms it
+reopens the main window while the desktop session stays available. native Mac build 31 and
+iPad46 remain unchanged. See the
+[Vision browser recovery boundary](ipad-pencil-relay.md#october18-avp-trial-and-browser-recovery).
+Vision55 subsequently moves that action into **Session Controls → Window → Show
+Workstations**, with the standalone button removed. It is installed and verified;
+native Mac build 31, iPad46 and their input/transport behavior remain unchanged.
+The user accepts that placement. Installed Vision56 then moves image-sharing
+consent/status into Vision Session Controls; the Mac-active settings source is
+byte identical and no native Mac update is involved.
+
+### October18 Flame-01 AVP startup and lower-resolution recovery
+
+The AVP56 trial on Flame-01 reports **The workstation display layout did not
+become ready within 45 seconds**. This is the native display/stream startup
+deadline after PLANK authentication. The saved authentication timestamp and
+requested 5120×2160 at 60 fps correspond in time and geometry with a captured
+Host startup that repeatedly failed HEVC NVENC initialization with
+`NV_ENC_ERR_OUT_OF_MEMORY`. That session sent zero video frames. The correlation
+does not include an independently captured unique AVP peer identifier.
+
+A read-only GPU snapshot reports an RTX 5000 Ada with 32 GB, 687 MiB available,
+and Flame using 28,620 MiB. Together with the allocation errors, this strongly
+supports GPU memory pressure during encoder startup. The exact allocation
+mechanism and a memory leak are not established. The Host is the observed
+1.1.024; neither its service nor Flame was restarted, and network settings,
+packages and pins were unchanged. Bounded filtered Host log reads used the
+existing noninteractive read permission; no maintenance was performed.
+
+The user changed the AVP **Flame-01-ts → Virtual display → Resolution** to
+**1920×1200**, saved and reconnected, then confirmed the desktop picture appears.
+Retain that as the working recovery setting. A 5K retry should wait for GPU
+headroom; this trial does not qualify sustained performance or explain the two
+October15 Mac transport failures. No additional restart or resolution test is
+required for this checkpoint.
+
+## Pencil Settings lifetime correction — installed31
+
+After iPad46, the user reports a live picture but no Pencil cursor motion,
+including an explicit foreground/Hand-off/fresh-contact check and a reselected
+Pencil peer. Physical input qualification remains blocked.
+
+A bounded offscreen AppKit test using the production Settings appearance
+modifiers reproduces a stale pause: the window closes, retained SwiftUI content
+does not disappear, and its input owner stays held. This establishes a local
+lifecycle defect, not the exact cause of the live failure. Candidate31 ties the
+Settings owner to native window visibility/close/detachment and restores it on
+reopen. Ten native checks pass actual close/hide and independent owners; the
+background fixture models reopen's key notification rather than activating a
+real Settings scene.
+
+Mac-only **Input Details** shows source/support, desktop focus, local control
+pause count and bounded received/queued counts. Counts reuse the existing
+two-second report and do not establish final Host receipt. Pen/Artist admission,
+packet ordering, image transport and dependency/Host pins are unchanged. The
+shared-file additions are compiled only for native Mac; the non-Mac active
+source remains identical. The targeted physical Settings-close/Pencil-resumption
+check remains separate from the native component checks.
+
+Runtime `f82c2a4dfdd37782ac4baeed46f313a1664c8baf` is freshly compiled and
+signed as native Mac build 31. Exact payload
+parity across the executable and four FFmpeg libraries, signature/entitlements,
+298 dependency entries, native tests and protected delivery bodies pass separate
+verification.
+
+The user authorized the disconnected update on October 15. native Mac build 31 is now installed
+at `/Applications/PLANK Native.app` and opens normally to the workstation browser.
+Independent installation checks confirm the exact signed bundle, running
+executable and captured startup stdout/stderr. The original installed native Mac build 30 is
+preserved for rollback; the Qt client, iPad46 and Vision52 are unchanged. No
+preferences, approvals, network settings or Host packages were changed. Physical
+The first physical Settings-close trial still reported no cursor movement.
+Captured Mac diagnostics show zero incoming Pencil/Artist application messages
+during that trial; they do not establish the iPad-side cause. **Input Details**
+distinguishes admission state from received and locally queued samples.
+
+The Mac's optional image consent was off after restarting the app. Restoring it
+produces image encoding and a sending status, which does not establish picture
+receipt on the iPad.
+
+The user subsequently reported operation working again. Captured Mac diagnostics
+corroborate incoming Pencil samples and local input submission without a local
+queue backlog. A new peer diagnostic lifetime precedes that recovery; its trigger
+was not observed. The separate Mac-to-workstation transport reports delay/lost
+packets, but neither those cumulative counters nor the recovery establish the
+cause of the earlier missing iPad input. No further runtime change or controlled
+Settings repair is claimed. Image, stable zoom/Hand, held-input and final Host
+receipt qualification remain separate; the now-obsolete iPad screenshot is not
+required.
+
+### October 15 connection loss during dragging
+
+A subsequent native Mac build 31 session failed after about ten minutes with the native data
+receiver reporting `Protocol error: connection lost`. The app stayed running.
+In the final eight seconds, the Mac-to-workstation transport's reported RTT rose
+from about 20 ms to 2.37 seconds. At failure, local input queue depth and native
+submission backlog were zero, with no failed input submission. The approved iPad
+peer continued exchanging heartbeat traffic after the workstation session ended.
+
+This distinguishes the failed workstation endpoint from the surviving Pencil
+peer, but does not identify network, Host or client root cause. Cumulative loss
+counters are not a measured loss rate, and an empty local queue does not exclude
+a Host receive-queue problem. A bounded unprivileged Host check found services
+still running without a service restart; detailed Host logs were unreadable.
+The normal Reconnect action reached sign-in, which is left to the user. Sustained
+stream and remaining Sharing qualification are held; Host packages, network
+settings and all device installations remain unchanged.
+
+A later desktop session lasting about 22 minutes also failed, this time reporting
+the native audio receiver's connection loss with zero normalized Pencil samples
+in that session. Local queues were again empty. This establishes that a desktop
+disconnect can occur without Pencil traffic; it does not identify its cause.
+
+### Pencil discovery after loss of the USB link
+
+With the iPad foreground pad still showing Stop Sharing, both native Settings and
+a fresh eight-second browser saw no Pencil advertisement. Restarting Sharing
+once did not restore it. Current USB inventory and interface checks showed the
+previously present iPad device and USB network interfaces were absent.
+
+After the user reconnected USB, the device and wired diagnostic tunnel returned.
+The Pencil service immediately reappeared on those USB interfaces, and selecting
+it in native Settings connected with the existing approval. No app, Host,
+dependency, identity or network setting changed. This recovers discovery in that
+setup; the actual Pencil transport interface and guest Wi-Fi policy were not
+measured. It does not resolve the independent workstation stream failures.
+The user then confirmed fresh Pencil hover and tap work through the restored
+connection. The subsequent iPad46 Sharing check also confirms local 2× View
+activates while the Mac chat is foreground and remains selected when PLANK
+Desktop returns. The user also confirmed an Artist modifier releases cleanly
+after drawing and a Fit request waits for an actual held Pencil contact to lift.
+The final Sharing Hand check confirms local panning without remote clicks/drags
+and drawing resuming when Hand is turned off. Accept those targeted results;
+genuine OS cancellation, sustained streaming and final Host receipt remain
+separate checks.
+
+## October 14 local native client switch
+
+At the user's request, native Mac build 30 from
+`dd07decfa5f1a26a664cc699d3cfce2ba725b5ae` is installed and open at
+`/Applications/PLANK Native.app`. The previous Qt client at
+`/Applications/PLANK Client.app` remains available. Fresh public compilation,
+independent signed payload/library/dependency verification and exact installed
+version/running-executable checks passed. Startup stdout and stderr are captured
+in private diagnostic logs; no local client was running before the switch.
+
+The native client retains `la.instinctual.PLANK.NativeMac`, its existing settings
+namespace and the pinned native recipe. It opens idle until the user connects;
+no Qt credentials or Pencil approvals were copied. native Mac build 30 carries the four shared
+bounded diagnostic source updates since staged native Mac build 29, with no input/media behavior
+change. The developer build is signed with hardened runtime but is not a notarized
+release. Normal launch succeeded without changing Gatekeeper or quarantine policy.
+
+native Mac build 24 display, fullscreen, Wacom, wheel and middle-button acceptance carries
+forward. The user subsequently confirmed the requested Pencil tap/drag and
+Artist modifier smoke check through the Mac is working. This is targeted
+user-reported acceptance; optional reference-image sending, latency under load,
+the OS matrix and final Host receipt remain separate gates. iPad45's
+hideable/movable map is accepted in both modes; Vision52 and the working
+network/Host/dependency pins are unchanged.
+
+### Subsequent Sharing qualification failure
+
+The later Sharing trial reported no iPad image or Pencil cursor. The Mac then
+reported a terminated video transport (`native=-3`, state8, connection lost).
+This failure held Mac physical qualification at that checkpoint; the earlier
+brief user confirmation did not resolve it. The existing signed
+native Mac build 30 was reopened with captured startup logs to diagnose the desktop stream
+without Pencil or image sharing. No Host, network, recipe or app runtime changed.
+No transport, image or input repair is claimed.
+
+### October 15 targeted input recovery
+
+With iPad45 and native Mac build 30 unchanged, USB attached and only guest Wi-Fi available,
+the user reports Pencil hover, click/drag and basic Sharing zoom now work on
+Flame-01 reached through Tailscale. Input took a reported one or two seconds
+to come to life. This confirms targeted operation in that trial, not a measured
+startup delay or a repair of the prior video transport/latency failure. The
+actual Pencil transport interface was not measured. Held modifiers and view
+changes during an active stroke remain the next physical gate; Sharing Hand
+isolation, sustained load and final Host receipt remain separately unqualified.
+
 ## Baseline and review order
 
 The Vision foundation and transport correction are merged into Client

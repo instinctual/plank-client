@@ -28,6 +28,8 @@ add_executable(PlankVision MACOSX_BUNDLE
     Bridge/PlankRawHidFrame.h
     Bridge/PlankVideoDecoder.c
     Bridge/PlankVideoDecoder.h
+    Bridge/PlankPencilImageConversion.c
+    Bridge/PlankPencilImageConversion.h
     Sources/PlankVisionApp.swift
     ../apple-native/Shared/PlankControlKeyOwnership.swift
     Sources/Models/PlankTopologyDecoder.swift
@@ -41,6 +43,7 @@ add_executable(PlankVision MACOSX_BUNDLE
     Sources/Services/PlankAudioReceiver.swift
     Sources/Services/PlankHTTPClient.swift
     Sources/Services/PlankVideoSurfaces.swift
+    Sources/Services/PlankPencilReferenceImageCodec.swift
     Sources/Services/PlankCoreClient.swift
     Sources/Services/PlankSessionStartupDeadline.swift
     Sources/Services/PlankHardwareVideoDecoder.swift
@@ -61,6 +64,10 @@ add_executable(PlankVision MACOSX_BUNDLE
     Sources/Views/SettingsView.swift
     PrivacyInfo.xcprivacy
 )
+# Keep the bounded pixel conversion optimized in the normal Debug recipe.
+# Other application sources retain their existing build configuration.
+set_source_files_properties(Bridge/PlankPencilImageConversion.c PROPERTIES
+    COMPILE_OPTIONS "-O2;-fno-fast-math;-ffp-contract=off")
 set_source_files_properties(PrivacyInfo.xcprivacy PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
 
 # visionOS requires a layered app icon. Render the existing PLANK artwork into
@@ -151,6 +158,10 @@ if(PLANK_RELAY_SOURCE_DIR)
     target_include_directories(PlankVision PRIVATE ../apple-native/Shared)
     target_sources(PlankVision PRIVATE
         ../apple-native/Shared/PlankPencilCrypto.c
+        ../apple-native/Shared/PlankPencilImageCrypto.c
+        ../apple-native/Shared/PlankPencilImageWire.swift
+        ../apple-native/Shared/PlankPencilImagePeer.swift
+        ../apple-native/Shared/PlankPencilImageSession.swift
         ../apple-native/Shared/PlankPencilRelayWire.swift
         ../apple-native/Shared/PlankPencilModifiers.swift
         ../apple-native/Shared/PlankPencilRelayKeys.swift
@@ -190,6 +201,7 @@ if(PLANK_OPUS_DIR)
     target_compile_definitions(PlankVision PRIVATE PLANK_OPUS_AUDIO=1)
 endif()
 target_link_libraries(PlankVision PRIVATE "-framework AVFAudio" "-framework CoreBluetooth")
+target_link_libraries(PlankVision PRIVATE "-framework CoreGraphics" "-framework ImageIO" "-framework UniformTypeIdentifiers")
 
 set(PLANK_FFMPEG_DIR "" CACHE PATH "Path to the visionOS FFmpeg installation")
 if(PLANK_FFMPEG_DIR)

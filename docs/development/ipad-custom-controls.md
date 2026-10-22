@@ -552,3 +552,271 @@ toolbar check. The precise build32 device cause remains uncorrelated; this
 acceptance does not qualify editor peer continuity, OS cancellation or final
 Host release. Live image reference for Pencil Sharing is the next feature
 slice, described in [the image plan](ipad-live-image.md).
+
+## Finger input filter — iPad36
+
+The artist requested an option to ignore touch commands outside Artist Controls.
+**Ignore finger input** now appears in Client Options, desktop Session Controls
+and sharing Pad Options. The saved preference defaults off. It filters direct
+finger/palm contacts before remote pointer dispatch, leaving Artist Controls,
+Pencil, physical mouse/wheel and keyboard admission intact. Local menus, editor
+widgets and text fields remain interactive. The sharing pad already accepts
+only Pencil outside its independent Artist Controls; the preference also covers
+the direct desktop when switching back to it.
+
+Enabling the filter retires only an active finger's mouse-button ownership and
+clears that contact. Late movement/releases cannot reposition or click the Host,
+and re-enabling requires a fresh contact. It does not latch cancelled controls,
+retire unrelated held modifiers or change saved layouts, geometry or visibility.
+
+Candidate36 runtime `7a5fe82d14f47c073e308af63a73ac6c6cb42014` passed focused
+exact-router/contact checks and fresh native compilation/signing, including the
+new M5 device profile. It was independently verified, then installed/open after
+the artist confirmed test readiness. Exact36/0.1.0 and its running executable
+path are independently verified; physical acceptance remains pending.
+Stand-in touch delivery and a recording Host qualify local admission/ordering,
+not physical palm rejection or final Host receipt. The new device check is the
+filter's off/on behavior and Artist/Pencil coexistence, not a repeat of earlier
+editor, wheel, keyboard or pressure acceptance.
+
+## Local layout naming and chrome-safe rows — iPad37
+
+On installed iPad36, the artist reported that Rename Layout does not open while
+connected to a desktop or sharing Pencil. Exact native simulator Menu/alert
+comparisons did not reproduce the physical iPadOS26.6 failure; keyboard coverage
+is not the reported symptom and no root keyboard policy is changed.
+
+Build37 runtime `535c48667d35bafcd322f692ae07703d579040cc` places layout naming
+in the editor hierarchy, directly below its toolbar. A focused native text field
+has Cancel and Save actions; Save edits only the local draft and the editor's
+Done publishes it. Layout selection and geometry editing pause during naming.
+Button labels retain their accepted native alert. This removes layout naming's
+native-dialog dependency without claiming the precise device cause was found.
+
+The top-row displacement is reproduced geometrically: snapping a key to the
+whole-window top edge puts it above the protected menu area. The resolver then
+translates its connected group, staggering neighbors. Move and resize now snap
+to measured usable chrome edges before group resolution, while keeping saved
+anchors in the same full-window coordinates. The group resolver, saved sizes
+and library schema are unchanged. Repeated row/materialization checks preserve
+six-point gutters, neighbor positions, dimensions, deterministic editor/live
+placement and compact menu exclusion.
+
+Native production editor replay passes local naming in idle, connected desktop
+and active Pencil Sharing: automatic focus, typing above the docked keyboard,
+Cancel, draft-only Save, one-step undo, and one publication on editor Done.
+The same stand-in stream or approved peer remains available after Done. Native
+simulator delivery and stubbed transport do not prove physical iPadOS behavior
+or final Host receipt.
+
+Fresh native device compilation, signing and independent target/profile/
+runtime/resource/dependency verification pass. After the artist confirmed the
+desktop disconnected and sharing stopped, signed37 was installed/open on the
+new M5. Exact37/0.1.0 and its running executable path are verified. Vision52
+and signed36 rollback remain unchanged. Physical connected/sharing naming and
+top-row drag acceptance are requested and remain pending. No
+receiver, image, input-admission, keyboard, Host, network or dependency change
+accompanies this local editor correction. Zoom remains a separate proposal in
+[the live-image discussion](ipad-live-image.md#october-11-zoom-proposal--discussion-before-implementation).
+
+
+## Suspended desktop keyboard ownership — iPad38
+
+The artist accepted iPad37's corrected top-row positioning. Connected client
+Rename still refuses naming and reportedly switches back to the first layout.
+Whether this means the first control layout or first workstation is being
+clarified; sharing acceptance is not inferred. Four native production Root/editor
+cases with a distinct second layout preserve selection and draft state through
+actual menu/keyboard operations and bounded client/chrome updates. Their direct
+input responder and transport are stand-ins, so physical fallback is unresolved.
+
+A separate exact-method native UIKit check reproduces a concrete focus defect:
+the retained desktop view can take first responder from an active local text
+field while remote input is disabled. Window attachment and a rejected Pencil
+contact can call `resumeKeyboard` without its own admission guard. Both keyboard
+resume and responder eligibility now require current router admission. Eight
+native cases preserve local field ownership while disabled, normal enabled
+hardware/software keyboard resume, and detached behavior. No field contents or
+user text were logged. This proves the focus route, not the physical fallback's
+cause or repair.
+
+Build38 runtime `000c72132e9d21c5bbff8d06443e1ad7fe0fb966` changes only these
+two guards and its build number. Root/editor, saved layouts, accepted geometry,
+image and receiver code remain unchanged; 414 native/recipe files match37. Fresh
+device compilation, signing and independent runtime/profile/dependency checks
+pass. The artist confirmed disconnected; the M5 update installed/open with exact
+38/0.1.0 and its running executable path verified. Signed37 rollback is retained.
+The focused physical question is connected client naming on a non-first saved
+layout with selection retained. The artist subsequently reported that naming
+still fails when the PLANK window fills the iPad; returning to a smaller window
+allows it. Windowed Artist Controls also have inconsistent scaling. Build38's
+physical naming check therefore failed. Do not repeat
+accepted snapping or previous input tests.
+
+## Same-window naming and responsive controls — iPad39
+
+Build39 runtime `549bd8e4fef1f8cfdc46fc2624eb352fdbc44957` keeps the editor in
+the app's existing window. Entering direct-client editing explicitly makes the
+desktop surrender its own keyboard responders before local editing begins.
+The layout chooser closes before a native local name field takes focus, with a
+bounded window/scene handoff. Cancel preserves the saved library; Save changes
+the editor draft; Done publishes once. A valid workstation selection survives
+root reappearance. Sharing keeps its existing adjusting-pad admission boundary.
+
+Artist Controls now project a common reference canvas uniformly into the actual
+window. Positions, sizes, gutters and label appearance scale together. Actual
+scene orientation selects the arrangement, so a narrow landscape window does
+not silently choose portrait. Editor and live overlay share the transform,
+including inverse drag/resize coordinates and protected menu areas. At full
+reference size, placement exactly matches the accepted build37 resolver.
+
+Optional per-layout portrait/landscape reference extents preserve version1
+decoding. Legacy layouts use the measured current physical screen transiently;
+passive window changes never rewrite saved layouts. Explicit editor Done records
+the selected layout's missing extents, and copying retains them. Historical
+layouts without this metadata cannot reveal their original device dimensions.
+Finger targets expand to44 points only where measured chrome and neighboring
+targets allow it. Unsafe keys keep their visual arrangement but are unavailable
+until the window is enlarged; visual sizes are not individually clamped.
+
+Three native simulator cases pass actual chooser/rename, automatic local typing,
+keyboard clearance, full/compact resize while naming, non-first draft continuity,
+Cancel and one Done publication. The exact production input view relinquishes
+and later resumes keyboard ownership. Model checks pass legacy migration,
+projection round trips, identity placement, orientation choice and safe hit
+regions. Independent native overlay checks pass frame/font scaling, finger and
+Pencil routing, indirect pass-through and balanced geometry retirement. Four
+hundred nine native/recipe files remain byte-identical to build38 outside the
+seven scoped runtime/test paths.
+
+These checks use simulator27, controlled window bounds and transport stand-ins.
+They do not reproduce the physical iPadOS26.6 fullscreen fault or qualify Stage
+Manager, genuine OS cancellation, Host receipt or small-window readability.
+The fresh iPad39 device app compiles and is independently verified and signed
+for the new M5; build38 is retained for rollback. After the artist confirmed
+installation readiness, the update installed and opened with exact39/0.1.0 and
+its running executable independently observed. The targeted physical fullscreen
+naming and full/smaller/full layout check were requested. The artist subsequently
+accepted fullscreen naming and general button sizing/placement. Smaller-window
+reserved menu/top and bottom areas still look odd; that visual exception remains
+under scoped investigation. This acceptance does not establish a separate
+sharing-naming or OS interruption matrix. Vision52, image transport,
+Host, network, identities and dependency pins are unchanged. The agreed Fit/2×
+zoom slice waits for this editor/window qualification.
+
+## Reserved-area preview correction — iPad40
+
+The artist's compact-window screenshot shows an inset top reservation and no
+bottom band. The editor was drawing chrome after clipping it to the fitted
+authoring canvas, although its outer preview represents the whole current
+window. This narrowed bands in wide windows and removed bands outside a
+letterboxed canvas in narrow windows.
+
+Build40 runtime `44f29cebd5a97290bccffcdc331e59a3a328234f` draws current-window
+chrome directly through the editor's single preview scale. Only those two shade
+expressions and the build number change; reversing the expressions restores the
+exact build39 control source. Placement, snapping, mapping, responder, saved
+library and input bodies remain unchanged, with414 protected native/recipe paths
+identical to39. Source review and full/narrow/wide numerical correspondence pass.
+The fresh device app compiles and its signed M5 package is independently
+verified. After the artist confirmed disconnection,40 installed and opened;
+separate device inventories show exact40/0.1.0 and its running executable.
+Build39 is retained for rollback. Physical top/bottom band appearance is the
+remaining targeted check.
+No additional input acceptance is required for this drawing-only correction.
+
+## Fixed orientation canvas — iPad41
+
+The artist chose a fixed tablet reference rather than reflowing keys with each
+window shape. Each layout retains its saved portrait and landscape extents;
+layouts without metadata use the measured full physical tablet transiently.
+Actual scene orientation selects the arrangement. Moving or resizing a window
+does not write the library or choose another arrangement from its aspect ratio.
+
+Build41 runtime `910c52fff4264c42a5fb666b1ed01aedb2f346f9` fits the complete
+authored canvas uniformly inside the measured usable window. Positions, sizes,
+gutters and labels share one scale and offset. The live overlay and editor no
+longer translate separate button groups around current menus or other groups.
+Floating menus and consent panels retain separate current-window hit protection;
+an unsafe finger target is unavailable rather than moving a saved key. A narrow
+window can therefore have empty space and smaller controls. Fullscreen controls
+can also become slightly smaller as the whole canvas clears the measured bars.
+
+Dragging, corner resizing or a numeric geometry edit adopts only the selected
+control's displayed anchor. Other controls, the opposite arrangement and other
+layouts keep their exact saved geometry. Undo precedes that selected edit.
+Explicit snapping still honors the measured menu footprint through the inverse
+projection. The editor preview continues to show actual window reservations.
+
+Focused model checks pass fixed centers/sizes/gaps across wide, narrow and
+asymmetric windows, original library bytes, both arrangements, floating-menu
+protection and invalid/unmeasured geometry. A native production-overlay replay
+also passes full/compact/full frames, label scale and saved-byte invariance.
+Extracted production move and all four corner handlers change only the selected
+control, preserving other layouts and the opposite arrangement. These simulator27
+checks do not establish physical iPadOS26.6 gesture or window-lifecycle behavior.
+The fresh M5 device app compiles and is signed/staged. Independent package review
+passes exact runtime bytes/resources, target profile/certificate/entitlements,
+unchanged dependency receipts and protected rollback inventories. After the
+artist's readiness confirmation, build41 was installed in place on the M5 and
+opened; separate inventories show exact41/0.1.0 and its running executable.
+Signed40 and39 remain available for rollback. Physical fixed-arrangement and
+selected-edit checks remain pending; installation identity is not acceptance.
+Input, Pencil mapping, image transport, peer authority, schema and dependency
+pins are unchanged. Fit/2× image zoom remains a separate next slice.
+
+## Authored tablet preview — iPad42
+
+The physical build41 check failed. The artist's October12 5:59PM screenshot
+shows a tall narrow editor window with Landscape selected: the outer tablet
+outline retains the window's aspect while the keys fit the saved landscape
+canvas inside it. The earlier key-projection checks did not cover that outer
+editor rectangle. The selected-control physical edit check was not separately
+answered. This screenshot shows the editor; it does not establish a failure of
+the accepted Pencil or desktop image/input viewport.
+
+Before this correction, Alan's current main source
+`58f4df097c1cdf11bf6b4b429701f156e2b10109` was merged into the preserved
+published checkpoint, then the unpublished image/correction suffix was rebased
+with its merge ancestry retained. Accepted native integration `e8d8536`, the
+published `c3dfc42` checkpoint and original sharing/display ancestors remain.
+The reviewed native common-C pin `036df96` is explicitly retained; main's
+`437be9a` recovery candidate is not declared or qualified by the native recipe.
+All native sources and recipe inputs were identical immediately after rebase.
+The new Qt/Linux/session source does not imply native device recovery acceptance.
+
+Build42 runtime `cdfbe5f004019c8e67102cc6d83a0cc6b3f76cbb` gives the editor its
+own single authored-canvas preview. The selected layout's landscape or portrait
+extent sets the outline's aspect. Keys, labels, guides, inspector anchors and
+drag/resize inversion use the same preview scale directly. Actual live-window
+projection remains separate for target availability and inverse-mapped floating
+menu/consent protection. Top and bottom window bars already lie outside the
+fitted tablet, so they are not drawn inside its authored outline. Unknown live
+chrome keeps local authoring available while live key targets remain unavailable.
+Selected-only geometry changes, Undo, naming and explicit Done publication are
+retained. No saved layout or input mapping is changed by passive preview sizing.
+
+Only the editor body and iPad build number changed after the verified rebase;
+414 other native/recipe paths and the entire live control/store prefix remain
+exact. The fresh M5 device app compiles and is signed/staged. Whole production
+editor rendering on Simulator27 preserves Landscape 4:3 and Portrait 3:4 in full,
+tall, narrow and wide windows. Actual key rectangles and text heights use one
+uniform scale; floating chrome shades only its clipped authored intersection.
+Exact production move and four corner handlers preserve other controls and
+orientations, Undo restores the draft, and Done publishes only the intended
+changes. Unmeasured live chrome still permits local authoring. The same tall-entry
+negative control renders old41's outline at 0.581 aspect versus42's authored 1.333,
+reproducing the reported defect. Controlled UIWindow sizes, passive frame probes
+and private handler dispatch do not qualify physical iPadOS26.6 gestures or its
+window manager. Independent package review passes exact compiled runtime/resource
+parity, target M5 provisioning, signature/certificate/entitlements, all258
+dependency entries, declared native pins and converter-only optimization flags.
+Signed41/40/39, Vision52 and native Mac build 29 payloads and signatures remain intact.
+The user confirmed disconnected and42 was installed as an update on the new M5.
+Independent app/process inventories show exact42/0.1.0 and its installed running
+executable. The persistent console is retained without signals. Signed41 rollback,
+Vision52 and the old iPad remain intact. The artist answered **Aspect and editing
+both work** to the requested tall/narrow/wide Landscape/Portrait outline and
+selected button move/resize check. This targeted physical editor gate is accepted;
+it does not qualify new input mapping, zoom or complete OS matrix behavior.
+Fit/2× zoom remains a separate approved slice.

@@ -28,6 +28,7 @@ import CoreGraphics
         let portrait = settings.viewport(bounds:CGRect(x:0,y:0,width:832,height:1032),width:1920,height:1080)!
         let center = portrait.normalized(CGPoint(x:portrait.rect.midX,y:portrait.rect.midY))!
         precondition(center.x == 0.5 && center.y == 0.5)
+        referenceImageGeometry()
         // Real production pen policy with changed pad geometry: retire the old
         // contact, reject its late motion, then admit a fresh corner down.
         var pen = PlankIPadPencilPolicy()
@@ -68,6 +69,62 @@ import CoreGraphics
         precondition(PlankIPadPencilPadSettings.load(from:storage).shortcuts == settings.validated.shortcuts)
         storage.set(Data("invalid".utf8),forKey:PlankIPadPencilPadSettings.storageKey)
         precondition(PlankIPadPencilPadSettings.load(from:storage) == .init())
-        print("PASS Pencil pad: asymmetric margins, both mappings, edge admission, rotation geometry, fresh contact, bounded settings, legacy migration and persisted shortcut order")
+        print("PASS Pencil pad: asymmetric margins, both mappings, reference-image uniform scale and corner/landmark alignment, input-only preference preservation, edge admission, rotation geometry, fresh contact, bounded settings, legacy migration and persisted shortcut order")
+    }
+
+    private static func referenceImageGeometry() {
+        var settings = PlankIPadPencilPadSettings()
+        settings.mapping = .fullPad
+        settings.left = 0.11; settings.right = 0.23; settings.top = 0.07; settings.bottom = 0.17
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let saved = try! encoder.encode(settings)
+        precondition(settings.effectiveMapping(referenceImageEnabled:false) == .fullPad)
+        precondition(settings.effectiveMapping(referenceImageEnabled:true) == .matchDesktop)
+        let canvases = [CGRect(x:0,y:0,width:1032,height:832),
+                        CGRect(x:0,y:0,width:832,height:1032),
+                        CGRect(x:64,y:96,width:1200,height:500)]
+        for bounds in canvases {
+            for (width,height) in [(1920,1080),(1920,1200),(1080,1920),(5120,2160)] {
+                let full = settings.viewport(bounds:bounds,width:width,height:height)!
+                let reference = settings.viewport(bounds:bounds,width:width,height:height,
+                                                  referenceImageEnabled:true)!
+                var matchedSettings = settings; matchedSettings.mapping = .matchDesktop
+                let matched = matchedSettings.viewport(bounds:bounds,width:width,height:height)!
+                precondition(reference.rect == matched.rect, "Image mode and explicit Match desktop use one exact transform")
+                precondition(abs(reference.rect.width / CGFloat(width) - reference.rect.height / CGFloat(height)) < 0.000001,
+                             "Picture and input must use uniform scale")
+                precondition(reference.rect.minX >= full.rect.minX - 0.000001 &&
+                             reference.rect.maxX <= full.rect.maxX + 0.000001 &&
+                             reference.rect.minY >= full.rect.minY - 0.000001 &&
+                             reference.rect.maxY <= full.rect.maxY + 0.000001,
+                             "Aspect fit stays inside all asymmetric margins")
+                for (x,y) in [(0.0,0.0),(1.0,0.0),(0.0,1.0),(1.0,1.0),(0.5,0.5),(0.17,0.83)] {
+                    let point = CGPoint(x:reference.rect.minX + reference.rect.width * x,
+                                        y:reference.rect.minY + reference.rect.height * y)
+                    let normalized = reference.normalized(point)!
+                    precondition(abs(normalized.x - x) < 0.000001 && abs(normalized.y - y) < 0.000001,
+                                 "Image landmarks and Pencil inverse mapping must coincide")
+                    let pixel = reference.map(point)!
+                    // Interior landmarks can land exactly halfway between
+                    // pixels; inverse floating-point roundoff may choose
+                    // either equally close pixel. Corners remain exact.
+                    precondition(abs(Double(pixel.x) - x * Double(width - 1)) <= 0.500001 &&
+                                 abs(Double(pixel.y) - y * Double(height - 1)) <= 0.500001)
+                    if x == 0 || x == 1 { precondition(pixel.x == Int(x * Double(width - 1))) }
+                    if y == 0 || y == 1 { precondition(pixel.y == Int(y * Double(height - 1))) }
+                }
+                if reference.rect.minY > full.rect.minY + 1 {
+                    precondition(reference.normalized(CGPoint(x:reference.rect.midX,y:full.rect.minY)) == nil,
+                                 "Image letterbox cannot start a stroke")
+                } else if reference.rect.minX > full.rect.minX + 1 {
+                    precondition(reference.normalized(CGPoint(x:full.rect.minX,y:reference.rect.midY)) == nil)
+                }
+                precondition(settings.viewport(bounds:bounds,width:width,height:height,
+                                               referenceImageEnabled:false)!.rect == full.rect,
+                             "Turning reception off restores the original full-pad area")
+            }
+        }
+        precondition(try! encoder.encode(settings) == saved,
+                     "Effective image mapping must not rewrite any saved pad preference")
     }
 }

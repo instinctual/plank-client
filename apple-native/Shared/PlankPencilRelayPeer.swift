@@ -1,6 +1,11 @@
 import Foundation
 import Network
 
+struct PlankPencilSessionBinding: Sendable, Equatable {
+    let peerKey: Data
+    let transcriptHash: Data
+}
+
 enum PlankPencilPeerEvent: Sendable {
     case verification(String)
     case ready
@@ -24,6 +29,8 @@ final class PlankPencilRelayPeer: @unchecked Sendable {
     private var buffer = Data(), writes: [Data] = []
     private let outgoing = PlankPencilMailbox()
     let incoming = PlankPencilMailbox()
+    private let diagnosticState = PlankPencilPeerDiagnosticState()
+    private var lastDiagnosticLogAt: UInt64?
     private var timer: DispatchSourceTimer?
     private let deadline = DispatchTime.now().uptimeNanoseconds + 60_000_000_000
     private var lastReceive = DispatchTime.now().uptimeNanoseconds
@@ -75,6 +82,7 @@ final class PlankPencilRelayPeer: @unchecked Sendable {
             }
             connection.start(queue:queue)
             let tick = DispatchSource.makeTimerSource(queue:queue); timer = tick
+            self.diagnosticState.expectFirstTick(at:DispatchTime.now().uptimeNanoseconds + 1_000_000_000)
             tick.schedule(deadline: .now() + .seconds(1),repeating:.seconds(1))
             tick.setEventHandler { [weak self] in self?.tick() }; tick.resume()
         }
@@ -110,6 +118,19 @@ final class PlankPencilRelayPeer: @unchecked Sendable {
         return result.accepted
     }
     func close() { queue.async { [self] in finish("Pencil sharing stopped") } }
+    var diagnostics: PlankPencilPeerDiagnostics {
+        .init(outgoing:outgoing.diagnostics,incoming:incoming.diagnostics,transport:diagnosticState.diagnostics)
+    }
+    // Media authority can only derive from this approved, ready, CURRENT pen
+    // connection. The full transcript is read on its existing serial executor.
+    func sessionBinding(_ completion: @escaping @Sendable (PlankPencilSessionBinding?) -> Void) {
+        queue.async { [self] in
+            guard !closed, verified, stage == 3, peerKey.count == 32, let crypto else { completion(nil); return }
+            var hash = [UInt8](repeating:0,count:64)
+            guard plank_pencil_crypto_final_hash(crypto,&hash) == 0 else { completion(nil); return }
+            completion(.init(peerKey:peerKey,transcriptHash:Data(hash)))
+        }
+    }
     private func output(_ operation: (OpaquePointer,UnsafeMutablePointer<UInt8>,Int,UnsafeMutablePointer<Int>) -> Int32) throws -> Data {
         guard let crypto else { throw PlankPencilWireError.crypto }
         var bytes = [UInt8](repeating:0,count:256), count = 0
@@ -231,8 +252,10 @@ final class PlankPencilRelayPeer: @unchecked Sendable {
         guard !closed, !sending, !writes.isEmpty else { return }
         sending = true
         let record = writes.removeFirst()
+        diagnosticState.beginSend()
         connection.send(content:record,completion:.contentProcessed { [weak self] error in
             guard let self, !self.closed else { return }
+            self.diagnosticState.completeSend(failed:error != nil)
             self.sending = false
             if error != nil { self.finish("Pencil connection ended"); return }
             self.sendNext(); self.pump()
@@ -248,13 +271,33 @@ final class PlankPencilRelayPeer: @unchecked Sendable {
     private func tick() {
         guard !closed else { return }
         let now = DispatchTime.now().uptimeNanoseconds
+        diagnosticState.recordTick(at:now)
         if stage < 3 {
             if now >= deadline { finish("Pencil approval timed out") }
         } else if now-lastReceive >= 5_000_000_000 { finish("Pencil connection timed out") }
         else if now-lastPing >= 1_000_000_000 { lastPing = now; _ = offer(.ping) }
+        if !closed { logDiagnostics(now:now) }
+    }
+    private func logDiagnostics(now: UInt64) {
+        if let last = lastDiagnosticLogAt, now >= last, now - last < 2_000_000_000 { return }
+        lastDiagnosticLogAt = now
+        let value = diagnostics, out = value.outgoing, incoming = value.incoming, sent = value.transport
+        func ms(_ nanos: UInt64) -> Double { Double(nanos) / 1_000_000 }
+        // Totals and lifetime maxima are explicitly distinct from current age.
+        // The role contains no peer identity, coordinates, pressure or keys.
+        NSLog("PLANK Pencil latency peer role=%@ out=[offeredTotal=%llu acceptedTotal=%llu rejectedTotal=%llu takenTotal=%llu coalescedTotal=%llu depthNow=%ld highWaterLife=%ld oldestNowMs=%.2f headValueNowMs=%.2f maxDrainLifeMs=%.2f maxValueDrainLifeMs=%.2f] in=[offeredTotal=%llu acceptedTotal=%llu rejectedTotal=%llu takenTotal=%llu coalescedTotal=%llu depthNow=%ld highWaterLife=%ld oldestNowMs=%.2f headValueNowMs=%.2f maxDrainLifeMs=%.2f maxValueDrainLifeMs=%.2f] send=[startedTotal=%llu completedTotal=%llu failedTotal=%llu cancelledTotal=%llu inFlightNowMs=%.2f lastCompletionMs=%.2f maxCompletionLifeMs=%.2f] tick=[countTotal=%llu missedTotal=%llu lateLastMs=%.2f maxLateLifeMs=%.2f]",
+              initiator ? "receiver" : "publisher",
+              out.offered,out.accepted,out.rejected,out.taken,out.coalesced,out.depth,out.highWaterDepth,
+              ms(out.oldestAgeNanos),ms(out.headValueAgeNanos),ms(out.maxDrainAgeNanos),ms(out.maxDrainedValueAgeNanos),
+              incoming.offered,incoming.accepted,incoming.rejected,incoming.taken,incoming.coalesced,incoming.depth,incoming.highWaterDepth,
+              ms(incoming.oldestAgeNanos),ms(incoming.headValueAgeNanos),ms(incoming.maxDrainAgeNanos),ms(incoming.maxDrainedValueAgeNanos),
+              sent.sendStarted,sent.sendCompleted,sent.sendFailed,sent.sendCancelled,
+              ms(sent.inFlightAgeNanos),ms(sent.lastSendCompletionNanos),ms(sent.maxSendCompletionNanos),
+              sent.tickCount,sent.missedTicks,ms(sent.lastTickLatenessNanos),ms(sent.maxTickLatenessNanos))
     }
     private func finish(_ reason: String) {
         guard !closed else { return }; closed = true
+        diagnosticState.close()
         outgoing.close(); incoming.close(); timer?.cancel(); timer = nil
         connection.stateUpdateHandler = nil; connection.cancel(); buffer.removeAll(); writes.removeAll()
         if let crypto { plank_pencil_crypto_destroy(crypto); self.crypto = nil }

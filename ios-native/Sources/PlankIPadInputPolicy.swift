@@ -1,17 +1,34 @@
 import Foundation
 import CoreGraphics
 
-/// One fit transform owns both presentation and remote coordinates. Black
-/// margins reject new contacts; an existing drag clamps to the video edge.
-struct PlankIPadViewport {
+/// One immutable transform owns presentation and full-source coordinates.
+/// `rect` always fits the complete source aspect (or explicitly stretches the
+/// full pad); local magnification changes only the visible normalized crop.
+/// Black margins reject new contacts; an existing drag clamps to the crop edge.
+struct PlankIPadViewport: Equatable {
+    static let fullSourceCrop = CGRect(x: 0, y: 0, width: 1, height: 1)
     let rect: CGRect
     let width: Int
     let height: Int
-    init?(bounds: CGRect, width: Int, height: Int, preserveAspectRatio: Bool = true) {
-        guard bounds.minX.isFinite, bounds.minY.isFinite,
-              bounds.width.isFinite, bounds.height.isFinite,
-              bounds.width > 0, bounds.height > 0, width > 1, height > 1,
-              width <= 65536, height <= 65536 else { return nil }
+    let visibleSourceCrop: CGRect
+    /// Present the whole source in this frame and clip it to `rect`. This same
+    /// scale/offset is used by both the CGImage and Metal presentation paths.
+    let fullImageFrame: CGRect
+
+    init?(bounds: CGRect, width: Int, height: Int, preserveAspectRatio: Bool = true,
+          visibleSourceCrop: CGRect = Self.fullSourceCrop) {
+        // Read raw origin/size so a negative CGRect cannot be standardized into
+        // valid input. Also reject arithmetic overflow in otherwise finite data.
+        guard bounds.origin.x.isFinite, bounds.origin.y.isFinite,
+              bounds.size.width.isFinite, bounds.size.height.isFinite,
+              bounds.size.width > 0, bounds.size.height > 0,
+              bounds.maxX.isFinite, bounds.maxY.isFinite,
+              width > 1, height > 1, width <= 65536, height <= 65536,
+              visibleSourceCrop.origin.x.isFinite, visibleSourceCrop.origin.y.isFinite,
+              visibleSourceCrop.size.width.isFinite, visibleSourceCrop.size.height.isFinite,
+              visibleSourceCrop.origin.x >= 0, visibleSourceCrop.origin.y >= 0,
+              visibleSourceCrop.size.width > 0, visibleSourceCrop.size.height > 0,
+              visibleSourceCrop.maxX <= 1, visibleSourceCrop.maxY <= 1 else { return nil }
         let aspect = CGFloat(width) / CGFloat(height)
         let fitWidth: CGFloat, fitHeight: CGFloat
         if !preserveAspectRatio {
@@ -21,9 +38,24 @@ struct PlankIPadViewport {
         } else {
             fitWidth = bounds.width; fitHeight = fitWidth / aspect
         }
-        rect = CGRect(x: bounds.midX - fitWidth / 2, y: bounds.midY - fitHeight / 2,
-                      width: fitWidth, height: fitHeight)
+        let fitted = CGRect(x: bounds.minX + (bounds.width - fitWidth) / 2,
+                            y: bounds.minY + (bounds.height - fitHeight) / 2,
+                            width: fitWidth, height: fitHeight)
+        let imageWidth = fitWidth / visibleSourceCrop.width
+        let imageHeight = fitHeight / visibleSourceCrop.height
+        let imageFrame = CGRect(x: fitted.minX - visibleSourceCrop.minX * imageWidth,
+                                y: fitted.minY - visibleSourceCrop.minY * imageHeight,
+                                width: imageWidth, height: imageHeight)
+        guard fitWidth.isFinite, fitHeight.isFinite, fitWidth > 0, fitHeight > 0,
+              fitted.minX.isFinite, fitted.minY.isFinite,
+              fitted.maxX.isFinite, fitted.maxY.isFinite,
+              imageFrame.origin.x.isFinite, imageFrame.origin.y.isFinite,
+              imageWidth.isFinite, imageHeight.isFinite,
+              imageFrame.maxX.isFinite, imageFrame.maxY.isFinite else { return nil }
+        rect = fitted
         self.width = width; self.height = height
+        self.visibleSourceCrop = visibleSourceCrop
+        fullImageFrame = imageFrame
     }
     func normalized(_ point: CGPoint, held: Bool = false) -> (x: CGFloat, y: CGFloat)? {
         guard point.x.isFinite, point.y.isFinite,
@@ -31,12 +63,31 @@ struct PlankIPadViewport {
                        point.y >= rect.minY && point.y <= rect.maxY) else { return nil }
         let x = min(max((point.x - rect.minX) / rect.width, 0), 1)
         let y = min(max((point.y - rect.minY) / rect.height, 0), 1)
-        return (x, y)
+        return (visibleSourceCrop.minX + x * visibleSourceCrop.width,
+                visibleSourceCrop.minY + y * visibleSourceCrop.height)
     }
     func map(_ point: CGPoint, held: Bool = false) -> (x: Int, y: Int)? {
         guard let (x, y) = normalized(point, held: held) else { return nil }
         return (Int((x * CGFloat(width - 1)).rounded()),
                 Int((y * CGFloat(height - 1)).rounded()))
+    }
+    /// Full-source normalized coordinates to local points. A valid source point
+    /// outside the visible crop maps outside `rect`, where presentation clips it.
+    func point(normalized coordinate: CGPoint) -> CGPoint? {
+        guard coordinate.x.isFinite, coordinate.y.isFinite,
+              coordinate.x >= 0, coordinate.x <= 1,
+              coordinate.y >= 0, coordinate.y <= 1 else { return nil }
+        let point = CGPoint(x: rect.minX + (coordinate.x - visibleSourceCrop.minX) * fullImageFrame.width,
+                            y: rect.minY + (coordinate.y - visibleSourceCrop.minY) * fullImageFrame.height)
+        return point.x.isFinite && point.y.isFinite ? point : nil
+    }
+    /// Preserve the established endpoint convention: 0 and width/height - 1
+    /// identify the full source endpoints. Host desktop origins are not offsets
+    /// in this local source transform.
+    func point(x: Int, y: Int) -> CGPoint? {
+        guard x >= 0, x < width, y >= 0, y < height else { return nil }
+        return point(normalized: CGPoint(x: CGFloat(x) / CGFloat(width - 1),
+                                         y: CGFloat(y) / CGFloat(height - 1)))
     }
 }
 

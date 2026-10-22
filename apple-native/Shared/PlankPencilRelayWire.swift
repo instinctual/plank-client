@@ -156,31 +156,160 @@ struct PlankPencilStrokeState {
     }
 }
 
+/// Local scalar observations only. A FIFO slot retains its first offer time
+/// across motion replacement; the retained value's timestamp refreshes. These
+/// separate executor residence from the freshness of the motion eventually read.
+struct PlankPencilMailboxDiagnostics: Sendable {
+    let offered: UInt64, accepted: UInt64, rejected: UInt64, taken: UInt64, coalesced: UInt64
+    let depth: Int, highWaterDepth: Int
+    let oldestAgeNanos: UInt64, headValueAgeNanos: UInt64
+    let maxDrainAgeNanos: UInt64, maxDrainedValueAgeNanos: UInt64
+}
+
+private func plankPencilDiagnosticIncrement(_ value: inout UInt64) {
+    if value != UInt64.max { value += 1 }
+}
+private func plankPencilDiagnosticAge(now: UInt64, since: UInt64) -> UInt64 {
+    now >= since ? now - since : 0
+}
+
 // Thread-safe admission BEFORE scheduling work: event edges cannot accumulate
 // as unbounded dispatch closures. Only consecutive same-phase motion coalesces.
 final class PlankPencilMailbox: @unchecked Sendable {
+    private struct Entry {
+        var value: PlankPencilMessage
+        let queuedAt: UInt64
+        var updatedAt: UInt64
+    }
     private let lock = NSLock()
-    private var values: [PlankPencilMessage] = []
+    private let clock: @Sendable () -> UInt64
+    private var values: [Entry] = []
     private var failed = false
     private var closed = false
+    private var offered: UInt64 = 0, accepted: UInt64 = 0, rejected: UInt64 = 0
+    private var taken: UInt64 = 0, coalesced: UInt64 = 0
+    private var highWaterDepth = 0
+    private var maxDrainAgeNanos: UInt64 = 0, maxDrainedValueAgeNanos: UInt64 = 0
     let limit: Int
-    init(limit: Int = 128) { self.limit = limit }
+    init(limit: Int = 128, clock: @escaping @Sendable () -> UInt64 = {
+        DispatchTime.now().uptimeNanoseconds
+    }) { self.limit = limit; self.clock = clock }
     func offer(_ value: PlankPencilMessage) -> (accepted: Bool, wake: Bool) {
         lock.lock(); defer { lock.unlock() }
-        guard !failed, !closed else { return (false,false) }
-        let wake = values.isEmpty
-        if let phase = value.replaceablePhase, values.last?.replaceablePhase == phase {
-            values[values.count-1] = value
-        } else {
-            guard values.count < limit else { failed = true; return (false,true) }
-            values.append(value)
+        plankPencilDiagnosticIncrement(&offered)
+        guard !failed, !closed else {
+            plankPencilDiagnosticIncrement(&rejected); return (false,false)
         }
+        let now = clock()
+        let wake = values.isEmpty
+        if let phase = value.replaceablePhase, values.last?.value.replaceablePhase == phase {
+            values[values.count-1].value = value
+            values[values.count-1].updatedAt = now
+            plankPencilDiagnosticIncrement(&coalesced)
+        } else {
+            guard values.count < limit else {
+                failed = true; plankPencilDiagnosticIncrement(&rejected); return (false,true)
+            }
+            values.append(Entry(value:value,queuedAt:now,updatedAt:now))
+        }
+        plankPencilDiagnosticIncrement(&accepted)
+        highWaterDepth = max(highWaterDepth,values.count)
         return (true,wake)
     }
     func take() throws -> PlankPencilMessage? {
         lock.lock(); defer { lock.unlock() }
         guard !failed else { throw PlankPencilWireError.overflow }
-        return values.isEmpty ? nil : values.removeFirst()
+        guard !values.isEmpty else { return nil }
+        let entry = values.removeFirst(), now = clock()
+        plankPencilDiagnosticIncrement(&taken)
+        maxDrainAgeNanos = max(maxDrainAgeNanos,plankPencilDiagnosticAge(now:now,since:entry.queuedAt))
+        maxDrainedValueAgeNanos = max(maxDrainedValueAgeNanos,plankPencilDiagnosticAge(now:now,since:entry.updatedAt))
+        return entry.value
     }
     func close() { lock.lock(); closed = true; values.removeAll(); lock.unlock() }
+    var diagnostics: PlankPencilMailboxDiagnostics {
+        lock.lock(); defer { lock.unlock() }
+        let now = clock()
+        return .init(offered:offered,accepted:accepted,rejected:rejected,taken:taken,coalesced:coalesced,
+            depth:values.count,highWaterDepth:highWaterDepth,
+            oldestAgeNanos:values.first.map { plankPencilDiagnosticAge(now:now,since:$0.queuedAt) } ?? 0,
+            headValueAgeNanos:values.first.map { plankPencilDiagnosticAge(now:now,since:$0.updatedAt) } ?? 0,
+            maxDrainAgeNanos:maxDrainAgeNanos,maxDrainedValueAgeNanos:maxDrainedValueAgeNanos)
+    }
+}
+
+struct PlankPencilPeerTransportDiagnostics: Sendable {
+    let sendStarted: UInt64, sendCompleted: UInt64, sendFailed: UInt64, sendCancelled: UInt64
+    let inFlightAgeNanos: UInt64, lastSendCompletionNanos: UInt64, maxSendCompletionNanos: UInt64
+    let tickCount: UInt64, missedTicks: UInt64
+    let lastTickLatenessNanos: UInt64, maxTickLatenessNanos: UInt64
+}
+struct PlankPencilPeerDiagnostics: Sendable {
+    let outgoing: PlankPencilMailboxDiagnostics, incoming: PlankPencilMailboxDiagnostics
+    let transport: PlankPencilPeerTransportDiagnostics
+}
+
+/// One scalar lock makes diagnostic snapshots safe without waiting on the
+/// transport executor or retaining events. Its clock never enters wire records.
+final class PlankPencilPeerDiagnosticState: @unchecked Sendable {
+    private let lock = NSLock()
+    private let clock: @Sendable () -> UInt64
+    private var closed = false
+    private var inFlightAt: UInt64?
+    private var sendStarted: UInt64 = 0, sendCompleted: UInt64 = 0
+    private var sendFailed: UInt64 = 0, sendCancelled: UInt64 = 0
+    private var lastSendCompletionNanos: UInt64 = 0, maxSendCompletionNanos: UInt64 = 0
+    private var expectedTickAt: UInt64?
+    private var tickCount: UInt64 = 0, missedTicks: UInt64 = 0
+    private var lastTickLatenessNanos: UInt64 = 0, maxTickLatenessNanos: UInt64 = 0
+    init(clock: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }) {
+        self.clock = clock
+    }
+    func beginSend() {
+        lock.lock(); defer { lock.unlock() }
+        guard !closed, inFlightAt == nil else { return }
+        inFlightAt = clock(); plankPencilDiagnosticIncrement(&sendStarted)
+    }
+    func completeSend(failed: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        guard !closed, let started = inFlightAt else { return }
+        inFlightAt = nil; plankPencilDiagnosticIncrement(&sendCompleted)
+        if failed { plankPencilDiagnosticIncrement(&sendFailed) }
+        lastSendCompletionNanos = plankPencilDiagnosticAge(now:clock(),since:started)
+        maxSendCompletionNanos = max(maxSendCompletionNanos,lastSendCompletionNanos)
+    }
+    func expectFirstTick(at: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        guard !closed else { return }; expectedTickAt = at
+    }
+    func recordTick(at now: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        guard !closed else { return }; plankPencilDiagnosticIncrement(&tickCount)
+        guard let expected = expectedTickAt else { return }
+        let interval: UInt64 = 1_000_000_000
+        lastTickLatenessNanos = plankPencilDiagnosticAge(now:now,since:expected)
+        maxTickLatenessNanos = max(maxTickLatenessNanos,lastTickLatenessNanos)
+        let intervals = lastTickLatenessNanos / interval + 1
+        let missed = intervals - 1
+        missedTicks = missedTicks > UInt64.max - missed ? UInt64.max : missedTicks + missed
+        // Diagnostics follow the timer's original grid, including coalesced
+        // firings. This changes no timer deadline, leeway or timeout policy.
+        let (advance,overflow) = intervals.multipliedReportingOverflow(by:interval)
+        expectedTickAt = overflow || expected > UInt64.max - advance ? UInt64.max : expected + advance
+    }
+    func close() {
+        lock.lock(); defer { lock.unlock() }
+        if inFlightAt != nil { plankPencilDiagnosticIncrement(&sendCancelled) }
+        inFlightAt = nil; expectedTickAt = nil; closed = true
+    }
+    var diagnostics: PlankPencilPeerTransportDiagnostics {
+        lock.lock(); defer { lock.unlock() }
+        let now = clock()
+        return .init(sendStarted:sendStarted,sendCompleted:sendCompleted,sendFailed:sendFailed,
+            sendCancelled:sendCancelled,
+            inFlightAgeNanos:inFlightAt.map { plankPencilDiagnosticAge(now:now,since:$0) } ?? 0,
+            lastSendCompletionNanos:lastSendCompletionNanos,maxSendCompletionNanos:maxSendCompletionNanos,
+            tickCount:tickCount,missedTicks:missedTicks,lastTickLatenessNanos:lastTickLatenessNanos,
+            maxTickLatenessNanos:maxTickLatenessNanos)
+    }
 }

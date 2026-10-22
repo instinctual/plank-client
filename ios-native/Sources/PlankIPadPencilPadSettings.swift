@@ -51,7 +51,14 @@ struct PlankIPadPencilPadSettings: Codable, Equatable {
         next.shortcutOrder = shortcuts.map(\.rawValue)
         return next
     }
-    func viewport(bounds: CGRect, width: Int, height: Int) -> PlankIPadViewport? {
+    /// Receiving a reference always uses uniform scale for both picture and
+    /// Pencil. Keep the input-only preference intact when that mode is active.
+    func effectiveMapping(referenceImageEnabled: Bool) -> Mapping {
+        referenceImageEnabled ? .matchDesktop : mapping
+    }
+    func viewport(bounds: CGRect, width: Int, height: Int,
+                  referenceImageEnabled: Bool = false,
+                  visibleSourceCrop: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)) -> PlankIPadViewport? {
         // Validate the original canvas before insetting; negative/NaN canvases
         // must never become a seemingly valid CGRect through standardization.
         guard bounds.minX.isFinite, bounds.minY.isFinite,
@@ -64,7 +71,8 @@ struct PlankIPadPencilPadSettings: Codable, Equatable {
                           width: canvas.width * (1 - settings.left - settings.right),
                           height: canvas.height * (1 - settings.top - settings.bottom))
         return PlankIPadViewport(bounds: area, width: width, height: height,
-                                preserveAspectRatio: settings.mapping == .matchDesktop)
+                                preserveAspectRatio: settings.effectiveMapping(referenceImageEnabled:referenceImageEnabled) == .matchDesktop,
+                                visibleSourceCrop: visibleSourceCrop)
     }
     /// Low luminance even at the upper end. This controls the app's pad fill,
     /// never the device-wide display brightness.

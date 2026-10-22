@@ -10,6 +10,7 @@ struct PlankSessionControls: View {
     @Binding var allowWindowResizing: Bool
     @Binding var mouseSensitivity: Double
     let onDone: () -> Void
+    @Environment(\.openWindow) private var openWindow
     @State private var bitrateMbps: Double?
 
     var body: some View {
@@ -84,6 +85,10 @@ struct PlankSessionControls: View {
                     .foregroundStyle(.secondary)
             }
 
+#if PLANK_PENCIL_RELAY_RECEIVER
+            PlankPencilImageSessionControls(receiver: client.pencilRelay)
+#endif
+
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Mouse speed").font(.headline)
@@ -104,6 +109,13 @@ struct PlankSessionControls: View {
             Divider()
             VStack(alignment: .leading, spacing: 8) {
                 Text("Window").font(.headline)
+                Button {
+                    onDone()
+                    openWindow(id: "plank-browser")
+                } label: {
+                    Label("Show Workstations", systemImage: "macwindow.on.rectangle")
+                }
+                .accessibilityIdentifier("plank.open-workstations")
                 Toggle("Allow resizing", isOn: $allowWindowResizing)
                 Text("Turn off after resizing to keep mouse control at the corners.")
                     .font(.caption)

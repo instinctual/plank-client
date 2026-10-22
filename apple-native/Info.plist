@@ -15,6 +15,6 @@
 <key>NSHighResolutionCapable</key><true/>
 <key>NSBluetoothAlwaysUsageDescription</key><string>Connect to your approved drawing Relay.</string>
 <key>NSLocalNetworkUsageDescription</key><string>Connect to your PLANK workstation, approved drawing Relay or shared iPad Pencil, or share a USB tablet with an approved headset.</string>
-<key>NSBonjourServices</key><array><string>_nvstream._tcp</string><string>_plank-tablet._tcp</string><string>_plank-avp-relay._tcp</string><string>_plank-pencil._tcp</string></array>
+<key>NSBonjourServices</key><array><string>_nvstream._tcp</string><string>_plank-tablet._tcp</string><string>_plank-avp-relay._tcp</string><string>_plank-pencil._tcp</string><string>_plank-pencil-image._tcp</string></array>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
 </dict></plist>

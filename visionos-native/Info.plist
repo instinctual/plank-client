@@ -49,7 +49,7 @@
     <key>NSBonjourServices</key>
     <array>
         <string>_nvstream._tcp</string>
-        <string>_plank-tablet._tcp</string><string>_plank-pencil._tcp</string>
+        <string>_plank-tablet._tcp</string><string>_plank-pencil._tcp</string><string>_plank-pencil-image._tcp</string>
     </array>
     <key>NSLocalNetworkUsageDescription</key>
     <string>PLANK uses the local network to connect to your workstation and a paired tablet Relay.</string>
