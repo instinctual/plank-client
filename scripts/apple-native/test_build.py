@@ -26,6 +26,13 @@ class TargetIntegrationTests(unittest.TestCase):
         self.assertIn("$(PLANK_BUILD_BRANCH)", plist)
         self.assertIn("$(CURRENT_PROJECT_VERSION)", plist)
 
+    def test_ipad_device_archive_contains_application_and_symbols(self):
+        source = (build.REPOSITORY / "ios-native/CMakeLists.txt").read_text()
+        self.assertIn("XCODE_ATTRIBUTE_SKIP_INSTALL NO", source)
+        self.assertIn('XCODE_ATTRIBUTE_INSTALL_PATH "/Applications"', source)
+        self.assertIn('XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT "dwarf-with-dsym"', source)
+        self.assertIn("XCODE_ATTRIBUTE_GCC_GENERATE_DEBUGGING_SYMBOLS YES", source)
+
     def test_both_simulators_exclude_only_presentation_timestamp_callback(self):
         source = (build.REPOSITORY / "visionos-native/Sources/Views/PlankMetalVideoView.swift").read_text()
         self.assertIn("#if !targetEnvironment(simulator)", source)
