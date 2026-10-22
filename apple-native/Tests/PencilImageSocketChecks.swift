@@ -21,7 +21,9 @@ final class PencilImageSocketCheck: @unchecked Sendable {
             jpegData:Data(repeating:UInt8(truncatingIfNeeded:number),count:bytes),receivedAtUptimeNanoseconds:0)
     }
     func run() throws {
-        let server=try NWListener(using:.tcp,on:.any); listener=server
+        let parameters=NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host:"127.0.0.1",port:.any)
+        let server=try NWListener(using:parameters); listener=server
         server.newConnectionHandler = { [self] connection in
             do {
                 let key=try PlankPencilRelayKeys.publicKey(a)
@@ -103,7 +105,9 @@ final class PencilSessionBindingCheck: @unchecked Sendable {
     private let a=Data([UInt8(16)]+[UInt8](repeating:0,count:31))
     private let b=Data([UInt8(32)]+[UInt8](repeating:0,count:31))
     func run() throws {
-        let listener=try NWListener(using:.tcp,on:.any)
+        let parameters=NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host:"127.0.0.1",port:.any)
+        let listener=try NWListener(using:parameters)
         listener.newConnectionHandler = { [self] connection in
             do {
                 let peer=try PlankPencilRelayPeer(connection:connection,privateKey:b,

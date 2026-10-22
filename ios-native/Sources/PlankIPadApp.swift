@@ -120,6 +120,7 @@ struct PlankIPadRoot: View {
                             Button(action:editCustomControls) {
                                 Label("Custom Controls",systemImage:"rectangle.grid.2x2")
                             }.buttonStyle(.bordered).disabled(busy)
+                            Text(buildDescription).font(.caption).foregroundStyle(.secondary)
                             if store.hosts.isEmpty {
                                 ContentUnavailableView("Add a workstation", systemImage: "desktopcomputer",
                                     description: Text("Connect to your PLANK desktop."))
@@ -165,6 +166,13 @@ struct PlankIPadRoot: View {
                 }
             }
         }
+    }
+    private var buildDescription: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "unknown"
+        let build = info["CFBundleVersion"] as? String ?? "unknown"
+        let branch = info["PLANKBuildBranch"] as? String ?? "local"
+        return "\(version) (\(build))" + (branch == "main" ? "" : " · \(branch)")
     }
     private var workingSurface: some View {
         PlankIPadWorkingSurface(barsVisible:!hideBars,consentVisible:sharePencil && pencilRelay.verification != nil,

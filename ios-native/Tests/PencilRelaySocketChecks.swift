@@ -24,7 +24,9 @@ final class PencilSocketCheck: @unchecked Sendable {
             .keys(maximumDown),.keys(maximumUp)]
     }
     func run() throws {
-        let listener = try NWListener(using:.tcp,on:.any)
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host:"127.0.0.1",port:.any)
+        let listener = try NWListener(using:parameters)
         listener.newConnectionHandler = { connection in
             do {
                 let peer = try PlankPencilRelayPeer(connection:connection,privateKey:self.b,

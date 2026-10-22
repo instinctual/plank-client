@@ -13,6 +13,26 @@ build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(build)
 
 
+class TargetIntegrationTests(unittest.TestCase):
+    def test_ipad_build_keeps_separate_metadata_and_release_configuration(self):
+        source = Path(build.__file__).read_text()
+        self.assertIn('f"-DPLANK_IPAD_BUILD_NUMBER={args.build_number}"', source)
+        self.assertIn('f"-DPLANK_IPAD_VERSION={args.version}"', source)
+        self.assertIn('f"-DPLANK_IPAD_BUNDLE_ID={args.bundle_id}"', source)
+        self.assertIn('f"-DPLANK_BUILD_BRANCH={args.branch}"', source)
+        self.assertIn('f"{args.configuration}-{sdk}"', source)
+        self.assertIn('CARGO_PROFILE_RELEASE_STRIP="none"', source)
+        plist = (build.REPOSITORY / "ios-native/Info.plist.in").read_text()
+        self.assertIn("$(PLANK_BUILD_BRANCH)", plist)
+        self.assertIn("$(CURRENT_PROJECT_VERSION)", plist)
+
+    def test_both_simulators_exclude_only_presentation_timestamp_callback(self):
+        source = (build.REPOSITORY / "visionos-native/Sources/Views/PlankMetalVideoView.swift").read_text()
+        self.assertIn("#if !targetEnvironment(simulator)", source)
+        self.assertNotIn("#if !os(iOS) || !targetEnvironment(simulator)", source)
+        self.assertIn("drawable.addPresentedHandler", source)
+
+
 class SourceVerificationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

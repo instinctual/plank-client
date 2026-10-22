@@ -7,6 +7,7 @@ out=$(cd -- "$1" && pwd)
 cd "$root"
 xcrun swiftc -swift-version 6 -Onone -parse-as-library -DPLANK_NATIVE_MAC_WACOM \
     apple-native/Sources/PlankMacInputPolicy.swift visionos-native/Sources/Services/PlankInputQueue.swift \
+    apple-native/Shared/PlankControlKeyOwnership.swift \
     visionos-native/Sources/Services/PlankWacomPreflight.swift apple-native/Tests/PlankMacPolicyTests.swift -o "$out/mac-policy"
 "$out/mac-policy"
 xcrun swiftc -swift-version 6 -Onone -parse-as-library \
@@ -32,6 +33,7 @@ xcrun swiftc -swift-version 6 -Onone -parse-as-library -DPLANK_NATIVE_MAC_WACOM 
     -import-objc-header apple-native/Tests/PlankMacWacomWorkerDriver.h -Iapple-native/Bridge \
     apple-native/Sources/PlankMacTabletSource.swift apple-native/Sources/PlankMacWacomSession.swift apple-native/Sources/PlankMacInputPolicy.swift \
     visionos-native/Sources/Services/PlankInputQueue.swift visionos-native/Sources/Services/PlankWacomPreflight.swift \
+    apple-native/Shared/PlankControlKeyOwnership.swift \
     visionos-native/Sources/Services/PlankTabletInputPolicy.swift \
     apple-native/Tests/PlankMacWacomWorkerTests.swift "$out/mac-wacom-wrapper.o" "$out/mac-wacom-worker.o" \
     -lc++ -o "$out/mac-wacom-worker"
@@ -60,5 +62,11 @@ xcrun swiftc -swift-version 6 -Onone -parse-as-library \
     apple-native/Sources/PlankMacTabletSource.swift \
     apple-native/Shared/PlankPencilModifiers.swift apple-native/Shared/PlankPencilRelayWire.swift \
     visionos-native/Sources/Services/PlankInputQueue.swift \
+    apple-native/Shared/PlankControlKeyOwnership.swift \
     apple-native/Tests/PlankMacPencilTests.swift -o "$out/mac-pencil"
 "$out/mac-pencil"
+
+xcrun swiftc -swift-version 6 -Onone -parse-as-library -DPLANK_PENCIL_RELAY_RECEIVER \
+    apple-native/Sources/PlankMacLocalControls.swift \
+    apple-native/Tests/PlankMacPencilSettingsTests.swift -o "$out/mac-pencil-settings"
+"$out/mac-pencil-settings"

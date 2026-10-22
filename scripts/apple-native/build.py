@@ -328,7 +328,10 @@ def application(inputs, args):
                     f"-DPLANK_BUILD_BRANCH={args.branch}"]
     elif args.platform.startswith("ios-"):
         command += ["-DCMAKE_SYSTEM_NAME=iOS",
-                    f"-DPLANK_IPAD_BUILD_NUMBER={args.build_number}"]
+                    f"-DPLANK_IPAD_BUILD_NUMBER={args.build_number}",
+                    f"-DPLANK_IPAD_VERSION={args.version}",
+                    f"-DPLANK_IPAD_BUNDLE_ID={args.bundle_id}",
+                    f"-DPLANK_BUILD_BRANCH={args.branch}"]
     else:
         command += ["-DCMAKE_SYSTEM_NAME=visionOS",
                     f"-DPLANK_VISION_BUILD_NUMBER={args.build_number}",

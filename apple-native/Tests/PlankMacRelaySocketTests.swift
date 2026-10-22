@@ -14,7 +14,9 @@ import Foundation
         let firstKeys = stateKeys(reopenedRoot)
         precondition(stateKeys(reopenedRoot) == firstKeys, "App restart must reopen the same private identities")
         guard let native = MacRelayNative(root: root) else { fatalError("state") }
-        let listener = try NWListener(using:.tcp,on:.any)
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host:"127.0.0.1",port:.any)
+        let listener = try NWListener(using:parameters)
         let peers = MacRelayTestPeers()
         listener.newConnectionHandler = { connection in Task { @MainActor in
             let peer = MacRelayPeer(connection:connection,native:native,setup:true,routes:["192.0.2.10"],drawingPort:28990,setupPort:28991,inventory:{ [.init(group:7,name:"Wacom test USB",serial:nil)] },event:{ event in
