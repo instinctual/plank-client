@@ -83,8 +83,9 @@ final class PencilImageSocketCheck: @unchecked Sendable {
                 for i in 2...101 { assert(peer!.offer(frame(UInt64(i),bytes:1))) }
             }
             if complete { done.signal() }
-        case .ended:
-            lock.lock(); let okay=finished; lock.unlock(); assert(okay,"Unexpected image close")
+        case let .ended(reason):
+            lock.lock(); let okay=finished, frames=received; lock.unlock()
+            assert(okay,"Unexpected image close (sender=\(isSender), frames=\(frames)): \(reason)")
         }
     }
 }
