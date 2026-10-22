@@ -7,7 +7,8 @@
     "architecture": "arm64",
     "macos_deployment": "15.0",
     "visionos_deployment": "26.0",
-    "parent_rust": "1.89.0"
+    "parent_rust": "1.89.0",
+    "ios_deployment": "26.0"
   },
   "git": {
     "root": {

@@ -2,6 +2,7 @@ import Foundation
 import CoreVideo
 
 enum PlankHostFeature {
+    static let normalizedPen: UInt32 = 0x01
     static let rawHidTablet: UInt32 = 0x04
     static let rawHidFocusSuspend: UInt32 = 0x20
     static let tabletRelayRequired = rawHidTablet | rawHidFocusSuspend
@@ -351,7 +352,8 @@ struct PlankSessionEngine: Sendable {
                         let sendStart = DispatchTime.now().uptimeNanoseconds
                         let sent = Self.send(
                             event, to: endpoint.pointer,
-                            rawHidAvailable: rawHidAvailable
+                            rawHidAvailable: rawHidAvailable,
+                            penAvailable: hostFeatures & PlankHostFeature.normalizedPen != 0
                         ) == PLANK_VISION_TRANSPORT_OK
                         senderState.recordSend(
                             nanos: DispatchTime.now().uptimeNanoseconds - sendStart,
@@ -726,7 +728,8 @@ struct PlankSessionEngine: Sendable {
     private static func send(
         _ input: PlankInputEvent,
         to transport: OpaquePointer,
-        rawHidAvailable: Bool
+        rawHidAvailable: Bool,
+        penAvailable: Bool
     ) -> Int32 {
         switch input {
         case let .pointer(x, y, maximumX, maximumY):
@@ -755,6 +758,12 @@ struct PlankSessionEngine: Sendable {
                     bytes.count
                 )
             }
+        case let .pen(pen):
+            guard penAvailable else { return Int32(PLANK_VISION_TRANSPORT_ERROR) }
+            return plank_vision_transport_send_pen(
+                transport, pen.phase.rawValue, pen.x, pen.y,
+                pen.pressureOrDistance, pen.tilt, pen.rotation
+            )
         case let .rawHid(frame):
             guard rawHidAvailable else { return Int32(PLANK_VISION_TRANSPORT_ERROR) }
             return frame.withUnsafeBytes { bytes in

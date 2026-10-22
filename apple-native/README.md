@@ -9,6 +9,40 @@ bookmark domain; it does not import existing applications' private state.
 The pilot is not a shipping replacement for the desktop Client. A signed build
 and passing checks do not qualify streaming or physical tablet behavior.
 
+## iPad Apple Pencil receiver (build 25 candidate)
+
+Choose **Apple Pencil shared from iPad** in Mac Settings before opening a
+desktop. On the iPad, open **Share Apple Pencil**. Select the discovered pad
+in Mac Settings or Session Controls, compare the codes on both devices, and
+approve on both. Close the controls and focus a desktop to draw. This uses the
+same authenticated version-2 Pencil and held-shortcut capability as Vision48
+and iPad21; each signed app keeps its own identity and approvals.
+
+The session snapshots the tablet choice. Pencil creates neither the USB Wacom
+worker nor a raw registered-Relay link. Existing Wacom capture and descriptors
+are unchanged. Changing the source requires ending the desktop first. The
+Mac must stop sharing its own USB tablet before starting a desktop, as before.
+One iPad shares with one receiver at a time; disconnect its previous Pencil
+receiver or stop/restart sharing before moving between Mac and Vision.
+
+Normalized position, pressure, supported hover/tilt and squeeze right-click
+use the existing negotiated Host pen path. The floating iPad shortcut pad
+uses the same last-owner keyboard policy, including physical Mac keyboard
+holds. Accepted Pencil input selects the existing remote-cursor overlay;
+later mouse movement returns native cursor ownership. No coordinate or
+display-topology compensation is added.
+
+Opening local Mac controls pauses Pencil input and retires its held contact
+and shortcuts. Closing controls requires fresh presses. Focus, desktop
+generation and disconnect retain the shared receiver's retirement boundary.
+Physical Mac drawing, multi-display Pencil alignment and final Host release
+receipt remain device qualification gates; compilation and local checks do
+not qualify them. First transport is reachable local network, foreground
+iPad sharing. No Bluetooth or background Pencil capture is claimed.
+
+See [Pencil sharing](../docs/development/ipad-pencil-relay.md) for current
+source acceptance and shared transport limits.
+
 The [native Mac hit list](../docs/development/plans/native-macos-hit-list.md)
 records the accepted build-9 checkpoint and the next quality, multiple-screen
 and webcam slices, with Wacom and release gates.

@@ -122,6 +122,80 @@ private final class PlankTabletControlReceiver: @unchecked Sendable {
 
 @MainActor
 final class PlankCoreClient: ObservableObject {
+#if PLANK_PENCIL_RELAY_RECEIVER
+    lazy var pencilRelay = PlankPencilRelayReceiver(client: self)
+    private var pencilKeyOwnership = PlankPencilKeyOwnership()
+    func sendPencilRelayModifier(_ key: PlankPencilModifier, pressed: Bool) -> Bool {
+        sendPencilRelayKeys([.init(code:key.rawValue,pressed:pressed)])
+    }
+    func sendPencilRelayKeys(_ batch: [PlankPencilKeyEvent]) -> Bool {
+        guard pencilRelayCanDraw, pencilRelay.ownsPen,
+              (try? PlankPencilMessage.keys(batch).encoded()) != nil else { return false }
+        // Publish the ledger only after every ordered edge has queue capacity.
+        var next = pencilKeyOwnership
+        let events = batch.compactMap { edge -> PlankControlKeyEvent? in
+            guard let value = next.update(code:edge.code,pressed:edge.pressed,modifiers:edge.modifiers,source:.pad) else { return nil }
+            return .init(code:value.code,pressed:value.pressed,modifiers:value.modifiers)
+        }
+        guard inputQueue.offerControlKeys(events) else { return false }
+        pencilKeyOwnership = next; return true
+    }
+    func retirePencilRelayModifiers() {
+        for event in pencilKeyOwnership.retirePad() {
+            inputQueue.append(.key(code:event.code,pressed:event.pressed,modifiers:event.modifiers))
+        }
+    }
+    func resetPencilKeyOwnership() { pencilKeyOwnership = .init() }
+    var pencilRelaySourceAllowed: Bool {
+#if PLANK_NATIVE_MAC_WACOM
+        // Use the immutable running-session choice, not preferences changed
+        // while a USB worker or registered Relay already owns the backend.
+        return PlankMacTabletSource.allowsPencil(sessionActive: hasActiveDesktopSession,
+            sessionSource: sessionNativeSource, savedSource: .saved)
+#else
+        return PlankRelayKeys.relayRegistry().selection == .off
+#endif
+    }
+    var pencilRelaySourceMessage: String {
+#if PLANK_NATIVE_MAC_WACOM
+        "Choose Apple Pencil shared from iPad as the tablet source before connecting."
+#else
+        "Turn Tablet Relay off before choosing an iPad Pencil."
+#endif
+    }
+#if PLANK_NATIVE_MAC_WACOM
+    private var pencilLocalControls = Set<UUID>()
+    func setPencilLocalControls(_ presented: Bool, owner: UUID) {
+        if presented { pencilLocalControls.insert(owner) } else { pencilLocalControls.remove(owner) }
+        pencilRelay.sync()
+    }
+#endif
+    var pencilRelayCanDraw: Bool {
+        guard pencilRelaySourceAllowed, hostSupportsNormalizedPen, tabletSceneActive,
+              !isClosingSession else { return false }
+#if PLANK_NATIVE_MAC_WACOM
+        guard pencilLocalControls.isEmpty else { return false }
+#endif
+        if case .streaming = phase { return true }; return false
+    }
+    func sendPencilRelayPen(_ pen: PlankNormalizedPen) -> Bool {
+        guard pencilRelayCanDraw, pencilRelay.ownsPen else { return false }
+        return inputQueue.offerPencilRelayPen(pen)
+    }
+    func sendPencilRelayRightClick(x: Float, y: Float, width: Int, height: Int) -> Bool {
+        guard pencilRelayCanDraw, pencilRelay.ownsPen, !pencilRelay.strokeActive,
+              width > 1, height > 1, x.isFinite, y.isFinite,
+              (0...1).contains(x), (0...1).contains(y) else { return false }
+        return inputQueue.offerPencilRelayRightClick(
+            x:UInt16(clamping:Int((x * Float(width-1)).rounded())),
+            y:UInt16(clamping:Int((y * Float(height-1)).rounded())),
+            maximumX:UInt16(clamping:width-1),maximumY:UInt16(clamping:height-1))
+    }
+    func retirePencilRelayPen(_ pen: PlankNormalizedPen) {
+        guard pen.phase == .cancel || pen.phase == .leave else { return }
+        inputQueue.append(.pen(pen))
+    }
+#endif
     @Published private(set) var phase: ConnectionPhase = .idle
     @Published private(set) var isClosingSession = false
     @Published private(set) var frameDimensions: PlankFrameDimensions?
@@ -169,6 +243,7 @@ final class PlankCoreClient: ObservableObject {
     private let tabletControlReceiver = PlankTabletControlReceiver()
     private let videoDiagnostics = PlankVideoDiagnosticsGate()
     private var liveBitrateController: PlankLiveBitrate?
+    @Published private(set) var hostSupportsNormalizedPen = false
     private var hostSupportsTabletRelay = false
 #if PLANK_TABLET_RELAY
     private var tabletBridge: PlankRelaySessionBridge?
@@ -328,6 +403,9 @@ final class PlankCoreClient: ObservableObject {
         let wasActive = tabletSceneActive
         tabletSceneActive = active
         tabletBridge?.setActive(active)
+#if PLANK_PENCIL_RELAY_RECEIVER
+        pencilRelay.sync()
+#endif
 #if PLANK_NATIVE_MAC_WACOM
         if hostSupportsTabletRelay { nativeWacom?.setActive(active) }
 #endif
@@ -403,10 +481,14 @@ final class PlankCoreClient: ObservableObject {
         stoppingTabletBridge = previousTabletBridge
         tabletBridge = nil
 #endif
+#if PLANK_PENCIL_RELAY_RECEIVER
+        pencilRelay.endDesktop()
+#endif
         inputQueue.stop()
         inputQueue = PlankInputQueue()
         remoteCursor = nil
         remoteCursorShape = nil
+        hostSupportsNormalizedPen = false
         hostSupportsTabletRelay = false
 #if PLANK_TABLET_RELAY
         tabletRelayStatus = "Waiting for Host tablet support…"
@@ -424,8 +506,8 @@ final class PlankCoreClient: ObservableObject {
         // attach before forwarding mouse input into that desktop session.
 #if PLANK_NATIVE_MAC_WACOM
         sessionNativeSource = PlankMacTabletSource.saved
-        let relayConfigured = sessionNativeSource == .usb ||
-            (sessionNativeSource == .relay && PlankRelayKeys.sessionRelayConfigured())
+        let relayConfigured = sessionNativeSource.usesUSB ||
+            (sessionNativeSource.usesRegisteredRelay && PlankRelayKeys.sessionRelayConfigured())
 #else
         let relayConfigured = PlankRelayKeys.sessionRelayConfigured()
 #endif
@@ -508,10 +590,10 @@ final class PlankCoreClient: ObservableObject {
         }
 #if PLANK_NATIVE_MAC_WACOM
         let localSource = sessionNativeSource
-        let localWacom = localSource == .usb ? PlankMacWacomSession(input: inputQueue, preflight: preflight) : nil
+        let localWacom = localSource.usesUSB ? PlankMacWacomSession(input: inputQueue, preflight: preflight) : nil
         nativeWacom = localWacom
-        tabletBridge = localSource == .relay ? sessionTabletBridge : nil
-        if localSource == .relay { sessionTabletBridge.setActive(tabletSceneActive) }
+        tabletBridge = localSource.usesRegisteredRelay ? sessionTabletBridge : nil
+        if localSource.usesRegisteredRelay { sessionTabletBridge.setActive(tabletSceneActive) }
         let sourceDiagnostics: @Sendable () -> String = { localWacom != nil ? "local USB Wacom" : sessionTabletBridge.diagnosticSummary() }
         let closePhysicalCapture: @Sendable () -> Void = { localWacom?.closeSynchronously() }
 #else
@@ -639,6 +721,9 @@ final class PlankCoreClient: ObservableObject {
                         } else {
                             self.phase = .streaming(identity, activeAuthentication, newest.frameNumber)
                         }
+#if PLANK_PENCIL_RELAY_RECEIVER
+                        self.pencilRelay.sync()
+#endif
                     }
                 }
             } onVideoProgress: { [weak self] progress in
@@ -677,13 +762,14 @@ final class PlankCoreClient: ObservableObject {
                     focusSuspend: flags & PlankHostFeature.rawHidFocusSuspend != 0
                 )
 #if PLANK_NATIVE_MAC_WACOM
-                if localSource == .relay { sessionTabletBridge.startIfPaired(hostFeatures: flags) }
+                if localSource.usesRegisteredRelay { sessionTabletBridge.startIfPaired(hostFeatures: flags) }
 #else
                 sessionTabletBridge.startIfPaired(hostFeatures: flags)
 #endif
 #endif
                 Task { @MainActor [weak self] in
                     guard let self, self.streamGeneration == generation else { return }
+                    self.hostSupportsNormalizedPen = flags & PlankHostFeature.normalizedPen != 0
                     self.hostSupportsTabletRelay =
                         flags & PlankHostFeature.tabletRelayRequired ==
                         PlankHostFeature.tabletRelayRequired
@@ -706,7 +792,7 @@ final class PlankCoreClient: ObservableObject {
                 preflight.observeHostFrame(frame)
 #if PLANK_NATIVE_MAC_WACOM
                 if let localWacom { localWacom.control(frame) }
-                else if localSource == .relay { sessionTabletBridge.forwardHostFrame(frame) }
+                else if localSource.usesRegisteredRelay { sessionTabletBridge.forwardHostFrame(frame) }
 #else
                 sessionTabletBridge.forwardHostFrame(frame)
 #endif
@@ -923,9 +1009,13 @@ final class PlankCoreClient: ObservableObject {
         tabletWaitTimeoutID = UUID()
 #endif
         tabletControlReceiver.set(nil)
+        hostSupportsNormalizedPen = false
         hostSupportsTabletRelay = false
         streamGeneration = UUID()
         let closingGeneration = streamGeneration
+#if PLANK_PENCIL_RELAY_RECEIVER
+        pencilRelay.endDesktop()
+#endif
         inputQueue.stop()
         latestFrame = nil
         remoteCursor = nil
@@ -988,6 +1078,9 @@ final class PlankCoreClient: ObservableObject {
 #endif
 
     func movePointer(x: Int, y: Int, width: Int, height: Int) {
+#if PLANK_PENCIL_RELAY_RECEIVER
+        guard !pencilRelay.strokeActive else { return }
+#endif
 #if PLANK_TABLET_RELAY
         guard !waitingForTablet else { return }
 #endif
@@ -1002,11 +1095,36 @@ final class PlankCoreClient: ObservableObject {
         ))
     }
 
+    var acceptsNormalizedPen: Bool {
+        guard hostSupportsNormalizedPen else { return false }
+#if PLANK_PENCIL_RELAY_RECEIVER
+        guard !pencilRelay.ownsPen else { return false }
+#endif
+#if PLANK_TABLET_RELAY
+        // A selected raw Relay owns the Host tablet backend. Never alternate
+        // that backend with normalized Pencil reports.
+#if PLANK_NATIVE_MAC_WACOM
+        guard sessionNativeSource == .off else { return false }
+#else
+        guard PlankRelayKeys.relayRegistry().selection == .off else { return false }
+#endif
+#endif
+        return true
+    }
+
+    func sendPen(_ pen: PlankNormalizedPen) {
+        guard acceptsNormalizedPen else { return }
+        inputQueue.append(.pen(pen))
+    }
+
     func setLeftButton(pressed: Bool) {
         setMouseButton(number: 1, pressed: pressed)
     }
 
     func setMouseButton(number: UInt8, pressed: Bool) {
+#if PLANK_PENCIL_RELAY_RECEIVER
+        guard !pressed || !pencilRelay.strokeActive else { return }
+#endif
 #if PLANK_TABLET_RELAY
         guard tabletInputPolicy.allowsMouseButton(number, pressed: pressed) else { return }
 #endif
@@ -1023,6 +1141,9 @@ final class PlankCoreClient: ObservableObject {
     }
 
     func scroll(vertical: Int16, horizontal: Int16 = 0) {
+#if PLANK_PENCIL_RELAY_RECEIVER
+        guard !pencilRelay.strokeActive else { return }
+#endif
 #if PLANK_TABLET_RELAY
         guard !waitingForTablet else { return }
 #endif
@@ -1038,6 +1159,20 @@ final class PlankCoreClient: ObservableObject {
         inputQueue.append(.text(data))
     }
 
+    // Transport-neutral atomic sink for direct iPad controls. The action
+    // ledger is committed by its owner only if this complete batch is admitted.
+    func offerControlKeys(_ batch: [PlankControlKeyEvent]) -> Bool {
+#if PLANK_TABLET_RELAY
+        var policy = tabletInputPolicy
+        guard batch.allSatisfy({ policy.allowsKey($0.code,pressed:$0.pressed,modifiers:$0.modifiers) }) else { return false }
+#endif
+        guard inputQueue.offerControlKeys(batch) else { return false }
+#if PLANK_TABLET_RELAY
+        tabletInputPolicy = policy
+#endif
+        return true
+    }
+
     func pressKey(code: UInt16, modifiers: UInt8 = 0) {
         sendKey(code: code, pressed: true, modifiers: modifiers)
         sendKey(code: code, pressed: false, modifiers: modifiers)
@@ -1047,7 +1182,12 @@ final class PlankCoreClient: ObservableObject {
 #if PLANK_TABLET_RELAY
         guard tabletInputPolicy.allowsKey(code, pressed: pressed, modifiers: modifiers) else { return }
 #endif
+#if PLANK_PENCIL_RELAY_RECEIVER
+        guard let event = pencilKeyOwnership.update(code:code,pressed:pressed,modifiers:modifiers,source:.local) else { return }
+        inputQueue.append(.key(code:event.code,pressed:event.pressed,modifiers:event.modifiers))
+#else
         inputQueue.append(.key(code: code, pressed: pressed, modifiers: modifiers))
+#endif
     }
 
     func authenticate(username: String, password: String) async {
@@ -1131,9 +1271,13 @@ final class PlankCoreClient: ObservableObject {
         tabletWaitTimeoutID = UUID()
 #endif
         tabletControlReceiver.set(nil)
+        hostSupportsNormalizedPen = false
         hostSupportsTabletRelay = false
         streamGeneration = UUID()
         let closingGeneration = streamGeneration
+#if PLANK_PENCIL_RELAY_RECEIVER
+        pencilRelay.endDesktop()
+#endif
         inputQueue.stop()
         httpClient = nil
         lastIdentity = nil

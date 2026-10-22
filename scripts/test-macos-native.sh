@@ -30,7 +30,7 @@ xcrun clang++ -std=c++17 -O0 -DPLANK_NATIVE_MAC_WACOM -Iapple-native/Bridge -Iap
     -Imoonlight-common-c/moonlight-common-c/src -c apple-native/Tests/PlankMacWacomWorkerDriver.cpp -o "$out/mac-wacom-worker.o"
 xcrun swiftc -swift-version 6 -Onone -parse-as-library -DPLANK_NATIVE_MAC_WACOM \
     -import-objc-header apple-native/Tests/PlankMacWacomWorkerDriver.h -Iapple-native/Bridge \
-    apple-native/Sources/PlankMacWacomSession.swift apple-native/Sources/PlankMacInputPolicy.swift \
+    apple-native/Sources/PlankMacTabletSource.swift apple-native/Sources/PlankMacWacomSession.swift apple-native/Sources/PlankMacInputPolicy.swift \
     visionos-native/Sources/Services/PlankInputQueue.swift visionos-native/Sources/Services/PlankWacomPreflight.swift \
     visionos-native/Sources/Services/PlankTabletInputPolicy.swift \
     apple-native/Tests/PlankMacWacomWorkerTests.swift "$out/mac-wacom-wrapper.o" "$out/mac-wacom-worker.o" \
@@ -53,3 +53,12 @@ xcrun swiftc -swift-version 6 -Onone -parse-as-library \
     visionos-native/Sources/Models/HostBookmark.swift visionos-native/Sources/Models/PlankTopologyDecoder.swift \
     visionos-native/Sources/Services/PlankVideoSurfaces.swift apple-native/Tests/PlankMacMultipleScreensTests.swift -o "$out/mac-multiple-screens"
 "$out/mac-multiple-screens" apple-native/Tests/Fixtures/output-topology-v13.json
+
+# The Pencil receiver and raw Wacom presentation flags coexist in Mac builds.
+xcrun swiftc -swift-version 6 -Onone -parse-as-library \
+    -DPLANK_NATIVE_MAC_WACOM -DPLANK_PENCIL_RELAY_RECEIVER \
+    apple-native/Sources/PlankMacTabletSource.swift \
+    apple-native/Shared/PlankPencilModifiers.swift apple-native/Shared/PlankPencilRelayWire.swift \
+    visionos-native/Sources/Services/PlankInputQueue.swift \
+    apple-native/Tests/PlankMacPencilTests.swift -o "$out/mac-pencil"
+"$out/mac-pencil"

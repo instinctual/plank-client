@@ -1,6 +1,9 @@
 #ifndef PLANK_VISION_BRIDGING_HEADER_H
 #define PLANK_VISION_BRIDGING_HEADER_H
 
+#if defined(PLANK_PENCIL_RELAY)
+#include "PlankPencilCrypto.h"
+#endif
 #include "PlankTransportBridge.h"
 #include "PlankVideoDecoder.h"
 #include "PlankAudioDecoder.h"

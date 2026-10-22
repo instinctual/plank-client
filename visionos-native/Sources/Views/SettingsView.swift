@@ -128,6 +128,9 @@ struct SettingsView: View {
             }
 #endif
 
+#if PLANK_PENCIL_RELAY_RECEIVER
+            PlankPencilRelaySettings(receiver: client.pencilRelay)
+#endif
             Section("About") {
                 LabeledContent("Client", value: "PLANK for Apple Vision Pro")
                 LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")

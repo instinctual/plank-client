@@ -180,6 +180,11 @@ int32_t plank_vision_transport_send_mouse_position(
     uint16_t maximum_x,
     uint16_t maximum_y);
 
+// Existing normalized pen type 7; always pen tool, no synthetic barrel buttons.
+int32_t plank_vision_transport_send_pen(
+    PlankVisionTransport *transport, uint8_t event_type,
+    float x, float y, float pressure_or_distance, uint8_t tilt, uint16_t rotation);
+
 int32_t plank_vision_transport_send_mouse_button(
     PlankVisionTransport *transport,
     uint8_t button,

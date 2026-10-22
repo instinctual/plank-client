@@ -33,7 +33,12 @@ PRs remain historical checkpoints, not competing implementation targets.
 Review entry points: [upstream foundation PR 11](https://github.com/instinctual/plank-client/pull/11),
 [fork sharing PR 11](https://github.com/cnoellert/plank-client/pull/11), and
 [fork display/wheel PR 12](https://github.com/cnoellert/plank-client/pull/12).
-These are drafts; none of these Mac slices has merged upstream.
+The foundation merged upstream on October8 at
+`e8d8536486bf2eb0d7080aab8965f12d7d87b0af`. Live status checked October10:
+sharing and display/wheel remain fork drafts awaiting review in dependency order.
+The [iPad/Pencil checkpoint](ipad-client-checkpoint.md) is the next stacked
+review slice; it retains the original display tip as an ancestor so its diff
+does not duplicate those Mac changes. No shipping branch or package is promoted.
 
 ## Boundaries
 

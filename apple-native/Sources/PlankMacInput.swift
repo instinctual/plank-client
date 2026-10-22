@@ -22,6 +22,9 @@ struct PlankMacSurface: NSViewRepresentable {
         view.setLocalControlsPresented(localControlsPresented)
     }
     static func dismantleNSView(_ view: PlankMacInputView, coordinator: ()) {
+#if PLANK_PENCIL_RELAY_RECEIVER
+        view.client.setPencilLocalControls(false, owner: view.surfaceID)
+#endif
         view.releaseInput(); view.restoreLocalCursor(); view.detachWindowPresentation()
         PlankMacSessionWindows.attach(client: view.client, surface: view.surfaceID, window: nil)
         view.client.unregisterVideoSurface(id: view.surfaceID)
@@ -140,6 +143,9 @@ final class PlankMacInputView: NSView {
     func setLocalControlsPresented(_ presented: Bool) {
         guard localControlsPresented != presented else { return }
         localControlsPresented = presented
+#if PLANK_PENCIL_RELAY_RECEIVER
+        client.setPencilLocalControls(presented, owner: surfaceID)
+#endif
         if presented { releaseInput(); restoreLocalCursor() }
         else if window?.isKeyWindow == true { window?.makeFirstResponder(self); updatePointerAtCurrentLocation() }
         window?.invalidateCursorRects(for: self)
@@ -209,6 +215,9 @@ final class PlankMacInputView: NSView {
         return (x, y, width, height)
     }
     private func pointer(_ event: NSEvent, requireKeyWindow: Bool = true) -> Bool {
+#if PLANK_PENCIL_RELAY_RECEIVER
+        guard !client.pencilRelay.strokeActive else { return false }
+#endif
         guard !localControlsPresented, NSApp.isActive, !requireKeyWindow || window?.isKeyWindow == true,
               let geometry else { return false }
         let dragging = !heldButtons.isEmpty

@@ -1,14 +1,5 @@
 import Foundation
 
-enum PlankMacTabletSource: String, CaseIterable, Identifiable, Sendable {
-    case off, usb, relay
-    var id: String { rawValue }
-    var title: String {
-        switch self { case .off: "Off"; case .usb: "Wacom connected to this Mac (USB)"; case .relay: "Registered Relay" }
-    }
-    static var saved: Self { Self(rawValue: UserDefaults.standard.string(forKey: "plank.mac.tablet-source") ?? "usb") ?? .usb }
-}
-
 // The sender's lifetime is independent of a stalled HID driver. destroy() in
 // the C wrapper revokes the Swift context even when the worker exits late.
 final class PlankMacWacomSession: @unchecked Sendable {

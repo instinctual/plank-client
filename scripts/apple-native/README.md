@@ -103,7 +103,13 @@ selects the runtime source to compile.
 
 ## Build
 
-Choose `device`, `simulator`, or `macos`. Use a fresh work directory per platform
+Choose `device`, `simulator`, or `macos`; the separate iPad pilot uses
+`ios-device` or `ios-simulator` (iPadOS 26, arm64). Install Rust targets
+`aarch64-apple-ios` and `aarch64-apple-ios-sim` for that pilot. Its static FFmpeg
+build uses the maintained identity-GBR patch, not the Vision-only SDK patch.
+The new target is development work, not accepted device support. See
+[`ios-native/README.md`](../../ios-native/README.md) for its scope.
+Use a fresh work directory per platform
 and attempt. Only release archives are reused through a checksum-verified cache;
 old prepared source and installed dependency trees are not substituted.
 

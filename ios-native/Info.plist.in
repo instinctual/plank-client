@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+  <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+  <key>CFBundleName</key><string>PLANK iPad Pilot</string>
+  <key>CFBundleDisplayName</key><string>PLANK iPad Pilot</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+  <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+  <key>UIApplicationSupportsIndirectInputEvents</key><true/>
+  <key>UILaunchScreen</key><dict/>
+  <key>UIApplicationSceneManifest</key><dict>
+    <key>UIApplicationSupportsMultipleScenes</key><false/>
+  </dict>
+  <key>UISupportedInterfaceOrientations</key><array>
+    <string>UIInterfaceOrientationPortrait</string>
+    <string>UIInterfaceOrientationPortraitUpsideDown</string>
+    <string>UIInterfaceOrientationLandscapeLeft</string>
+    <string>UIInterfaceOrientationLandscapeRight</string>
+  </array>
+  <key>NSLocalNetworkUsageDescription</key><string>Connect to your PLANK workstation and approved tablet Relay.</string>
+  <key>NSBonjourServices</key><array>
+    <string>_nvstream._tcp</string><string>_plank-tablet._tcp</string><string>_plank-pencil._tcp</string>
+  </array>
+  <key>NSBluetoothAlwaysUsageDescription</key><string>Connect to your approved tablet Relay for drawing.</string>
+  <key>NSAppTransportSecurity</key><dict>
+    <key>NSAllowsArbitraryLoads</key><true/>
+  </dict>
+</dict></plist>

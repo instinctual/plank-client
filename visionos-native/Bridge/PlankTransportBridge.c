@@ -6,6 +6,7 @@
 #include <CommonCrypto/CommonDigest.h>
 #include <stdatomic.h>
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -525,6 +526,30 @@ int32_t plank_vision_transport_send_mouse_position(
     return finish_input_send(transport, plank_transport_native_input_send(
         transport->endpoint, PLANK_TRANSPORT_INPUT_ABSOLUTE_MOUSE,
         payload, sizeof(payload)));
+#endif
+}
+
+int32_t plank_vision_transport_send_pen(
+    PlankVisionTransport *transport, uint8_t event_type,
+    float x, float y, float pressure_or_distance, uint8_t tilt, uint16_t rotation) {
+#if !PLANK_NATIVE_TRANSPORT
+    (void)transport; (void)event_type; (void)x; (void)y;
+    (void)pressure_or_distance; (void)tilt; (void)rotation;
+    return PLANK_VISION_TRANSPORT_UNAVAILABLE;
+#else
+    if (transport == NULL || transport->endpoint == NULL ||
+        !(event_type <= 4 || event_type == 6) ||
+        !isfinite(x) || !isfinite(y) || !isfinite(pressure_or_distance) ||
+        x < 0 || x > 1 || y < 0 || y > 1 ||
+        pressure_or_distance < 0 || pressure_or_distance > 1 ||
+        !(tilt <= 90 || tilt == 255) || !(rotation < 360 || rotation == 65535)) {
+        return PLANK_VISION_TRANSPORT_ERROR;
+    }
+    uint8_t payload[PLANK_TRANSPORT_INPUT_PEN_SIZE];
+    plank_transport_input_encode_pen(payload, event_type, 1, 0, tilt, rotation,
+                                     x, y, pressure_or_distance, 0, 0);
+    return finish_input_send(transport, plank_transport_native_input_send(
+        transport->endpoint, PLANK_TRANSPORT_INPUT_PEN, payload, sizeof(payload)));
 #endif
 }
 

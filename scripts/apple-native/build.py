@@ -99,7 +99,7 @@ def checkout(path, pin):
 
 
 def patch_for(inputs, target):
-    return inputs["ffmpeg_patches"]["macos" if target == "macos" else "visionos"]
+    return inputs["ffmpeg_patches"]["macos" if target in ("macos", "ios-device", "ios-simulator") else "visionos"]
 
 
 def git_paths(work, target):
@@ -125,7 +125,7 @@ def prepare(inputs, args):
         source = source_parent / entry["directory"]
         verify_source(archive, source, entry)
         if name == "ffmpeg":
-            if args.platform == "macos":
+            if args.platform in ("macos", "ios-device", "ios-simulator"):
                 # Preserve the maintained patch bytes/attribution. FFmpeg 9.0.1
                 # changed surrounding context; the full expected file hash below
                 # is the authority, not patch's context matching alone.
@@ -171,20 +171,25 @@ def check_prepared(inputs, args):
 def toolchain(inputs, target):
     require(platform.system() == "Darwin" and platform.machine() == "arm64",
             "Native builds require an Apple Silicon Mac")
-    sdk = {"macos": "macosx", "device": "xros", "simulator": "xrsimulator"}[target]
+    sdk = {"macos": "macosx", "device": "xros", "simulator": "xrsimulator", "ios-device": "iphoneos",
+           "ios-simulator": "iphonesimulator"}[target]
     sdk_version = output(["xcrun", "--sdk", sdk, "--show-sdk-version"])
     require(int(sdk_version.split(".")[0]) >= 27, "SDK 27 or newer is required")
     xcode = output(["xcodebuild", "-version"])
     require(int(re.search(r"Xcode (\d+)", xcode).group(1)) >= 27, "Xcode 27 or newer is required")
     rust = inputs["toolchain"]["rust"]
     rust_target = {"macos": "aarch64-apple-darwin", "device": "aarch64-apple-visionos",
-                   "simulator": "aarch64-apple-visionos-sim"}[target]
+                   "simulator": "aarch64-apple-visionos-sim", "ios-device": "aarch64-apple-ios",
+                   "ios-simulator": "aarch64-apple-ios-sim"}[target]
     installed = output(["rustup", "target", "list", "--installed", "--toolchain", rust])
     require(rust_target in installed.splitlines(),
             f"Install the pinned target first: rustup target add --toolchain {rust} {rust_target}")
-    minimum = inputs["toolchain"]["macos_deployment" if target == "macos" else "visionos_deployment"]
+    minimum = inputs["toolchain"]["ios_deployment" if target.startswith("ios-") else
+                                      "macos_deployment" if target == "macos" else "visionos_deployment"]
     triple = {"macos": f"arm64-apple-macos{minimum}", "device": f"arm64-apple-xros{minimum}",
-              "simulator": f"arm64-apple-xros{minimum}-simulator"}[target]
+              "simulator": f"arm64-apple-xros{minimum}-simulator",
+              "ios-device": f"arm64-apple-ios{minimum}",
+              "ios-simulator": f"arm64-apple-ios{minimum}-simulator"}[target]
     flags = f"-target {triple} -isysroot {output(['xcrun', '--sdk', sdk, '--show-sdk-path'])}"
     return sdk, minimum, rust_target, flags, {"xcode": xcode, "sdk": sdk_version,
         "rust": output(["rustup", "run", rust, "rustc", "--version"]),
@@ -202,7 +207,7 @@ def dependencies(inputs, args):
     prefix.mkdir()
     prefix_flags = f"-ffile-prefix-map={args.work}=/build/apple-native -ffile-prefix-map={Path.home()}=/build/user"
     env = dict(os.environ, RUSTUP_TOOLCHAIN=inputs["toolchain"]["rust"])
-    for name in ("SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "XROS_DEPLOYMENT_TARGET",
+    for name in ("SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "XROS_DEPLOYMENT_TARGET", "IPHONEOS_DEPLOYMENT_TARGET",
                  "CC", "CXX", "CFLAGS", "CPPFLAGS", "LDFLAGS", "LIBRARY_PATH",
                  "CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "PKG_CONFIG_PATH",
                  "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC", "RUSTC_WRAPPER",
@@ -220,7 +225,7 @@ def dependencies(inputs, args):
                   "-DCMAKE_OSX_ARCHITECTURES=arm64", f"-DCMAKE_OSX_SYSROOT={sdk}",
                   f"-DCMAKE_OSX_DEPLOYMENT_TARGET={minimum}", f"-DCMAKE_C_FLAGS={prefix_flags}"]
     if args.platform != "macos":
-        cmake_args += ["-DCMAKE_SYSTEM_NAME=visionOS"]
+        cmake_args += ["-DCMAKE_SYSTEM_NAME=" + ("iOS" if args.platform.startswith("ios-") else "visionOS")]
     cmake_args += [f"-D{name}=OFF" for name in ("OPUS_BUILD_SHARED_LIBRARY", "OPUS_BUILD_PROGRAMS",
                   "OPUS_BUILD_TESTING", "OPUS_DRED", "OPUS_OSCE", "OPUS_CUSTOM_MODES", "OPUS_FIXED_POINT")]
     run(cmake_args + ["-DOPUS_ENABLE_FLOAT_API=ON"], env=env)
@@ -295,7 +300,8 @@ def application(inputs, args):
     require(common_commit in (allowed_common["commit"], allowed_common["integration_commit"]),
             "Client common-C gitlink is not a declared checkpoint/integration input")
     verify_git(common, common_commit)
-    source = client / ("apple-native" if args.platform == "macos" else "visionos-native")
+    source = client / ("ios-native" if args.platform.startswith("ios-") else
+                       "apple-native" if args.platform == "macos" else "visionos-native")
     require((source / "CMakeLists.txt").exists(), "Selected Client has no native target for this platform")
     build = args.work / "app-build"
     require(not build.exists(), "Use a fresh app build directory")
@@ -320,6 +326,9 @@ def application(inputs, args):
         command += [f"-DPLANK_MANAGED_RELAY_SOURCE_DIR={args.work / 'git/managed'}",
                     f"-DPLANK_APPLE_BUILD_NUMBER={args.build_number}",
                     f"-DPLANK_BUILD_BRANCH={args.branch}"]
+    elif args.platform.startswith("ios-"):
+        command += ["-DCMAKE_SYSTEM_NAME=iOS",
+                    f"-DPLANK_IPAD_BUILD_NUMBER={args.build_number}"]
     else:
         command += ["-DCMAKE_SYSTEM_NAME=visionOS",
                     f"-DPLANK_VISION_BUILD_NUMBER={args.build_number}",
@@ -330,9 +339,10 @@ def application(inputs, args):
     run(["cmake", "--build", build, "--config", args.configuration, "--parallel", args.jobs,
          "--", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGN_IDENTITY=", "DEVELOPMENT_TEAM="], env=env)
     app = build / (args.configuration if args.platform == "macos" else f"{args.configuration}-{sdk}") / (
+        "PLANK iPad Pilot.app" if args.platform.startswith("ios-") else
         "PLANK Native Pilot.app" if args.platform == "macos" else "PLANK.app")
     require(app.is_dir(), "Expected app bundle is absent")
-    executable = app / "Contents/MacOS/PLANK Native Pilot" if args.platform == "macos" else app / "PLANK"
+    executable = app / "Contents/MacOS/PLANK Native Pilot" if args.platform == "macos" else app / ("PLANK iPad Pilot" if args.platform.startswith("ios-") else "PLANK")
     require(executable.is_file(), "Expected app executable is absent")
     signature = subprocess.run(["codesign", "-dv", "--verbose=4", str(app)], capture_output=True, text=True)
     # Apple Silicon linkers may emit ad-hoc Mach-O signatures without using a
@@ -353,7 +363,7 @@ def application(inputs, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=("prepare", "verify", "deps", "build"))
-    parser.add_argument("--platform", required=True, choices=("device", "simulator", "macos"))
+    parser.add_argument("--platform", required=True, choices=("device", "simulator", "macos", "ios-device", "ios-simulator"))
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--cache", type=Path, help="Reusable checksum-verified release archives")
     parser.add_argument("--client", type=Path, default=REPOSITORY)

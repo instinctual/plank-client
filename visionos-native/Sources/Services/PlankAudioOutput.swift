@@ -153,7 +153,9 @@ final class PlankAudioOutput: @unchecked Sendable {
             try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             // Plain stereo: Host left/right stay fixed to the ears instead of
             // being rendered from the window's position.
+#if os(visionOS)
             try? session.setIntendedSpatialExperience(.bypassed)
+#endif
             try? session.setPreferredSampleRate(48_000)
             try? session.setPreferredIOBufferDuration(0.005)
             try session.setActive(true)
