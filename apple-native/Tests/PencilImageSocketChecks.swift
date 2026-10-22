@@ -21,8 +21,7 @@ final class PencilImageSocketCheck: @unchecked Sendable {
             jpegData:Data(repeating:UInt8(truncatingIfNeeded:number),count:bytes),receivedAtUptimeNanoseconds:0)
     }
     func run() throws {
-        let parameters=PlankPencilImagePeer.tcpParameters()
-        assert((parameters.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options)?.noDelay == true)
+        let parameters=NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host:"127.0.0.1",port:.any)
         let server=try NWListener(using:parameters); listener=server
         server.newConnectionHandler = { [self] connection in
@@ -38,8 +37,7 @@ final class PencilImageSocketCheck: @unchecked Sendable {
             if case .ready=state, let port=server.port {
                 do {
                     let key=try PlankPencilRelayKeys.publicKey(b)
-                    let peer=try PlankPencilImagePeer(connection:NWConnection(host:"127.0.0.1",port:port,
-                        using:PlankPencilImagePeer.tcpParameters()),privateKey:a,
+                    let peer=try PlankPencilImagePeer(connection:NWConnection(host:"127.0.0.1",port:port,using:.tcp),privateKey:a,
                         binding:.init(peerKey:key,transcriptHash:hash),initiator:true) { [self] in handle($0,isSender:true) }
                     assert(!peer.offer(frame(1,bytes:1)),"Image admission must await both bound handshake directions")
                     lock.lock(); sender=peer; lock.unlock(); peer.start()
@@ -80,7 +78,6 @@ final class PencilImageSocketCheck: @unchecked Sendable {
             if value.descriptor.frameNumber == 1 {
                 assert(value.jpegData == frame(1,bytes:PlankPencilImageLimits.maximumFrameBytes).jpegData)
                 assert(elapsed >= 850_000_000,"Image cap cannot burst the entire2MiB frame")
-                print("Reference image maximum frame delivery: \(Double(elapsed)/1_000_000) ms")
             }
             if shouldOffer {
                 for i in 2...101 { assert(peer!.offer(frame(UInt64(i),bytes:1))) }

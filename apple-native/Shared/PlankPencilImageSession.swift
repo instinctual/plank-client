@@ -26,7 +26,7 @@ import Network
         let current = UUID(); epoch = current
         let endpoint = NWEndpoint.service(name: name, type: "_plank-pencil-image._tcp",
                                           domain: domain, interface: interface)
-        let connection = NWConnection(to: endpoint, using: PlankPencilImagePeer.tcpParameters())
+        let connection = NWConnection(to: endpoint, using: .tcp)
         let next = try PlankPencilImagePeer(connection: connection, privateKey: privateKey,
                                            binding: binding, initiator: true) { [weak self] event in
             // Frame events cannot occur on this sending side. Only lane state
