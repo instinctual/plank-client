@@ -3,6 +3,7 @@ import SwiftUI
 struct PlankMacBrowser: View {
     @EnvironmentObject private var store: HostStore
     @EnvironmentObject private var client: PlankCoreClient
+    @EnvironmentObject private var relay: PlankMacRelayHost
     @Environment(\.openWindow) private var openWindow
     @State private var selection: UUID?
     @State private var editing: HostBookmark?
@@ -38,7 +39,7 @@ struct PlankMacBrowser: View {
                             SecureField("Password", text: $password).onSubmit { authenticate() }
                             Button("Sign In") { authenticate() }.disabled(client.phase.isBusy)
                         case .authenticated:
-                            Button("Open Desktop") { start(host) }.buttonStyle(.borderedProminent)
+                            Button("Open Desktop") { start(host) }.buttonStyle(.borderedProminent).disabled(relay.sharing)
                         case .streaming, .frameReceived, .startingSession:
                             Button("Show Desktop") { openWindow(id: "desktop") }
                         case let .failed(message):
@@ -63,10 +64,11 @@ struct PlankMacBrowser: View {
     }
     private func connect(_ host: HostBookmark) -> some View {
         Button("Connect") { Task { await client.reset()?.value; password = ""; await client.connect(to: host) } }
-            .buttonStyle(.borderedProminent).disabled(client.isClosingSession)
+            .buttonStyle(.borderedProminent).disabled(client.isClosingSession || relay.sharing)
     }
     private func authenticate() { Task { await client.authenticate(username: username, password: password); password = "" } }
     private func start(_ host: HostBookmark) {
+        guard !relay.sharing else { return }
         client.setTabletActive(true)
         client.startSession(displaySize: host.spatialDisplaySize, frameRate: host.streamFrameRate, videoBitrateKbps: host.videoBitrateKbps)
         store.markConnected(host); openWindow(id: "desktop")

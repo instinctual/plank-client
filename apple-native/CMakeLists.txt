@@ -3,15 +3,16 @@ set(CMAKE_Swift_LANGUAGE_VERSION 6)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum macOS version")
 project(PlankMac LANGUAGES Swift C CXX)
-set(PLANK_APPLE_BUILD_NUMBER "9" CACHE STRING "Native Apple pilot build")
+set(PLANK_APPLE_BUILD_NUMBER "16" CACHE STRING "Native Apple pilot build")
 set(PLANK_BUILD_BRANCH "local" CACHE STRING "Source branch shown in the pilot")
 set(PLANK_TRANSPORT_DIR "" CACHE PATH "Pinned plank-transport source")
 set(PLANK_FFMPEG_DIR "" CACHE PATH "Target-built FFmpeg prefix")
 set(PLANK_OPUS_DIR "" CACHE PATH "Pinned libopus 1.6.1 prefix")
+set(PLANK_MANAGED_RELAY_SOURCE_DIR "" CACHE PATH "Pinned managed Setup codec source")
 set(PLANK_RELAY_SOURCE_DIR "" CACHE PATH "Pinned drawing Relay source")
 set(PLANK_RELAY_SODIUM_PREFIX "" CACHE PATH "Target-built libsodium prefix")
 set(VISION "${CMAKE_CURRENT_SOURCE_DIR}/../visionos-native")
-foreach(required PLANK_TRANSPORT_DIR PLANK_FFMPEG_DIR PLANK_OPUS_DIR PLANK_RELAY_SOURCE_DIR PLANK_RELAY_SODIUM_PREFIX)
+foreach(required PLANK_TRANSPORT_DIR PLANK_FFMPEG_DIR PLANK_OPUS_DIR PLANK_RELAY_SOURCE_DIR PLANK_RELAY_SODIUM_PREFIX PLANK_MANAGED_RELAY_SOURCE_DIR)
     if(NOT ${required})
         message(FATAL_ERROR "${required} is required; use the pinned native-client build inputs")
     endif()
@@ -38,6 +39,10 @@ add_executable(PlankMac MACOSX_BUNDLE
     Sources/PlankMacInputPolicy.swift
     Sources/PlankMacWacomSession.swift
     Bridge/PlankMacWacom.cpp
+    Bridge/PlankMacRelayPermissions.c
+    Bridge/PlankMacRelay.cpp
+    Sources/PlankMacRelayHost.swift
+    Sources/PlankMacRelayUSBInventory.swift
     ../app/streaming/input/macrawwacom.cpp
     Sources/PlankMacAudioOutput.swift
     ${VISION}/PrivacyInfo.xcprivacy)
@@ -64,7 +69,19 @@ add_library(PlankMacRelayCrypto STATIC
     ${PLANK_RELAY_SOURCE_DIR}/src/noise.c ${PLANK_RELAY_SOURCE_DIR}/src/cpace.c
     ${PLANK_RELAY_SOURCE_DIR}/src/confirm.c ${PLANK_RELAY_SOURCE_DIR}/src/link.c
     ${PLANK_RELAY_SOURCE_DIR}/src/client_link.c ${PLANK_RELAY_SOURCE_DIR}/src/client_pair.c
-    ${PLANK_RELAY_SOURCE_DIR}/src/client_enrollment.c)
+    ${PLANK_RELAY_SOURCE_DIR}/src/client_enrollment.c
+    ${PLANK_RELAY_SOURCE_DIR}/src/identity.c)
+target_compile_definitions(PlankMacRelayCrypto PRIVATE _DARWIN_C_SOURCE=1)
+# Keep the managed management codec separate from the drawing codec. Both
+# identities and wire contracts retain their pinned implementations.
+add_library(PlankMacSetupCrypto STATIC Bridge/PlankMacSetup.c)
+foreach(part ble_lab protocol session link noise cpace confirm identity pair_budget pairing pair_wire)
+    target_sources(PlankMacSetupCrypto PRIVATE ${PLANK_MANAGED_RELAY_SOURCE_DIR}/src/${part}.c)
+endforeach()
+target_compile_definitions(PlankMacSetupCrypto PRIVATE _DARWIN_C_SOURCE=1 PLTR_SOFTWARE_VERSION="mac-relay-0.1.0")
+target_compile_options(PlankMacSetupCrypto PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/Bridge/PlankMacSetupNamespace.h)
+target_include_directories(PlankMacSetupCrypto PRIVATE ${PLANK_MANAGED_RELAY_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/Bridge ${PLANK_RELAY_SODIUM_PREFIX}/include)
+target_link_libraries(PlankMacSetupCrypto PUBLIC ${PLANK_RELAY_SODIUM_PREFIX}/lib/libsodium.a)
 target_include_directories(PlankMacRelayCrypto PUBLIC ${PLANK_RELAY_SOURCE_DIR}/src ${PLANK_RELAY_SODIUM_PREFIX}/include)
 target_link_libraries(PlankMacRelayCrypto PUBLIC ${PLANK_RELAY_SODIUM_PREFIX}/lib/libsodium.a)
 target_include_directories(PlankMac PRIVATE ${PLANK_TRANSPORT_DIR}/include
@@ -74,7 +91,7 @@ target_include_directories(PlankMac PRIVATE ${PLANK_TRANSPORT_DIR}/include
     ${PLANK_FFMPEG_DIR}/include ${PLANK_OPUS_DIR}/include/opus)
 target_compile_definitions(PlankMac PRIVATE PLANK_NATIVE_TRANSPORT=1 PLANK_TABLET_RELAY=1 PLANK_OPUS_AUDIO=1 PLANK_NATIVE_MAC_WACOM=1)
 target_compile_options(PlankMac PRIVATE "$<$<COMPILE_LANGUAGE:Swift>:-DPLANK_TABLET_RELAY;-DPLANK_NATIVE_MAC_WACOM>")
-target_link_libraries(PlankMac PRIVATE ${rust_library} PlankMacRelayCrypto
+target_link_libraries(PlankMac PRIVATE ${rust_library} PlankMacRelayCrypto PlankMacSetupCrypto
     ${PLANK_OPUS_DIR}/lib/libopus.a
     ${PLANK_FFMPEG_DIR}/lib/libavcodec.dylib ${PLANK_FFMPEG_DIR}/lib/libavutil.dylib
     ${PLANK_FFMPEG_DIR}/lib/libswscale.dylib ${PLANK_FFMPEG_DIR}/lib/libswresample.dylib

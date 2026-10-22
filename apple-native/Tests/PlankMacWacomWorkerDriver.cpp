@@ -7,8 +7,7 @@ static MacRawWacomInput::SendFrame sender;
 static std::function<void()> activity;
 static std::atomic<unsigned> activations{0};
 class MacRawWacomInput::Impl {};
-void MacRawWacomInput::requestPermissionIfNeeded() {}
-MacRawWacomInput::MacRawWacomInput(std::function<void()> onActivity, SendFrame send) { sender = send; activity = onActivity; activations = 0; }
+MacRawWacomInput::MacRawWacomInput(std::function<void()> onActivity, SendFrame send, GenerationProvider, bool) { sender = send; activity = onActivity; activations = 0; }
 MacRawWacomInput::~MacRawWacomInput() = default;
 void MacRawWacomInput::setActive(bool active) {
     if (active) { ++activations; return; }

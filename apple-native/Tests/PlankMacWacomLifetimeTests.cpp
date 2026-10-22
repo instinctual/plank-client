@@ -12,8 +12,7 @@
 static MacRawWacomInput::SendFrame lateSender;
 static std::function<void()> lateActivity;
 class MacRawWacomInput::Impl {};
-void MacRawWacomInput::requestPermissionIfNeeded() {}
-MacRawWacomInput::MacRawWacomInput(std::function<void()> activity, SendFrame send) { lateSender = send; lateActivity = activity; }
+MacRawWacomInput::MacRawWacomInput(std::function<void()> activity, SendFrame send, GenerationProvider, bool) { lateSender = send; lateActivity = activity; }
 MacRawWacomInput::~MacRawWacomInput() = default;
 void MacRawWacomInput::setActive(bool active) { if (!active) { unsigned char release = 13; lateSender(&release, 1); } }
 void MacRawWacomInput::handleControl(const unsigned char*, unsigned) {}

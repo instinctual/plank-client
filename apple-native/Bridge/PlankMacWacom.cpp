@@ -28,9 +28,6 @@ struct PlankMacWacom {
 };
 extern "C" PlankMacWacom* plank_mac_wacom_create(PlankMacWacomSend send, PlankMacWacomActivity activity, void* context) {
     if (!send || !context) return nullptr;
-    // Creation runs in the MainActor session initializer. Preserve the
-    // maintained worker's explicit OS permission path, outside its HID thread.
-    MacRawWacomInput::requestPermissionIfNeeded();
     auto result = std::make_unique<PlankMacWacom>();
     result->callbacks = std::make_shared<CallbackState>();
     result->callbacks->send = send;

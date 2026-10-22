@@ -136,3 +136,5 @@ notarization or release packaging.
   is on root upstream at the inspected revision above. Re-check exact candidate
   versions before implementation; newer contracts are not automatically in the
   pilot's pinned dependencies.
+
+Mac-hosted USB Tablet Relay build 16 passed targeted drawing and lifecycle acceptance on Flame4 Host 1.1.030, including background use, reconnect, USB return, sleep/wake and return to local Mac capture. Flame3 Host 1.1.024 had a hover-only USB-return failure; see [the Relay acceptance record](macos-tablet-relay.md) for that limitation and unqualified transports. Multiple screens is the next development slice.

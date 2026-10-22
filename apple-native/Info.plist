@@ -14,7 +14,7 @@
 <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSBluetoothAlwaysUsageDescription</key><string>Connect to your approved drawing Relay.</string>
-<key>NSLocalNetworkUsageDescription</key><string>Connect to your PLANK workstation and approved drawing Relay.</string>
-<key>NSBonjourServices</key><array><string>_nvstream._tcp</string><string>_plank-tablet._tcp</string></array>
+<key>NSLocalNetworkUsageDescription</key><string>Connect to your PLANK workstation and approved drawing Relay, or share a USB tablet with an approved headset.</string>
+<key>NSBonjourServices</key><array><string>_nvstream._tcp</string><string>_plank-tablet._tcp</string><string>_plank-avp-relay._tcp</string></array>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
 </dict></plist>
