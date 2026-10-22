@@ -24,6 +24,39 @@ import Foundation
         check(PlankMacKeys.modifiers([.shift,.control,.option,.command]) == 15, "modifier bits")
         check(PlankMacKeys.mouseButton(1) == 3 && PlankMacKeys.mouseButton(2) == 2, "right and middle protocol buttons")
         check(PlankMacKeys.mouseButton(3) == 4 && PlankMacKeys.mouseButton(99) == nil, "side buttons bounded")
+        var scroll = PlankMacScrollAccumulator()
+        for _ in 0..<3 { check(scroll.take(vertical: 0.002, horizontal: 0, precise: true).0 == 0, "sub-unit precise wheel motion retained") }
+        check(scroll.take(vertical: 0.002, horizontal: 0, precise: true).0 == 0, "fractional precise input never rounds to a full tick")
+        check(scroll.take(vertical: 0.002, horizontal: 0, precise: true).0 == 1, "small precise events accumulate in 120-unit protocol scale")
+        scroll.reset()
+        check(scroll.take(vertical: -0.25, horizontal: 0.125, precise: true) == (-30, 15), "precise axes keep fraction and direction in wheel units")
+        check(scroll.take(vertical: 0.01, horizontal: 0, precise: false).0 == 120, "small conventional wheel movement delivers a complete detent")
+        check(scroll.take(vertical: -0.1, horizontal: 0.1, precise: false) == (-120, 120), "negative and horizontal conventional wheel round away from zero")
+        check(scroll.take(vertical: 1, horizontal: -2, precise: false) == (120, -120), "legacy Mac detent scale and acceleration cap")
+        scroll.reset()
+        _ = scroll.take(vertical: 0.002, horizontal: 0.002, precise: true); scroll.reset()
+        let reset = scroll.take(vertical: 0.002, horizontal: 0.002, precise: true)
+        check(reset.0 == 0 && reset.1 == 0, "release cannot replay old scroll fractions")
+        scroll.reset()
+        let huge = scroll.take(vertical: 1e10, horizontal: -1e10, precise: true)
+        check(huge.0 == 120 && huge.1 == -120, "accelerated precise motion capped like existing Mac client")
+        scroll.reset()
+        let afterHuge = scroll.take(vertical: 0, horizontal: 0, precise: true)
+        check(afterHuge.0 == 0 && afterHuge.1 == 0, "capped scroll cannot replay as a delayed tail")
+        let invalid = scroll.take(vertical: .nan, horizontal: .infinity, precise: true)
+        check(invalid.0 == 0 && invalid.1 == 0, "invalid scroll deltas cannot trap or forward")
+        let pixelEvent = NSEvent(cgEvent: CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+            wheelCount: 2, wheel1: 1, wheel2: 1, wheel3: 0)!)!
+        check(pixelEvent.hasPreciseScrollingDeltas && pixelEvent.scrollingDeltaY > pixelEvent.deltaY,
+            "real AppKit pixel event distinguishes point and protocol line-equivalent values")
+        scroll.reset()
+        let pixelUnits = scroll.take(event: pixelEvent)
+        check((11...12).contains(Int(pixelUnits.0)) && (-12 ... -11).contains(Int(pixelUnits.1)),
+            "production event conversion uses line equivalents and Mac horizontal direction")
+        let lineEvent = NSEvent(cgEvent: CGEvent(scrollWheelEvent2Source: nil, units: .line,
+            wheelCount: 2, wheel1: -1, wheel2: -1, wheel3: 0)!)!
+        check(!lineEvent.hasPreciseScrollingDeltas && scroll.take(event: lineEvent) == (-120, 120),
+            "actual conventional wheel event sends full signed vertical/horizontal detents")
         let input = PlankInputQueue()
         for n in 0..<256 { check(input.offerNativeRawHid(Data([UInt8(truncatingIfNeeded:n)])), "ordered report accepted") }
         check(!input.offerNativeRawHid(Data([0])), "full raw queue refuses instead of discarding a transition")

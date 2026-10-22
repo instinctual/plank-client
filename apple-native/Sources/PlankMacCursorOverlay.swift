@@ -30,6 +30,7 @@ final class PlankMacCursorOverlay: NSView {
     private let fallbackSize: CGSize
     private let fallbackHotspot: CGPoint
     private var width = 0, height = 0
+    private var geometry: PlankMacDisplayGeometry?
     private(set) var replacesSystemCursor = false
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -50,7 +51,13 @@ final class PlankMacCursorOverlay: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
 
     func setDimensions(width: Int, height: Int) {
-        self.width = width; self.height = height; placeCursor()
+        self.width = width; self.height = height
+        geometry = PlankMacDisplayGeometry(frameWidth: width, frameHeight: height, topology: nil, outputIndex: 0)
+        placeCursor()
+    }
+    func setGeometry(_ geometry: PlankMacDisplayGeometry) {
+        self.geometry = geometry
+        width = geometry.source.width; height = geometry.source.height; placeCursor()
     }
     func cursor(_ position: PlankRemoteCursor?) { self.position = position; placeCursor() }
     func cursorShape(_ shape: PlankRemoteCursorShape?) {
@@ -76,12 +83,12 @@ final class PlankMacCursorOverlay: NSView {
         sprite.isHidden = true
         guard !localMouse else { return }
         guard let position, width > 1, height > 1,
-              position.frameWidth == width, position.frameHeight == height,
+              let local = geometry?.localCursor(position),
               bounds.width > 0, bounds.height > 0 else { return }
         let canvas = PlankMacCoordinates.canvas(in: bounds, width: width, height: height)
         let scale = canvas.width / Double(width)
-        let pointer = CGPoint(x: canvas.minX + Double(position.x) * scale,
-                              y: canvas.minY + Double(position.y) * scale)
+        let pointer = CGPoint(x: canvas.minX + local.x * scale,
+                              y: canvas.minY + local.y * scale)
         if let shape, !shape.visible {
             // Honor an explicit Host request to hide its pointer.
             replacesSystemCursor = true
@@ -127,7 +134,7 @@ enum PlankMacDesktopWindow {
             window.collectionBehavior.insert(.fullScreenPrimary)
         }
         if let button = window.standardWindowButton(.zoomButton) {
-            button.isEnabled = true
+            if !button.isEnabled { button.isEnabled = true }
             if let presentation = window.delegate as? PlankMacWindowPresentation {
                 button.target = presentation
                 button.action = #selector(PlankMacWindowPresentation.toggleDesktopFullScreen(_:))

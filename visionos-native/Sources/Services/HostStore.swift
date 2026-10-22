@@ -16,11 +16,12 @@ final class HostStore: ObservableObject {
     func add(name: String, address: String, port: UInt16,
              displaySize: SpatialDisplaySize = .standard,
              frameRate: Int = StreamFrameRate.defaultValue,
-             videoBitrateKbps: Int = StreamBitrate.defaultKbps) {
+             videoBitrateKbps: Int = StreamBitrate.defaultKbps,
+             secondDisplaySize: SpatialDisplaySize? = nil) {
         let host = HostBookmark(name: name, address: address, port: port,
                                 spatialDisplaySize: displaySize,
                                 streamFrameRate: frameRate,
-                                videoBitrateKbps: videoBitrateKbps)
+                                videoBitrateKbps: videoBitrateKbps, secondDisplaySize: secondDisplaySize)
         hosts.append(host)
         sortAndSave()
     }

@@ -36,6 +36,13 @@ import AppKit
         overlay.setLocalMouse(false)
         check(!sprite.isHidden && sprite.frame.origin == NSPoint(x: 1,y: 1), "tablet ownership resumes actual Host position")
         overlay.cursor(position())
+        overlay.frame = CGRect(x: 0, y: 0, width: 200, height: 120)
+        overlay.layout()
+        check(!sprite.isHidden && sprite.frame.origin == CGPoint(x: 100, y: 60), "windowed resize maps live tablet sprite into new letterboxed canvas")
+        overlay.setLocalMouse(true)
+        check(sprite.isHidden, "mouse handoff after Space resize leaves no parked Host sprite")
+        overlay.frame = root.bounds; overlay.layout(); overlay.setLocalMouse(false)
+        check(!sprite.isHidden && sprite.frame.origin == CGPoint(x: 50, y: 50), "tablet handoff after fullscreen restores one live Host sprite")
         check(root.subviews.last === overlay && overlay.layer!.zPosition > video.layer!.zPosition, "cursor owns a view above video")
         // AppKit keeps backing layers of an unshown test window detached.
         // Compose its actual production cursor layer above the opaque video
@@ -72,6 +79,25 @@ import AppKit
         let shortcut = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.control,.command], timestamp: 0,
             windowNumber: 0, context: nil, characters: "f", charactersIgnoringModifiers: "f", isARepeat: false, keyCode: 3)!
         check(PlankMacKeys.staysLocal(shortcut), "fullscreen shortcut is not forwarded to Host")
+        typealias Pointer = PlankMacPointerPresentation
+        check(Pointer.mode(appActive: true, onCanvas: true, mouseOwns: false, mouseArtwork: true,
+            currentHostPosition: true, overlayOwns: false) == .hidden,
+            "parked mouse hides when pen cursor is on the other output")
+        check(Pointer.mode(appActive: true, onCanvas: true, mouseOwns: true, mouseArtwork: true,
+            currentHostPosition: true, overlayOwns: true) == .mouse,
+            "physical mouse handoff selects native artwork despite old tablet sprite")
+        check(Pointer.mode(appActive: true, onCanvas: false, mouseOwns: false, mouseArtwork: true,
+            currentHostPosition: true, overlayOwns: true) == .local,
+            "local controls always keep their visible pointer")
+        check(Pointer.mode(appActive: false, onCanvas: true, mouseOwns: false, mouseArtwork: true,
+            currentHostPosition: true, overlayOwns: true) == .local,
+            "inactive app cannot hide another app pointer")
+        check(Pointer.mode(appActive: true, onCanvas: true, mouseOwns: false, mouseArtwork: true,
+            currentHostPosition: false, overlayOwns: false) == .local,
+            "disconnect or stale resolution restores local cursor")
+        check(Pointer.mode(appActive: true, onCanvas: true, mouseOwns: true, mouseArtwork: false,
+            currentHostPosition: true, overlayOwns: false) == .hidden,
+            "Host hidden cursor remains hidden for mouse")
         print("Mac cursor composition and fullscreen: \(checks) checks passed")
     }
 }

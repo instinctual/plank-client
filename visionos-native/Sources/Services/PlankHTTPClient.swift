@@ -280,27 +280,7 @@ final class PlankHTTPClient: @unchecked Sendable {
 
     func fetchTopology() async throws -> PlankTopology {
         let data = try await authorizedRequest(path: "plank/topology")
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let schemaVersion = object["schema_version"] as? Int,
-              let featureFlags = object["feature_flags"] as? Int,
-              let generation = object["generation"] as? String,
-              let desktop = object["desktop"] as? [String: Any],
-              let width = desktop["width"] as? Int,
-              let height = desktop["height"] as? Int,
-              let layout = object["layout"] as? [String: Any],
-              let kind = layout["kind"] as? String,
-              let virtualModes = layout["virtual_modes"] as? [String],
-              schemaVersion == 13, width > 0, height > 0 else {
-            throw PlankHTTPError.invalidResponse("The Host returned malformed display information.")
-        }
-        return PlankTopology(
-            schemaVersion: schemaVersion,
-            featureFlags: featureFlags,
-            generation: generation,
-            desktopWidth: width,
-            desktopHeight: height,
-            layout: .init(kind: kind, virtualModes: virtualModes)
-        )
+        return try PlankTopologyDecoder.decode(data)
     }
 
     func fetchApplications() async throws -> [PlankApplication] {
@@ -339,7 +319,7 @@ final class PlankHTTPClient: @unchecked Sendable {
             .init(name: "gcpersist", value: "0"),
             .init(name: "plankProtocolVersion", value: String(topology.schemaVersion)),
             .init(name: "plankFeatureFlags", value: String(topology.featureFlags)),
-            .init(name: "plankDisplayMode", value: "scaled-span"),
+            .init(name: "plankDisplayMode", value: topology.displayMode),
             .init(name: "plankCaptureSource", value: "nvfbc"),
             .init(name: "plankEncoderBackend", value: "nvenc-direct"),
             .init(name: "plankEncodingMode", value: encodingMode),
@@ -347,9 +327,7 @@ final class PlankHTTPClient: @unchecked Sendable {
             .init(name: "plankHostLayout", value: topology.layout.kind),
             .init(name: "plankTopologyGeneration", value: topology.generation),
         ]
-        for (index, mode) in topology.layout.virtualModes.prefix(2).enumerated() {
-            query.append(.init(name: "plankVirtualMode\(index + 1)", value: mode))
-        }
+        query.append(contentsOf: topology.launchLayoutQuery)
 
         let data = try await authorizedRequest(path: "launch", query: query, timeout: 120)
         let parserDelegate = ServerInfoParser()

@@ -3,7 +3,7 @@ set(CMAKE_Swift_LANGUAGE_VERSION 6)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum macOS version")
 project(PlankMac LANGUAGES Swift C CXX)
-set(PLANK_APPLE_BUILD_NUMBER "16" CACHE STRING "Native Apple pilot build")
+set(PLANK_APPLE_BUILD_NUMBER "24" CACHE STRING "Native Apple pilot build")
 set(PLANK_BUILD_BRANCH "local" CACHE STRING "Source branch shown in the pilot")
 set(PLANK_TRANSPORT_DIR "" CACHE PATH "Pinned plank-transport source")
 set(PLANK_FFMPEG_DIR "" CACHE PATH "Target-built FFmpeg prefix")
@@ -36,6 +36,8 @@ add_executable(PlankMac MACOSX_BUNDLE
     Sources/PlankMacCursorOverlay.swift
     Sources/PlankMacWindowPresentation.swift
     Sources/PlankMacLocalControls.swift
+    Sources/PlankMacDisplayGeometry.swift
+    Sources/PlankMacSessionWindows.swift
     Sources/PlankMacInputPolicy.swift
     Sources/PlankMacWacomSession.swift
     Bridge/PlankMacWacom.cpp

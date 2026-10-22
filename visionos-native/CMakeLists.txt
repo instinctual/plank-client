@@ -29,6 +29,7 @@ add_executable(PlankVision MACOSX_BUNDLE
     Bridge/PlankVideoDecoder.c
     Bridge/PlankVideoDecoder.h
     Sources/PlankVisionApp.swift
+    Sources/Models/PlankTopologyDecoder.swift
     Sources/Models/HostBookmark.swift
     Sources/Models/PlankAudioFormat.swift
     Sources/Models/PlankAudioLevel.swift
@@ -38,6 +39,7 @@ add_executable(PlankVision MACOSX_BUNDLE
     Sources/Services/PlankAudioOutput.swift
     Sources/Services/PlankAudioReceiver.swift
     Sources/Services/PlankHTTPClient.swift
+    Sources/Services/PlankVideoSurfaces.swift
     Sources/Services/PlankCoreClient.swift
     Sources/Services/PlankSessionStartupDeadline.swift
     Sources/Services/PlankHardwareVideoDecoder.swift

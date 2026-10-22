@@ -11,11 +11,13 @@ xcrun swiftc -swift-version 6 -Onone -parse-as-library -DPLANK_NATIVE_MAC_WACOM 
 "$out/mac-policy"
 xcrun swiftc -swift-version 6 -Onone -parse-as-library \
     apple-native/Sources/PlankMacCursorOverlay.swift apple-native/Sources/PlankMacWindowPresentation.swift apple-native/Sources/PlankMacInputPolicy.swift \
+    apple-native/Sources/PlankMacDisplayGeometry.swift \
     visionos-native/Sources/Models/HostBookmark.swift apple-native/Tests/PlankMacPresentationTests.swift -o "$out/mac-presentation"
 "$out/mac-presentation"
 xcrun swiftc -swift-version 6 -Onone -parse-as-library \
     apple-native/Sources/PlankMacWindowPresentation.swift apple-native/Sources/PlankMacInput.swift apple-native/Sources/PlankMacLocalControls.swift \
     apple-native/Sources/PlankMacCursorOverlay.swift apple-native/Sources/PlankMacInputPolicy.swift \
+    apple-native/Sources/PlankMacDisplayGeometry.swift apple-native/Sources/PlankMacSessionWindows.swift \
     visionos-native/Sources/Models/HostBookmark.swift apple-native/Tests/PlankMacLocalControlsTests.swift -o "$out/mac-local-controls"
 "$out/mac-local-controls"
 xcrun clang++ -std=c++17 -O0 -DPLANK_NATIVE_MAC_WACOM -Iapple-native/Bridge -Iapp/streaming/input \
@@ -44,3 +46,10 @@ xcrun swiftc -swift-version 6 -Onone -parse-as-library \
 xcrun swiftc -swift-version 6 -Onone -parse-as-library \
     visionos-native/Sources/Services/PlankTabletInputPolicy.swift visionos-native/Tests/PlankTabletInputPolicyTests.swift -o "$out/tablet-policy"
 "$out/tablet-policy"
+
+xcrun swiftc -swift-version 6 -Onone -parse-as-library \
+    apple-native/Sources/PlankMacDisplayGeometry.swift apple-native/Sources/PlankMacInputPolicy.swift \
+    apple-native/Sources/PlankMacCursorOverlay.swift apple-native/Sources/PlankMacWindowPresentation.swift \
+    visionos-native/Sources/Models/HostBookmark.swift visionos-native/Sources/Models/PlankTopologyDecoder.swift \
+    visionos-native/Sources/Services/PlankVideoSurfaces.swift apple-native/Tests/PlankMacMultipleScreensTests.swift -o "$out/mac-multiple-screens"
+"$out/mac-multiple-screens" apple-native/Tests/Fixtures/output-topology-v13.json

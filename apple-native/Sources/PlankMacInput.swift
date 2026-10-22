@@ -5,9 +5,12 @@ struct PlankMacSurface: NSViewRepresentable {
     let client: PlankCoreClient
     var windowChanged: (NSWindow?) -> Void = { _ in }
     var localControlsPresented = false
+    var topology: PlankTopology?
+    var outputIndex = 0
     func makeNSView(context: Context) -> PlankMacInputView {
         let view = PlankMacInputView(client: client)
         view.windowChanged = windowChanged
+        view.setOutput(topology: topology, index: outputIndex)
         view.setLocalControlsPresented(localControlsPresented)
         client.registerVideoSurface(id: view.surfaceID, frame: { [weak view] in view?.display($0) },
             cursor: { [weak view] in view?.cursor($0) }, cursorShape: { [weak view] in view?.shape($0) })
@@ -15,11 +18,13 @@ struct PlankMacSurface: NSViewRepresentable {
     }
     func updateNSView(_ view: PlankMacInputView, context: Context) {
         view.windowChanged = windowChanged
+        view.setOutput(topology: topology, index: outputIndex)
         view.setLocalControlsPresented(localControlsPresented)
     }
     static func dismantleNSView(_ view: PlankMacInputView, coordinator: ()) {
         view.releaseInput(); view.restoreLocalCursor(); view.detachWindowPresentation()
-        view.client.setTabletActive(false); view.client.unregisterVideoSurface(id: view.surfaceID)
+        PlankMacSessionWindows.attach(client: view.client, surface: view.surfaceID, window: nil)
+        view.client.unregisterVideoSurface(id: view.surfaceID)
     }
 }
 final class PlankMacInputView: NSView {
@@ -30,17 +35,26 @@ final class PlankMacInputView: NSView {
     private let cursorOverlay = PlankMacCursorOverlay(frame: .zero)
     var windowChanged: (NSWindow?) -> Void = { _ in }
     private var width = 0, height = 0
+    private var topology: PlankTopology?
+    private var outputIndex = 0
+    private var latestFrame: PlankRenderedFrame?
+    private var latestCursor: PlankRemoteCursor?
+    private var geometry: PlankMacDisplayGeometry?
     private var heldButtons = Set<UInt8>()
+    private var scrollAccumulator = PlankMacScrollAccumulator()
     private var heldKeys = Set<UInt16>()
     private var modifierKeys = Set<UInt16>()
     private var observations = [NSObjectProtocol]()
     private var tracking: NSTrackingArea?
     private var replacingSystemCursor = false
-    private var desktopCursorHidden = false
     private var localControlsPresented = false
     private var windowPresentation: PlankMacWindowPresentation?
     private var cursorMonitor: Any?
-    private var canvas: CGRect { PlankMacCoordinates.canvas(in: bounds, width: width, height: height) }
+    private var lastMouseMovement: NSEvent?
+    private var wheelForwarded = 0
+    private var wheelVertical = 0, wheelHorizontal = 0
+    private var wheelLogTime = 0.0
+    private var canvas: CGRect { geometry?.canvas(in: bounds) ?? .zero }
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     init(client: PlankCoreClient) {
@@ -63,17 +77,30 @@ final class PlankMacInputView: NSView {
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // AppKit can briefly detach the surface while reparenting a Space.
+        // Keep its old session membership until the replacement window arrives;
+        // dismantleNSView still explicitly removes a genuinely closed surface.
+        if window == nil, windowPresentation?.preservesFocus == true || PlankMacSessionWindows.isPresenting(client: client) {
+            PlankMacSessionWindows.refresh(client: client)
+            return
+        }
         detachWindowPresentation()
         if let window {
             PlankMacDesktopWindow.configure(window)
             windowPresentation = PlankMacWindowPresentation(window: window)
+            windowPresentation?.changed = { [weak self] in self?.presentationChanged() }
             // The full-screen toolbar can cover the canvas without causing
             // mouseExited. Restore the local pointer before native controls
             // receive their events; never consume or reroute those events.
             cursorMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged,
                 .rightMouseDragged, .otherMouseDragged, .cursorUpdate, .leftMouseDown,
                 .rightMouseDown, .otherMouseDown, .scrollWheel]) { [weak self] event in
+                if event.type == .mouseMoved { self?.forwardMouseMovement(event) }
                 self?.updatePointerAppearance(for: event)
+                // Eligible wheel events are consumed once here even if Space
+                // changes left the responder chain on local chrome. Controls,
+                // letterboxes and other windows continue through AppKit.
+                if event.type == .scrollWheel, self?.forwardScroll(event) == true { return nil }
                 return event
             }
             window.acceptsMouseMovedEvents = true; window.makeFirstResponder(self)
@@ -86,12 +113,25 @@ final class PlankMacInputView: NSView {
             windowPresentation?.install()
             windowChanged(window)
         }
+        PlankMacSessionWindows.attach(client: client, surface: surfaceID, window: window, view: self)
         updateFocus()
     }
     private func updateFocus() {
+        windowPresentation?.install()
         let owned = NSApp.isActive && (window?.isKeyWindow == true || window?.isMainWindow == true)
-        if !NSApp.isActive || window?.isKeyWindow != true || localControlsPresented { restoreLocalCursor() }
-        if !owned { releaseInput() }; client.setTabletActive(owned)
+        if !NSApp.isActive || localControlsPresented { restoreLocalCursor() }
+        else { updatePointerAtCurrentLocation() }
+        if !owned { releaseInput() }
+        PlankMacSessionWindows.refresh(client: client)
+    }
+    private func presentationChanged() {
+        PlankMacSessionWindows.refresh(client: client)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            updateTrackingAreas()
+            if !localControlsPresented, window?.isKeyWindow == true { window?.makeFirstResponder(self) }
+            updatePointerAtCurrentLocation()
+        }
     }
     func detachWindowPresentation() {
         windowPresentation?.remove(); windowPresentation = nil
@@ -101,31 +141,58 @@ final class PlankMacInputView: NSView {
         guard localControlsPresented != presented else { return }
         localControlsPresented = presented
         if presented { releaseInput(); restoreLocalCursor() }
+        else if window?.isKeyWindow == true { window?.makeFirstResponder(self); updatePointerAtCurrentLocation() }
         window?.invalidateCursorRects(for: self)
         // Local controls retain tablet ownership. This affects cursor and
         // keyboard/mouse routing only, never the raw Wacom capture lifetime.
     }
-    func restoreLocalCursor() { desktopCursorHidden = false; PlankMacLocalPointerView.showArrow() }
+    func restoreLocalCursor() { PlankMacLocalPointerView.showArrow() }
     override func layout() { super.layout(); video.frame = canvas; software.frame = canvas; cursorOverlay.frame = bounds; refreshNativeCursor(); window?.invalidateCursorRects(for: self) }
     override func updateTrackingAreas() {
         if let tracking { removeTrackingArea(tracking) }
-        let next = NSTrackingArea(rect: .zero, options: [.inVisibleRect,.activeInKeyWindow,.mouseMoved,.cursorUpdate,.mouseEnteredAndExited], owner: self)
+        let next = NSTrackingArea(rect: .zero, options: [.inVisibleRect,.activeInActiveApp,.mouseMoved,.cursorUpdate,.mouseEnteredAndExited], owner: self)
         addTrackingArea(next); tracking = next; super.updateTrackingAreas()
     }
+    func setOutput(topology: PlankTopology?, index: Int) {
+        guard self.topology != topology || outputIndex != index else { return }
+        releaseInput()
+        self.topology = topology; outputIndex = index
+        geometry = nil
+        if let topology, topology.splitPresentation, topology.macPresentationOutputs.indices.contains(index) {
+            let output = topology.macPresentationOutputs[index]
+            NSLog("PLANK Mac output: index=%d id=%@ generation=%@ source=%d,%d %dx%d primary=%d",
+                index, output.id, topology.generation, output.sourceRect.x, output.sourceRect.y,
+                output.sourceRect.width, output.sourceRect.height, output.primary ? 1 : 0)
+        }
+        display(latestFrame)
+    }
     func display(_ frame: PlankRenderedFrame?) {
-        guard let frame else { width = 0; height = 0; video.isHidden = true; software.contents = nil; cursorOverlay.setDimensions(width: 0, height: 0); refreshNativeCursor(); return }
+        latestFrame = frame
+        guard let frame else { geometry = nil; width = 0; height = 0; video.isHidden = true; software.contents = nil; cursorOverlay.setDimensions(width: 0, height: 0); refreshNativeCursor(); return }
+        if geometry == nil || width != frame.width || height != frame.height {
+            geometry = PlankMacDisplayGeometry(frameWidth: frame.width, frameHeight: frame.height,
+                topology: topology, outputIndex: outputIndex)
+        }
         width = frame.width; height = frame.height; needsLayout = true
-        cursorOverlay.setDimensions(width: width, height: height)
+        guard let geometry else {
+            video.isHidden = true; software.contents = nil
+            cursorOverlay.setDimensions(width: 0, height: 0); refreshNativeCursor(); return
+        }
+        cursorOverlay.setGeometry(geometry)
+        video.sourceCrop = geometry.normalizedCrop
         if let pixels = frame.pixelBuffer { video.isHidden = false; software.contents = nil; video.display(pixels) }
         else if let provider = CGDataProvider(data: frame.pixels as CFData) {
             video.isHidden = true
-            software.contents = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+            let image = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
                 bytesPerRow: frame.bytesPerRow, space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: .byteOrder32Little.union(CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)),
                 provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+            software.contents = image?.cropping(to: CGRect(x: geometry.source.x, y: geometry.source.y,
+                width: geometry.source.width, height: geometry.source.height))
         }
     }
     func cursor(_ position: PlankRemoteCursor?) {
+        latestCursor = position
         cursorOverlay.setLocalMouse(client.nativeMouseOwnsPointer)
         cursorOverlay.cursor(position); refreshNativeCursor()
         updatePointerAtCurrentLocation()
@@ -133,20 +200,51 @@ final class PlankMacInputView: NSView {
     func shape(_ shape: PlankRemoteCursorShape?) {
         cursorOverlay.cursorShape(shape); refreshNativeCursor(); updatePointerAtCurrentLocation()
     }
-    private func pointer(_ event: NSEvent) -> Bool {
-        guard !localControlsPresented, NSApp.isActive, window?.isKeyWindow == true,
-              (!heldButtons.isEmpty || ownsDesktopPoint(event.locationInWindow)),
-              let (x,y) = PlankMacCoordinates.remote(convert(event.locationInWindow, from: nil), canvas: canvas,
-                 width: width, height: height, dragging: !heldButtons.isEmpty) else { return false }
-        client.movePointer(x: x, y: y, width: width, height: height)
+    func remotePointer(at screenPoint: CGPoint) -> (Int, Int, Int, Int)? {
+        guard let window, window.isVisible, !localControlsPresented,
+              let geometry else { return nil }
+        let windowPoint = window.convertPoint(fromScreen: screenPoint)
+        guard ownsDesktopPoint(windowPoint), let (x, y) = geometry.remote(
+            convert(windowPoint, from: nil), in: bounds, dragging: false) else { return nil }
+        return (x, y, width, height)
+    }
+    private func pointer(_ event: NSEvent, requireKeyWindow: Bool = true) -> Bool {
+        guard !localControlsPresented, NSApp.isActive, !requireKeyWindow || window?.isKeyWindow == true,
+              let geometry else { return false }
+        let dragging = !heldButtons.isEmpty
+        var result: (Int, Int, Int, Int)?
+        // AppKit delivers a held drag to its original view. If the mouse moves
+        // into the other output window, map that window's canvas while keeping
+        // button ownership here until the real release arrives.
+        if dragging, let window {
+            result = PlankMacSessionWindows.remotePointer(client: client,
+                screenPoint: window.convertPoint(toScreen: event.locationInWindow))
+        }
+        if result == nil {
+            guard dragging || ownsDesktopPoint(event.locationInWindow),
+                  let (x, y) = geometry.remote(convert(event.locationInWindow, from: nil),
+                                               in: bounds, dragging: dragging) else { return false }
+            result = (x, y, width, height)
+        }
+        guard let (x, y, w, h) = result else { return false }
+        client.movePointer(x: x, y: y, width: w, height: h)
         cursorOverlay.setLocalMouse(true)
         return true
     }
-    override func mouseMoved(with event: NSEvent) { _ = pointer(event); updatePointerAppearance(for: event) }
+    private func forwardMouseMovement(_ event: NSEvent) {
+        guard event.window === window, lastMouseMovement !== event else { return }
+        lastMouseMovement = event
+        // A Space transition can leave the responder chain on the titlebar.
+        // Route hover by its actual canvas, without stealing keyboard focus.
+        _ = pointer(event, requireKeyWindow: false)
+    }
+    override func mouseMoved(with event: NSEvent) { forwardMouseMovement(event); updatePointerAppearance(for: event) }
     override func mouseDragged(with event: NSEvent) { _ = pointer(event); updatePointerAppearance(for: event) }
     override func rightMouseDragged(with event: NSEvent) { _ = pointer(event); updatePointerAppearance(for: event) }
     override func otherMouseDragged(with event: NSEvent) { _ = pointer(event); updatePointerAppearance(for: event) }
     private func down(_ event: NSEvent, button: UInt8) {
+        guard NSApp.isActive, ownsDesktopPoint(event.locationInWindow) else { return }
+        window?.makeKey()
         guard pointer(event) else { return }; window?.makeFirstResponder(self)
         heldButtons.insert(button); client.setMouseButton(number: button, pressed: true)
     }
@@ -157,12 +255,25 @@ final class PlankMacInputView: NSView {
     override func rightMouseUp(with event: NSEvent) { up(3) }
     override func otherMouseDown(with event: NSEvent) { if let button = PlankMacKeys.mouseButton(event.buttonNumber) { down(event, button: button) } }
     override func otherMouseUp(with event: NSEvent) { if let button = PlankMacKeys.mouseButton(event.buttonNumber) { up(button) } }
-    override func scrollWheel(with event: NSEvent) {
-        guard !localControlsPresented, NSApp.isActive, window?.isKeyWindow == true,
-              ownsDesktopPoint(event.locationInWindow) else { return }
-        let factor = event.hasPreciseScrollingDeltas ? 1.0 : 120.0
-        client.scroll(vertical: Int16(clamping: Int(event.scrollingDeltaY * factor)), horizontal: Int16(clamping: Int(event.scrollingDeltaX * factor)))
+    private func forwardScroll(_ event: NSEvent) -> Bool {
+        guard NSApp.isActive, event.window === window, geometry != nil,
+              ownsDesktopPoint(event.locationInWindow) else { return false }
+        // Real mouse movement positions the Host pointer, including over a
+        // non-key desktop. Do not manufacture motion for wheel-only input:
+        // Linux uses XTEST for absolute motion and uinput for scrolling. That
+        // alternation resets GTK's scroll baseline before each wheel tick.
+        let (vertical, horizontal) = scrollAccumulator.take(event: event)
+        if vertical != 0 || horizontal != 0 { client.scroll(vertical: vertical, horizontal: horizontal) }
+        wheelForwarded += 1; wheelVertical += Int(vertical); wheelHorizontal += Int(horizontal)
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - wheelLogTime >= 1 {
+            NSLog("PLANK Mac wheel: output=%d events=%d vertical=%d horizontal=%d precise=%d",
+                outputIndex, wheelForwarded, wheelVertical, wheelHorizontal, event.hasPreciseScrollingDeltas ? 1 : 0)
+            wheelLogTime = now; wheelForwarded = 0; wheelVertical = 0; wheelHorizontal = 0
+        }
+        return true
     }
+    override func scrollWheel(with event: NSEvent) { _ = forwardScroll(event) }
     override func keyDown(with event: NSEvent) {
         guard !localControlsPresented else { super.keyDown(with: event); return }
         guard !PlankMacKeys.staysLocal(event), let key = PlankMacKeys.table[event.keyCode] else { super.keyDown(with: event); return }
@@ -190,6 +301,7 @@ final class PlankMacInputView: NSView {
     }
     override func resignFirstResponder() -> Bool { releaseInput(); restoreLocalCursor(); return true }
     func releaseInput() {
+        scrollAccumulator.reset()
         heldButtons.forEach { client.setMouseButton(number: $0, pressed: false) }
         heldKeys.union(modifierKeys).forEach { client.sendKey(code: $0, pressed: false, modifiers: 0) }
         heldButtons.removeAll(); heldKeys.removeAll(); modifierKeys.removeAll()
@@ -207,30 +319,48 @@ final class PlankMacInputView: NSView {
         return hit === self || hit.isDescendant(of: self)
     }
     func updatePointerAppearance(for event: NSEvent) {
-        if event.window === window { updatePointerAppearance(at: event.locationInWindow) }
-        else { restoreLocalCursor() }
+        if event.window === window {
+            // Revealed fullscreen chrome can be revalidated after the delegate's
+            // did-enter callback. Rebind its native button before local hover or
+            // click dispatch, including on the non-key desktop window.
+            if !ownsDesktopPoint(event.locationInWindow) { windowPresentation?.install() }
+            updatePointerAppearance(at: event.locationInWindow)
+        }
+        else if !PlankMacSessionWindows.owns(client: client, window: event.window) { restoreLocalCursor() }
+        // Another session window handles its own cursor appearance.
     }
     private func updatePointerAtCurrentLocation() {
-        guard let window else { return }
+        guard let window, window.isVisible, window.frame.contains(NSEvent.mouseLocation),
+              NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) == window.windowNumber else { return }
+        // A popover, local browser or another app above this desktop owns its
+        // pointer. Background cursor packets must not hide that local pointer.
+        // The other desktop must not restore the native arrow over this canvas.
         updatePointerAppearance(at: window.mouseLocationOutsideOfEventStream)
     }
     private func updatePointerAppearance(at point: NSPoint) {
-        guard ownsDesktopPoint(point), NSApp.isActive, window?.isKeyWindow == true else {
-            restoreLocalCursor(); return
+        let mouseOwns = client.nativeMouseOwnsPointer
+        cursorOverlay.setLocalMouse(mouseOwns)
+        let artwork = cursorOverlay.nativeMouseCursor
+        let currentHostPosition = latestCursor != nil && width > 0 && height > 0 &&
+            latestCursor?.frameWidth == width && latestCursor?.frameHeight == height
+        switch PlankMacPointerPresentation.mode(appActive: NSApp.isActive,
+            onCanvas: ownsDesktopPoint(point), mouseOwns: mouseOwns, mouseArtwork: artwork != nil,
+            currentHostPosition: currentHostPosition, overlayOwns: cursorOverlay.replacesSystemCursor) {
+        case .mouse:
+            // WindowServer draws at the actual local mouse position.
+            NSCursor.setHiddenUntilMouseMoves(false); artwork?.set()
+        case .hidden:
+            // Reassert after AppKit reveals the parked pointer during a Space
+            // transition. Also hide it when the pen is on the other output.
+            PlankMacLocalPointerView.hideForDesktop()
+        case .local:
+            restoreLocalCursor()
         }
-        if client.nativeMouseOwnsPointer, let cursor = cursorOverlay.nativeMouseCursor {
-            // Mouse artwork is rendered by WindowServer at the local event
-            // position, never moved backwards by a delayed Host position.
-            desktopCursorHidden = false
-            NSCursor.setHiddenUntilMouseMoves(false); cursor.set()
-        } else if cursorOverlay.replacesSystemCursor || client.nativeMouseOwnsPointer {
-            if !desktopCursorHidden { PlankMacLocalPointerView.hideForDesktop(); desktopCursorHidden = true }
-        } else { restoreLocalCursor() }
     }
     private func refreshNativeCursor() {
         guard replacingSystemCursor != cursorOverlay.replacesSystemCursor else { return }
         replacingSystemCursor = cursorOverlay.replacesSystemCursor
-        if !replacingSystemCursor { restoreLocalCursor() }
+        if !replacingSystemCursor { updatePointerAtCurrentLocation() }
         window?.invalidateCursorRects(for: self)
     }
     override func cursorUpdate(with event: NSEvent) {

@@ -31,7 +31,7 @@ struct PlankMacBrowser: View {
                 VStack(spacing: 18) {
                     Image(systemName: "desktopcomputer").font(.system(size: 52)).foregroundStyle(.cyan)
                     Text(host.name).font(.title)
-                    Text("\(host.spatialDisplaySize.title) · \(host.streamFrameRate) fps").foregroundStyle(.secondary)
+                    Text("\(host.spatialDisplaySize.title)\(host.secondDisplaySize.map { " + " + $0.title } ?? "") · \(host.streamFrameRate) fps").foregroundStyle(.secondary)
                     if client.activeHostID == host.id {
                         switch client.phase {
                         case .needsCredentials, .authenticating:
@@ -41,7 +41,10 @@ struct PlankMacBrowser: View {
                         case .authenticated:
                             Button("Open Desktop") { start(host) }.buttonStyle(.borderedProminent).disabled(relay.sharing)
                         case .streaming, .frameReceived, .startingSession:
-                            Button("Show Desktop") { openWindow(id: "desktop") }
+                            Button("Show Desktop") {
+                                openWindow(id: "desktop")
+                                if client.sessionTopology?.splitPresentation == true { openWindow(id: "desktop-secondary") }
+                            }
                         case let .failed(message):
                             Text(message).foregroundStyle(.orange).textSelection(.enabled)
                             Button("Reconnect") { Task { await client.reset()?.value; await client.connect(to: host) } }
@@ -70,7 +73,9 @@ struct PlankMacBrowser: View {
     private func start(_ host: HostBookmark) {
         guard !relay.sharing else { return }
         client.setTabletActive(true)
-        client.startSession(displaySize: host.spatialDisplaySize, frameRate: host.streamFrameRate, videoBitrateKbps: host.videoBitrateKbps)
+        client.startSession(displaySize: host.spatialDisplaySize, frameRate: host.streamFrameRate,
+            videoBitrateKbps: host.videoBitrateKbps, secondDisplaySize: host.secondDisplaySize,
+            localDisplayLayout: host.secondDisplaySize == nil ? nil : PlankMacDisplayPriority.snapshot())
         store.markConnected(host); openWindow(id: "desktop")
     }
 }
@@ -92,24 +97,36 @@ struct PlankMacBookmarkEditor: View {
                 TextField("Name", text: $host.name)
                 TextField("Address", text: $host.address)
                 TextField("Port", value: $host.port, format: .number.grouping(.never))
-                Picker("Resolution", selection: $host.spatialDisplaySize) { ForEach(SpatialDisplaySize.allCases) { Text($0.title).tag($0) } }
+                Toggle("Two displays", isOn: Binding(get: { host.secondDisplaySize != nil }, set: {
+                    host.secondDisplaySize = $0 ? .standard : nil
+                }))
+                Picker(host.secondDisplaySize == nil ? "Resolution" : "Left display", selection: $host.spatialDisplaySize) { ForEach(SpatialDisplaySize.allCases) { Text($0.title).tag($0) } }
+                if host.secondDisplaySize != nil {
+                    Picker("Right display", selection: Binding(get: { host.secondDisplaySize ?? .standard }, set: { host.secondDisplaySize = $0 })) {
+                        ForEach(SpatialDisplaySize.allCases) { Text($0.title).tag($0) }
+                    }
+                    Text("Resolutions follow the Mac's left/right display order. A compatible Host also follows its primary display and connector order.").font(.caption).foregroundStyle(.secondary)
+                    if !PlankTopology.validCanvas(first: host.spatialDisplaySize, second: host.secondDisplaySize) {
+                        Text("The combined width must be 8192 pixels or less.").foregroundStyle(.orange)
+                    }
+                }
                 Picker("Refresh rate", selection: $host.streamFrameRate) { ForEach(StreamFrameRate.presets, id: \.self) { Text("\($0) fps").tag($0) } }
             }
             HStack {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Save") { if client.requiresSessionCloseForBookmark(host) { warning = true } else { save() } }
-                    .keyboardShortcut(.defaultAction).disabled(saving || host.name.isEmpty || host.address.isEmpty || host.port == 0)
+                    .keyboardShortcut(.defaultAction).disabled(saving || host.name.isEmpty || host.address.isEmpty || host.port == 0 || !PlankTopology.validCanvas(first: host.spatialDisplaySize, second: host.secondDisplaySize))
             }
         }.padding(24).frame(width: 480)
         .alert("Close the workstation session?", isPresented: $warning) {
             Button("Close and Save", role: .destructive) { save() }
             Button("Cancel", role: .cancel) {}
-        } message: { Text("Changing resolution, timing or the address requires closing this session and signing in again.") }
+        } message: { Text("Changing display layout, resolution, timing or the address requires closing this session and signing in again.") }
     }
     private func save() { saving = true; Task {
         await client.closeSessionForBookmarkChange(host)
-        if isNew { store.add(name: host.name, address: host.address, port: host.port, displaySize: host.spatialDisplaySize, frameRate: host.streamFrameRate) } else { store.update(host) }
+        if isNew { store.add(name: host.name, address: host.address, port: host.port, displaySize: host.spatialDisplaySize, frameRate: host.streamFrameRate, secondDisplaySize: host.secondDisplaySize) } else { store.update(host) }
         dismiss()
     } }
 }

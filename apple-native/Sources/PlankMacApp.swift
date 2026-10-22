@@ -15,6 +15,9 @@ struct PlankMacApp: App {
         Window("PLANK Desktop", id: "desktop") {
             PlankMacDesktop().environmentObject(client)
         }.defaultSize(width: 1280, height: 760).windowResizability(.contentMinSize)
+        Window("PLANK Desktop · Display 2", id: "desktop-secondary") {
+            PlankMacDesktop(outputIndex: 1).environmentObject(client)
+        }.defaultSize(width: 1100, height: 760).windowResizability(.contentMinSize)
         Settings { PlankMacSettings().environmentObject(relay).environmentObject(client) }
     }
 }

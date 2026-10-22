@@ -27,6 +27,7 @@ final class PlankMacMetalView: NSView {
     private let cache: CVMetalTextureCache?
     private let pipeline: MTLRenderPipelineState?
     private var latestBuffer: CVPixelBuffer?
+    var sourceCrop = CGRect(x: 0, y: 0, width: 1, height: 1)
     private var frameID = DispatchTime.now().uptimeNanoseconds
 
     private var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
@@ -98,6 +99,11 @@ final class PlankMacMetalView: NSView {
         drawLatest()
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        metalLayer.contentsScale = window?.backingScaleFactor ?? 1
+        drawLatest()
+    }
     override func layout() {
         super.layout()
         drawLatest()
@@ -105,13 +111,13 @@ final class PlankMacMetalView: NSView {
 
     private func drawLatest() {
         guard let buffer = latestBuffer, let queue, let cache, let pipeline,
-              bounds.width > 0, bounds.height > 0 else { return }
+              window?.isVisible == true, window?.isMiniaturized != true, bounds.width > 0, bounds.height > 0 else { return }
         // A visionOS window is sized in points (1280 wide by default), while
         // the remote desktop is commonly 2560 pixels wide or more. Drawing at
         // the point size discards detail before the system scales the window.
         let size = CGSize(
-            width: CVPixelBufferGetWidth(buffer),
-            height: CVPixelBufferGetHeight(buffer)
+            width: Double(CVPixelBufferGetWidth(buffer)) * sourceCrop.width,
+            height: Double(CVPixelBufferGetHeight(buffer)) * sourceCrop.height
         )
         if metalLayer.drawableSize != size { metalLayer.drawableSize = size }
         var green: CVMetalTexture?
@@ -141,11 +147,11 @@ final class PlankMacMetalView: NSView {
         guard let drawable = nextDrawable,
               let command = queue.makeCommandBuffer() else { return }
 
+        let left = Float(sourceCrop.minX), right = Float(sourceCrop.maxX)
+        let top = Float(sourceCrop.minY), bottom = Float(sourceCrop.maxY)
         var vertices: [SIMD4<Float>] = [
-            SIMD4(-1,  1, 0, 0),
-            SIMD4(-1, -1, 0, 1),
-            SIMD4( 1,  1, 1, 0),
-            SIMD4( 1, -1, 1, 1)
+            SIMD4(-1,  1, left, top), SIMD4(-1, -1, left, bottom),
+            SIMD4( 1,  1, right, top), SIMD4( 1, -1, right, bottom)
         ]
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = drawable.texture
