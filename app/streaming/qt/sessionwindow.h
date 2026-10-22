@@ -98,7 +98,7 @@ signals:
     void surfaceSizeChanged();
     void remoteMotion(QPointF streamPosition);
     void remoteButton(int button, bool down, QPointF streamPosition);
-    void remoteWheel(QPoint angleDelta, QPoint pixelDelta, bool inverted);
+    void remoteWheel(QPointF streamPosition, QPoint angleDelta, QPoint pixelDelta, bool inverted);
     void remoteKey(quint32 scanCode, int key, bool down, bool repeat, Qt::KeyboardModifiers modifiers);
     void bitrateRequested(int kbps);
     void disconnectRequested();

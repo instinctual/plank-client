@@ -1,3 +1,9 @@
+## 1.2.01 — Ubuntu scrolling
+
+### Client
+- Fix mouse-wheel scrolling being ignored by Linux desktop applications.
+- Keep correct pointer positioning when changing windows or returning from tablet input.
+
 ## 1.2.00 — Qt becomes the Ubuntu Client
 
 ### Client

@@ -113,6 +113,7 @@ void QtSessionInput::resetCursorEpoch()
     m_Cursor.reset();
     m_ActivityPending.store(false);
     QMetaObject::invokeMethod(this, [this] {
+        m_LastPositionSize = 0;
         activateMouse();
         emit cursorShape({}, {}, false);
     }, Qt::QueuedConnection);
@@ -141,7 +142,8 @@ void QtSessionInput::tabletActivity()
 }
 void QtSessionInput::activateMouse()
 {
-    m_ActivityPending.store(false);
+    const bool pendingTabletActivity = m_ActivityPending.exchange(false);
+    if (pendingTabletActivity || m_TabletActive) m_LastPositionSize = 0;
     if (!m_TabletActive) return;
     m_TabletActive = false;
     emit tabletActive(false);
@@ -164,13 +166,23 @@ void QtSessionInput::setFocused(bool focused)
     m_Focused = focused;
     requestFocus();
 }
-bool QtSessionInput::sendPosition(QPointF position)
+bool QtSessionInput::sendPosition(QPointF position, bool onlyIfChanged)
 {
     const auto size = m_StreamSize.load();
     const int width = int(size >> 32), height = int(size & 0xffffffffu);
-    if (width <= 0 || height <= 0 || width > SHRT_MAX || height > SHRT_MAX) return false;
-    return LiSendMousePositionEvent(short(qBound(0, qRound(position.x()), width - 1)),
-        short(qBound(0, qRound(position.y()), height - 1)), short(width), short(height)) == 0;
+    if (width <= 0 || height <= 0 || width > SHRT_MAX || height > SHRT_MAX) {
+        m_LastPositionSize = 0;
+        return false;
+    }
+    const QPoint pixels(qBound(0, qRound(position.x()), width - 1),
+                        qBound(0, qRound(position.y()), height - 1));
+    if (onlyIfChanged && m_LastPositionSize == size && m_LastPosition == pixels) return true;
+    m_LastPositionSize = 0;
+    if (LiSendMousePositionEvent(short(pixels.x()), short(pixels.y()), short(width), short(height)) != 0)
+        return false;
+    m_LastPosition = pixels;
+    m_LastPositionSize = size;
+    return true;
 }
 void QtSessionInput::mouseMotion(QPointF position)
 {
@@ -195,11 +207,16 @@ void QtSessionInput::mouseButton(int button, bool down, QPointF position)
     } else if (!m_Buttons.remove(wire)) return;
     LiSendMouseButtonEvent(down ? BUTTON_ACTION_PRESS : BUTTON_ACTION_RELEASE, wire);
 }
-void QtSessionInput::wheel(QPoint angleDelta, QPoint pixelDelta, bool inverted)
+void QtSessionInput::wheel(QPointF position, QPoint angleDelta, QPoint pixelDelta, bool inverted)
 {
     Q_UNUSED(pixelDelta);
     Q_UNUSED(inverted); // Qt has already applied the compositor's natural-scroll preference.
-    if (!m_Enabled) return;
+    if (!m_Enabled || angleDelta.isNull()) return;
+    activateMouse();
+    // Preserve entry/reconnect/tablet handoff positioning without injecting
+    // an XTEST motion before every wheel event on Linux Hosts. Real motion
+    // and button ordering remain unchanged.
+    if (!sendPosition(position, true)) return;
     if (angleDelta.y()) LiSendHighResScrollEvent(short(qBound(int(SHRT_MIN), angleDelta.y(), int(SHRT_MAX))));
     if (angleDelta.x()) LiSendHighResHScrollEvent(short(qBound(int(SHRT_MIN), angleDelta.x(), int(SHRT_MAX))));
 }
@@ -230,6 +247,7 @@ void QtSessionInput::key(quint32 scan, int key, bool down, bool repeat, Qt::Keyb
 }
 void QtSessionInput::releaseAll()
 {
+    m_LastPositionSize = 0;
     for (const auto& key : std::as_const(m_Keys))
         LiSendKeyboardEvent2(short(0x8000 | key.vk), KEY_ACTION_UP, 0, key.nonNormalized ? SS_KBE_FLAG_NON_NORMALIZED : 0);
     m_Keys.clear();

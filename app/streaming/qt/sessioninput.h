@@ -37,7 +37,7 @@ public:
     void setSystemKeys(bool captured) { m_SystemKeys = captured; }
     void mouseMotion(QPointF position);
     void mouseButton(int button, bool down, QPointF position);
-    void wheel(QPoint angleDelta, QPoint pixelDelta, bool inverted);
+    void wheel(QPointF position, QPoint angleDelta, QPoint pixelDelta, bool inverted);
     void key(quint32 scan, int key, bool down, bool repeat, Qt::KeyboardModifiers modifiers);
     void releaseAll();
     void activateMouse();
@@ -55,7 +55,7 @@ private:
     void requestFocus();
     void tabletMain(unsigned hostFeatures);
     void tabletActivity();
-    bool sendPosition(QPointF position);
+    bool sendPosition(QPointF position, bool onlyIfChanged = false);
     void consumeShape();
     void consumePosition();
 
@@ -63,6 +63,10 @@ private:
     PlankCallbackTarget<LinuxRawWacomInput> m_RawControl;
     std::atomic<std::uint64_t> m_StreamSize{0};
     std::atomic_bool m_ActivityPending{false};
+    // GUI-thread state: last successfully queued mouse position, in wire pixels.
+    // A zero size invalidates it after focus, transport or tablet ownership changes.
+    QPoint m_LastPosition;
+    std::uint64_t m_LastPositionSize = 0;
     QMap<quint32, QtLinuxRemoteKey> m_Keys;
     QSet<int> m_Buttons;
     QSet<quint32> m_ShortcutKeys;

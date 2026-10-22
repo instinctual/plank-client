@@ -972,6 +972,7 @@ private slots:
         QSignalSpy buttons(&window, &QtSessionWindow::remoteButton);
         QSignalSpy requested(&window, &QtSessionWindow::bitrateRequested);
         QSignalSpy wheel(&window, &QtSessionWindow::remoteWheel);
+        QSignalSpy motion(&window, &QtSessionWindow::remoteMotion);
         const auto point = controlCenter(window, "bitrateSlider");
         mouse(window, QEvent::MouseButtonPress, point, Qt::LeftButton, Qt::LeftButton);
         mouse(window, QEvent::MouseMove, point + QPointF(30, 0), Qt::NoButton, Qt::LeftButton);
@@ -984,8 +985,15 @@ private slots:
         QWheelEvent remoteScroll({640, 360}, {640, 360}, {}, {0, 120}, {}, {}, Qt::NoScrollPhase, true);
         QCoreApplication::sendEvent(&window, &remoteScroll);
         QCOMPARE(wheel.count(), 1);
-        QCOMPARE(wheel.last().at(0).toPoint(), QPoint(0, 120));
-        QVERIFY(wheel.last().at(2).toBool());
+        QCOMPARE(wheel.last().at(0).toPointF(), QPointF(1920, 1080));
+        QCOMPARE(wheel.last().at(1).toPoint(), QPoint(0, 120));
+        QVERIFY(wheel.last().at(3).toBool());
+        // Wheel positioning belongs to the input owner. Emitting remoteMotion
+        // here on every notch causes repeated XTEST/uinput source switches.
+        QCOMPARE(motion.count(), 0);
+        QCoreApplication::sendEvent(&window, &remoteScroll);
+        QCOMPARE(wheel.count(), 2);
+        QCOMPARE(motion.count(), 0);
     }
 
     void ignoredSynthesizedMouse()

@@ -382,8 +382,10 @@ void QtSessionWindow::wheelEvent(QWheelEvent* event)
     QPointF position;
     if (m_RemoteInputEnabled && !m_Waiting && !localPointer(event->position()) &&
             m_Geometry.toStream(event->position(), position)) {
-        emit remoteMotion(position);
-        emit remoteWheel(event->angleDelta(), event->pixelDelta(), event->inverted());
+        // The input owner positions only when needed. Repeating absolute
+        // motion before every notch switches the Linux Host between XTEST
+        // and its wheel device, resetting applications' smooth-scroll state.
+        emit remoteWheel(position, event->angleDelta(), event->pixelDelta(), event->inverted());
         event->accept();
         return;
     }
