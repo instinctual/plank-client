@@ -4282,7 +4282,6 @@ void Session::execInternal()
     PlankReconnectThread* reconnectThread = nullptr;
     PlankWorkerProbeThread* workerProbe = nullptr;
     Uint64 nextWorkerProbe = 0;
-    bool earlyWaitingVisible = false;
     PlankReconnectState reconnectState;
     Uint64 reconnectDecisionDeadline = 0;
     const auto handlePlankLocalUserEvent = [this](const SDL_UserEvent& userEvent) {
@@ -4363,21 +4362,15 @@ void Session::execInternal()
         }
         if (!m_Reconnecting.load() && !m_ReconnectRequested.load()) {
             if (videoSilent && m_CanReconnect.load() && !m_PlankWorkerInstance.isEmpty()) {
-                if (!earlyWaitingVisible) {
-                    setPlankReconnectStatus("Waiting for workstation...", false);
-                    earlyWaitingVisible = true;
-                }
+                // Video silence is normal for an unchanged desktop. Probe for
+                // a replacement worker, but show recovery status only after
+                // that replacement or a transport failure is confirmed.
                 if (workerProbe == nullptr && now >= nextWorkerProbe) {
                     workerProbe = new PlankWorkerProbeThread(m_Computer->activeAddress,
                                     m_PlankWorkerInstance, m_PlankHostCertificateSha256);
                     workerProbe->start();
                 }
-            } else if (earlyWaitingVisible) {
-                setPlankReconnectStatus("", false);
-                earlyWaitingVisible = false;
             }
-        } else {
-            earlyWaitingVisible = false;
         }
         if (m_PlankToolbar) {
             m_PlankToolbar->setRenderedStats(

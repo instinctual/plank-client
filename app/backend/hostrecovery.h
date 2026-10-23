@@ -18,6 +18,8 @@ inline QString canonicalInstance(const QString& value)
 
 inline bool videoSilent(quint64 now, quint64 lastVideo)
 {
+    // Schedules a credential-free worker-replacement probe, not an outage
+    // warning. Capture may legitimately idle without producing video frames.
     return lastVideo != 0 && now >= lastVideo && now - lastVideo >= SilenceMs;
 }
 

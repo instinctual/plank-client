@@ -49,14 +49,14 @@ private slots:
         QVERIFY(!policy.allowsRequest(75000));
     }
 
-    void boundsSilenceTrigger()
+    void boundsWorkerProbeTrigger()
     {
         using namespace PlankHostRecovery;
         QVERIFY(!videoSilent(10000, 0)); // No first frame yet.
         QVERIFY(!videoSilent(999, 1000));
         QVERIFY(!videoSilent(1999, 1000));
         QVERIFY(videoSilent(2000, 1000));
-        QVERIFY(!videoSilent(2001, 2000)); // Incoming video cancels recovery.
+        QVERIFY(!videoSilent(2001, 2000)); // Incoming video cancels the probe trigger.
     }
 
     void requiresPinnedCertificateAndReplacement()

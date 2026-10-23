@@ -1,3 +1,9 @@
+## 1.2.02 — Idle desktop status
+
+### Client
+- Stop showing “Waiting for workstation” just because the remote desktop is unchanged.
+- Keep automatic recovery for connection failures, Host restarts and login/logout transitions.
+
 ## 1.2.01 — Ubuntu scrolling
 
 ### Client

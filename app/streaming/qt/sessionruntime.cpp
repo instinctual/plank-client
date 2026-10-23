@@ -582,9 +582,11 @@ void QtSessionRuntime::tick()
         }
     }
     if (m_Streaming) {
-        const bool silent = PlankHostRecovery::videoSilent(SDL_GetTicks(), m_Session->m_LastPlankVideoReceived.load());
-        setStatus(silent ? tr("Waiting for workstation…") :
-                  m_Presenter->hasPresentedLiveFrame() ? QString() : tr("Connecting to workstation…"));
+        // A healthy Host may send no new frames while its desktop is idle.
+        // Only transport failure or a confirmed worker replacement enters
+        // recovery; request(Reconnect) then clears m_Streaming so its status
+        // and timeout notice remain owned by that recovery path.
+        setStatus(m_Presenter->hasPresentedLiveFrame() ? QString() : tr("Connecting to workstation…"));
     }
     const auto now = SDL_GetTicks();
     const auto requested = m_Session->m_ConfirmedBitrateRequestKbps.load();
