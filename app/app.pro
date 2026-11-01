@@ -92,7 +92,7 @@ DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs depr
 
 !linux:!macx: error("Supported desktop Clients are Linux and macOS")
 CONFIG += link_pkgconfig ffmpeg
-PKGCONFIG += openssl opus libavcodec libavutil libswscale libswresample
+PKGCONFIG += openssl opus libavcodec libavutil libswresample
 linux {
     PKGCONFIG += libpipewire-0.3 wayland-client x11 egl libdrm libva libplacebo
     DEFINES += HAS_X11 HAS_WAYLAND HAVE_EGL HAVE_DRM HAVE_LIBVA HAVE_LIBPLACEBO_VULKAN

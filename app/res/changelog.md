@@ -1,3 +1,8 @@
+## 1.3.01 — Client dependency cleanup candidate
+
+### Client
+- Remove an unused video-scaling library dependency; video continues to scale on the GPU.
+
 ## 1.3.00 — Native Client audio candidate
 
 ### Client
