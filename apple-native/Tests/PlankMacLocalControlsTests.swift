@@ -46,6 +46,17 @@ final class PlankMacMetalView: NSView {
 @main @MainActor struct PlankMacLocalControlsTests {
     static var checks = 0
     static func check(_ value: Bool, _ message: String) { checks += 1; precondition(value, message) }
+    // Dispatch timers are not a promise to run within 40 ms on a busy CI Mac.
+    // Wait for the observable callback with a bounded test watchdog instead
+    // of assuming one short run-loop turn delivered it. Production deadlines
+    // and the injected 10 ms grace periods remain unchanged.
+    static func waitFor(_ condition: () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        while !condition() && ProcessInfo.processInfo.systemUptime < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
     static func main() {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 360),
@@ -238,8 +249,7 @@ final class PlankMacMetalView: NSView {
         let bounded = PlankMacSessionPresentation(timeoutSeconds: 0.01)
         var timeoutResult: Bool?
         bounded.windowed(windows: [unacknowledged]) { timeoutResult = $0 }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.04))
-        check(!bounded.busy && timeoutResult == false && unacknowledged.simulatedFullScreen,
+        check(waitFor { !bounded.busy && timeoutResult == false } && unacknowledged.simulatedFullScreen,
             "unacknowledged exit times out without destroying a fullscreen window")
         unacknowledgedPresentation.windowDidFailToExitFullScreen(unacknowledged)
         bounded.windowed(windows: []) { timeoutResult = $0 }
@@ -283,8 +293,7 @@ final class PlankMacMetalView: NSView {
         shortGrace.changed = { graceChanges += 1 }
         shortGrace.windowWillEnterFullScreen(Notification(name: NSWindow.willEnterFullScreenNotification, object: stalledTransition))
         check(shortGrace.preservesFocus, "pending individual transition retains capture initially")
-        RunLoop.main.run(until: Date().addingTimeInterval(0.04))
-        check(!shortGrace.preservesFocus && graceChanges == 2, "unacknowledged individual transition releases focus override on bounded deadline")
+        check(waitFor { !shortGrace.preservesFocus && graceChanges == 2 }, "unacknowledged individual transition releases focus override on bounded deadline")
         shortGrace.windowDidFailToEnterFullScreen(stalledTransition)
 
         // Full-screen toolbars overlap content without leaving its bounds.
