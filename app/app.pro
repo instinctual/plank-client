@@ -105,6 +105,9 @@ linux {
 }
 macx {
     LIBS += -lobjc -framework VideoToolbox -framework AVFoundation -framework CoreVideo -framework CoreGraphics -framework CoreMedia -framework AppKit -framework Metal -framework QuartzCore -framework AudioToolbox -framework CoreAudio
+    # Resolve prepared native dylibs in the build and let macdeployqt copy
+    # their dependency closure. Packaging removes this development RPATH.
+    QMAKE_RPATHDIR += $$system(pkg-config --variable=libdir opus)
 }
 
 SOURCES += \
