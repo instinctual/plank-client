@@ -1,9 +1,8 @@
 # PLANK for Apple Vision Pro
 
-This target is PLANK's native visionOS client shell. It owns the host browser,
-bookmarks, settings, pairing and session presentation using SwiftUI. The
-existing PLANK protocol, transport, decoder and input implementation will sit
-behind `PlankCoreClient`; the desktop Qt interface is not part of this target.
+This target is PLANK's native visionOS client. It owns the host browser,
+bookmarks, settings, pairing and session presentation using SwiftUI, with
+transport, decoding and input managed through `PlankCoreClient`.
 
 For a complete unsigned build, use the
 [pinned public input recipe](../scripts/apple-native/README.md). The
@@ -11,6 +10,26 @@ For a complete unsigned build, use the
 the accepted checkpoint from the refreshed upstream dependency combination and
 lists the production reconciliation gates. The commands below are the original
 project-generation example, not a complete dependency bootstrap.
+
+## Virtual displays
+
+In Add/Edit Workstation, choose **One Virtual Display** or **Two Virtual
+Displays**. Each display has an independent resolution. Display 1 is left,
+Display 2 is right, with top edges aligned. Both appear together in one spatial
+window, using one composite stream and decoder. Window resizing preserves the
+combined desktop's aspect ratio; unused space below a shorter display belongs
+to the Host canvas. There is no separate-window option in this implementation.
+
+The combined width must not exceed 8192 pixels. Examples include
+3840x2160 + 1280x2160, two 2560x2160 displays, and two 3840x2160 displays.
+The editor shows the combined size and prevents saving an oversized layout.
+Changing either resolution uses the existing session-close confirmation and
+applies on the next connection. Start and Retry Session retain both modes.
+
+This uses the Linux Host's existing virtual-display support. It does not add
+multiple virtual displays to a macOS Host. Actual headset decoding, visual
+quality, Wacom and session acceptance remain required for each tested canvas;
+an allowed size is not a hardware performance guarantee.
 
 ## Tablet session lifecycle
 

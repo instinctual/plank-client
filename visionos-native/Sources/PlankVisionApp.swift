@@ -72,7 +72,9 @@ struct PlankVisionApp: App {
         .defaultSize(width: 980, height: 700)
         .defaultLaunchBehavior(.presented)
 
-        WindowGroup("PLANK Desktop", id: "plank-desktop") {
+        // Both Host outputs share one spatial window and one stream. Open
+        // Session should reveal that window, not create another stream owner.
+        Window("PLANK Desktop", id: "plank-desktop") {
             // Group is layout-transparent, so the desktop window's presentation
             // is unchanged; it only carries the link handler.
             Group {
