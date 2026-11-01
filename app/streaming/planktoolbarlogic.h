@@ -59,18 +59,6 @@ inline int logicalLeftFromPosition(float position,
                 std::clamp(position, 0.0f, 1.0f) * availableWidth));
 }
 
-// SDL and the dedicated Wayland listener both observe the same seat. While the
-// native child owns the pointer or an implicit button grab, its listener is the
-// only valid source of toolbar coordinates and forwards one authoritative
-// parent-relative position to the host. SDL's child-local duplicate must be
-// consumed instead of being interpreted as a parent coordinate.
-inline bool nativeChildOwnsPointerSequence(bool nativeChildAvailable,
-                                           bool pointerInsideChild,
-                                           bool localButtonDown)
-{
-    return nativeChildAvailable && (pointerInsideChild || localButtonDown);
-}
-
 class ButtonRouter
 {
 public:

@@ -8,7 +8,7 @@
 
 using namespace PlankAvSync;
 
-// Idealized demand for the clock-only tests below. The SDL fixture separately
+// Idealized demand for the clock-only tests below. The PCM playback fixture separately
 // exercises independent producer/device clocks and a finite, changing queue.
 class TestController : public AudioPhaseController
 {
@@ -97,7 +97,7 @@ static void safetyTests()
         assert(controller.update(phase(350000), 55, ms).correctionPpm == 0);
 }
 
-// Closed-loop source-clock model, not a speaker/SDL hardware acceptance test.
+// Closed-loop source-clock model, not a speaker hardware acceptance test.
 // Includes output latency, millisecond wire quantization, 60Hz video, unrelated
 // local/Host epochs, jitter and positive/negative device-rate error. No frame
 // counts are supplied to the controller, so callback throughput cannot bias it.

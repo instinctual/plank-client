@@ -4,7 +4,6 @@
 #include "../input/macrawwacom.h"
 #include "../mackeyboardcapture.h"
 #include "../macquitshortcut.h"
-#include "../input/sdl-darwin-scancodes.h"
 #else
 #include "../input/linuxwacom.h"
 #include "../input/linuxrawwacom.h"
@@ -31,18 +30,8 @@ QtSessionInput::QtSessionInput(QObject* parent) : QObject(parent)
     m_MacQuit = std::make_unique<MacQuitShortcut>(ownsKeyboard);
     m_MacKeys->setQueueWake([this] {
         return QMetaObject::invokeMethod(this, [this] {
-            m_MacKeys->dispatchPending([this](SDL_KeyboardEvent* event) {
-                Qt::KeyboardModifiers mods;
-                if (event->mod & SDL_KMOD_CTRL) mods |= Qt::ControlModifier;
-                if (event->mod & SDL_KMOD_SHIFT) mods |= Qt::ShiftModifier;
-                if (event->mod & SDL_KMOD_ALT) mods |= Qt::AltModifier;
-                if (event->mod & SDL_KMOD_GUI) mods |= Qt::MetaModifier;
-                for (quint32 code = 0; code < SDL_arraysize(darwin_scancode_table); ++code) {
-                    if (event->scancode != SDL_SCANCODE_UNKNOWN && darwin_scancode_table[code] == event->scancode) {
-                        key(code, int(qtRemoteKey(code).vk), event->down, event->repeat, mods);
-                        break;
-                    }
-                }
+            m_MacKeys->dispatchPending([this](const MacKeyEvent& event) {
+                key(event.code, int(qtRemoteKey(event.code).vk), event.down, false, event.modifiers);
             });
         }, Qt::QueuedConnection);
     });
@@ -332,7 +321,7 @@ void QtSessionInput::releaseAll()
 }
 
 #ifdef Q_OS_MACOS
-bool QtSessionInput::capturesNativeKeys() const { return m_MacKeys->suppressSdlKeyEvent(); }
+bool QtSessionInput::capturesNativeKeys() const { return m_MacKeys->capturesKeys(); }
 
 void QtSessionInput::penLeave()
 {

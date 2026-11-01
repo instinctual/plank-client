@@ -2,7 +2,7 @@
 
 #include <mutex>
 
-// The session thread owns/destructs the target (including its SDL resources).
+// The session owner destroys the target after clearing the callback lease.
 // Worker callbacks borrow it only while holding this gate. clear() waits for
 // an in-flight callback and rejects later ones before the owner destroys it.
 template<class T>

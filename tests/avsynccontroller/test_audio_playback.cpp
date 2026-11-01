@@ -1,5 +1,5 @@
 #include "avsynccontroller.h"
-#include <SDL3/SDL.h>
+#include "audio/pcmring.h"
 
 extern "C" {
 #include <libavutil/channel_layout.h>
@@ -16,13 +16,16 @@ using namespace PlankAvSync;
 
 struct Output
 {
+    PlankAudio::PcmRing ring {24000, 2};
     AudioPlaybackObserver observer;
     std::uint32_t now = 0;
-    static void SDLCALL pull(void* context, SDL_AudioStream* stream, int extra, int total)
+    bool push(const float* samples, unsigned frames) { return ring.push(samples, frames); }
+    unsigned pull(float* samples, unsigned frames)
     {
-        auto& output = *static_cast<Output*>(context);
-        output.observer.observePull(SDL_GetAudioStreamQueued(stream), extra, total,
-                                    48000 * 2 * sizeof(float), output.now);
+        const unsigned queued = ring.queued();
+        observer.observePull(queued * 8, std::max(0, int(frames * 8) - int(queued * 8)), frames * 8,
+                             48000 * 8, now);
+        return ring.pop(samples, frames);
     }
 };
 
@@ -100,50 +103,25 @@ static void guardTests()
 
 static void callbackTests()
 {
-    const SDL_AudioSpec spec {SDL_AUDIO_F32, 2, 48000};
-    auto* stream = SDL_CreateAudioStream(&spec, &spec);
-    assert(stream);
     Output output;
-    assert(SDL_SetAudioStreamGetCallback(stream, Output::pull, &output));
     std::vector<float> data(1024 * 2, 0.1f), samples(1024 * 2);
-    assert(SDL_PutAudioStreamData(stream, data.data(), 1024 * 8));
-    assert(SDL_GetAudioStreamData(stream, samples.data(), 1024 * 8) == 1024 * 8);
-    assert(SDL_GetAudioStreamQueued(stream) == 0);
-    // Empty AFTER a fulfilled pull is not a shortage.
+    assert(output.push(data.data(), 1024));
+    assert(output.pull(samples.data(), 1024) == 1024);
+    assert(output.ring.queued() == 0);
     assert(output.observer.read().shortageRequests == 0);
-    assert(SDL_PutAudioStreamData(stream, data.data(), 240 * 8));
-    assert(SDL_GetAudioStreamData(stream, samples.data(), 1024 * 8) == 240 * 8);
+    assert(output.push(data.data(), 240));
+    assert(output.pull(samples.data(), 1024) == 240);
     auto observation = output.observer.read();
     assert(observation.pulls == 2 && observation.shortageRequests == 1);
     assert(observation.missingInputBytes == (1024 - 240) * 8);
     assert(observation.requestUs == 21333 && observation.headroomUs == 0);
-    SDL_DestroyAudioStream(stream);
-
-    // Output conversion still reports demand in INPUT bytes, not device bytes.
-    const SDL_AudioSpec deviceSpec {SDL_AUDIO_S16, 2, 44100};
-    stream = SDL_CreateAudioStream(&spec, &deviceSpec);
-    assert(stream);
-    output = {};
-    assert(SDL_SetAudioStreamGetCallback(stream, Output::pull, &output));
-    data.resize(4800 * 2, 0.1f);
-    assert(SDL_PutAudioStreamData(stream, data.data(), 4800 * 8));
-    assert(SDL_GetAudioStreamData(stream, samples.data(), 441 * 4) == 441 * 4);
-    observation = output.observer.read();
-    assert(observation.pulls == 1 && observation.shortageRequests == 0);
-    assert(observation.requestUs >= 10000 && observation.requestUs < 15000);
-    assert(observation.headroomUs > 80000);
-    SDL_DestroyAudioStream(stream);
 }
 
-// Real SDL queue and FFmpeg compensation; independently scheduled source and
+// Production PCM ring and FFmpeg compensation; independently scheduled source and
 // output clocks. No device, sleeps or network. This does NOT qualify live sync.
 static void finiteQueue(int deviceFrames, double skewPpm, int videoDelayMs)
 {
-    const SDL_AudioSpec spec {SDL_AUDIO_F32, 2, 48000};
-    auto* stream = SDL_CreateAudioStream(&spec, &spec);
-    assert(stream);
     Output output;
-    assert(SDL_SetAudioStreamGetCallback(stream, Output::pull, &output));
     AVChannelLayout channels = AV_CHANNEL_LAYOUT_STEREO;
     SwrContext* swr = nullptr;
     assert(swr_alloc_set_opts2(&swr, &channels, AV_SAMPLE_FMT_FLT, 48000,
@@ -154,7 +132,7 @@ static void finiteQueue(int deviceFrames, double skewPpm, int videoDelayMs)
     AudioTimestampObserver observer;
     std::vector<float> input(240 * 2, 0.1f), converted(1024 * 2);
     std::vector<float> device(deviceFrames * 2), initial(1440 * 2, 0.1f);
-    assert(SDL_PutAudioStreamData(stream, initial.data(), 1440 * 8));
+    assert(output.push(initial.data(), 1440));
     const double periodUs = deviceFrames * 1000000.0 / (48000 * (1 + skewPpm / 1000000));
     double nextPullUs = periodUs;
     std::uint64_t shortReads = 0;
@@ -170,14 +148,14 @@ static void finiteQueue(int deviceFrames, double skewPpm, int videoDelayMs)
         const double arrivalUs = block * 5000.0 + (block % 7) * 400;
         while (nextPullUs <= arrivalUs) {
             output.now = static_cast<std::uint32_t>(nextPullUs / 1000) + 1000;
-            const int got = SDL_GetAudioStreamData(stream, device.data(), deviceFrames * 8);
+            const int got = int(output.pull(device.data(), deviceFrames)) * 8;
             assert(got >= 0);
             if (nextPullUs > 10000000 && got != deviceFrames * 8)
                 ++shortReads;
             nextPullUs += periodUs;
         }
         const auto now = static_cast<std::uint32_t>(arrivalUs / 1000) + 1000;
-        const int queueMs = SDL_GetAudioStreamQueued(stream) * 1000LL / (48000 * 8);
+        const int queueMs = output.ring.queued() * 8 * 1000LL / (48000 * 8);
         maximumQueue = std::max(maximumQueue, queueMs);
         const auto timing = observer.observe(EpochUs + block * 5000LL, 240, 48000,
             now, queueMs, deviceFrames * 1000 / 48000, swr_get_delay(swr, 1000000),
@@ -202,7 +180,7 @@ static void finiteQueue(int deviceFrames, double skewPpm, int videoDelayMs)
         uint8_t* out[] = {reinterpret_cast<uint8_t*>(converted.data())};
         const int frames = swr_convert(swr, out, 1024, in, 240);
         assert(frames > 0);
-        assert(SDL_PutAudioStreamData(stream, converted.data(), frames * 8));
+        assert(output.push(converted.data(), frames));
     }
     const double settledLead = settledLeadSum / settledSamples;
     const double finalLead = finalLeadSum / finalSamples;
@@ -220,7 +198,6 @@ static void finiteQueue(int deviceFrames, double skewPpm, int videoDelayMs)
     if (videoDelayMs == 55)
         assert(std::abs(lastLead) < 20000);
     swr_free(&swr);
-    SDL_DestroyAudioStream(stream);
 }
 
 int main()

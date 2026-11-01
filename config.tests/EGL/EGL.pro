@@ -10,4 +10,4 @@ packagesExist(mmal) {
     PKGCONFIG += mmal
 }
 
-PKGCONFIG += sdl3 egl libavcodec libavutil
+PKGCONFIG += egl libavcodec libavutil

@@ -1,7 +1,8 @@
+#include <QtGlobal>
+#include <QDebug>
 #include "macclipboardsync.h"
 
 #include <AppKit/AppKit.h>
-#include <SDL3/SDL.h>
 
 #ifdef PLANK_CLIPBOARD_TEST_PASTEBOARD
 // Supplied only by the native test binary; never linked into the application.
@@ -40,7 +41,7 @@ std::string readGeneralPasteboardText()
             if (text != nil && text.length > 0) {
                 const auto size = [text lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
                 if (size > PLANK_CLIPBOARD_MAX_TEXT_SIZE) {
-                    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Clipboard text exceeds 512 KiB; not shared");
+                    qWarning("Clipboard text exceeds 512 KiB; not shared");
                     return {};
                 }
                 NSData* utf8 = [text dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:NO];
@@ -94,7 +95,7 @@ std::vector<RemotePasteboardCleanup> pendingCleanup;
 
 void clearStoppedRemotePasteboardsOnMainThread()
 {
-    SDL_assert([NSThread isMainThread]);
+    Q_ASSERT([NSThread isMainThread]);
     std::vector<RemotePasteboardCleanup> work;
     {
         std::lock_guard<std::mutex> lock(cleanupMutex);
@@ -115,14 +116,7 @@ void clearStoppedRemotePasteboardsOnMainThread()
 }  // namespace
 
 #ifdef Q_OS_MACOS
-char* macReadGeneralPasteboardTextForSdl()
-{
-    const std::string text = readGeneralPasteboardText();
-    if (text.empty()) {
-        return nullptr;
-    }
-    return SDL_strdup(text.c_str());
-}
+
 #endif
 
 MacClipboardSync::MacClipboardSync(SendInputFrame sendInputFrame,
@@ -352,8 +346,7 @@ bool MacClipboardSync::applyPendingHostTextOnMainThread()
     m_LastPasteboardChangeCount = currentPasteboardChangeCount();
     m_RemotePasteboardChangeCount = m_LastPasteboardChangeCount;
     m_ApplyingRemote = false;
-    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                "Applied host clipboard offer (%zu bytes)",
+    qInfo("Applied host clipboard offer (%zu bytes)",
                 pending.text.size());
     return true;
 }

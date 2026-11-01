@@ -1,7 +1,7 @@
+#include <QDebug>
 #include "linuxwacom.h"
 
 #include <Limelight.h>
-#include <SDL3/SDL.h>
 #include <libinput.h>
 #include <libudev.h>
 
@@ -191,8 +191,7 @@ void LinuxWacomInput::updateGrab(int fd, bool grabbed)
 {
     const int value = grabbed ? 1 : 0;
     if (ioctl(fd, EVIOCGRAB, value) < 0 && errno != ENODEV) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
-                    "Unable to %s Wacom tablet node: %s",
+        qWarning("Unable to %s Wacom tablet node: %s",
                     grabbed ? "grab" : "release", std::strerror(errno));
     }
 }
@@ -212,14 +211,13 @@ void LinuxWacomInput::run()
     };
     udev* udevContext = udev_new();
     if (udevContext == nullptr) {
-        SDL_LogError(SDL_LOG_CATEGORY_INPUT, "Unable to create udev context for Wacom input");
+        qCritical("Unable to create udev context for Wacom input");
         return;
     }
 
     libinput* input = libinput_udev_create_context(&interface, this, udevContext);
     if (input == nullptr || libinput_udev_assign_seat(input, "seat0") != 0) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
-                    "Wacom input unavailable; check PLANK input-device permissions");
+        qWarning("Wacom input unavailable; check PLANK input-device permissions");
         if (input != nullptr) {
             libinput_unref(input);
         }
@@ -227,13 +225,13 @@ void LinuxWacomInput::run()
         return;
     }
 
-    SDL_LogInfo(SDL_LOG_CATEGORY_INPUT, "Linux Wacom tablet capture initialized");
+    qInfo("Linux Wacom tablet capture initialized");
     libinput_dispatch(input);
     while (!m_Stopping.load()) {
         pollfd descriptor = {libinput_get_fd(input), POLLIN, 0};
         const int result = poll(&descriptor, 1, 100);
         if (result < 0 && errno != EINTR) {
-            SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "Wacom input poll failed: %s",
+            qWarning("Wacom input poll failed: %s",
                         std::strerror(errno));
             break;
         }

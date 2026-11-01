@@ -7,7 +7,7 @@ namespace {
 NSMenuItem* findQuitItem(NSMenu* menu)
 {
     for (NSMenuItem* item in menu.itemArray) {
-        // Both Qt's default application menu and SDL use terminate:. Do not
+        // Qt's default application menu uses terminate:. Do not
         // depend on the localized title, menu position or the physical Q key.
         if (item.action == @selector(terminate:))
             return item;
@@ -43,9 +43,8 @@ MacQuitShortcut::MacQuitShortcut(std::function<bool()> remoteOwnsKeyboard)
     : m_State(std::make_unique<State>())
 {
     m_State->remoteOwnsKeyboard = std::move(remoteOwnsKeyboard);
-    // SDL's Cocoa pump handles the key before NSApp.sendEvent. Refresh before
-    // AppKit matches menu shortcuts too: focus/fullscreen changes can still be
-    // queued in SDL, or Qt may have synchronized its native menu since refresh.
+    // Refresh before AppKit matches menu shortcuts: focus/fullscreen changes
+    // or Qt native-menu synchronization may have happened since the last refresh.
     // Return the ORIGINAL event; never synthesize a second remote key event.
     m_State->monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
         handler:^NSEvent* (NSEvent* event) {

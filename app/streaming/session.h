@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtGlobal>
+
 #include <QSemaphore>
 #include <QSize>
 #include <QStringList>
@@ -16,20 +18,16 @@
 #include <Limelight.h>
 #include <opus_multistream.h>
 #include "settings/streamingpreferences.h"
-#include "input/input.h"
 #include "video/decoder.h"
+#include "backend/nvcomputer.h"
+#include "backend/nvapp.h"
 #include "audio/renderers/renderer.h"
 #include "audio/microphone.h"
 #include "camera/camera.h"
-#include "video/overlaymanager.h"
 #include "videopacketlosswindow.h"
 #include "plankreconnectpolicy.h"
-#ifdef Q_OS_MACOS
-#include "clipboardpolltimer.h"
-#endif
 
 class ComputerManager;
-class PlankToolbar;
 class MacClipboardSync;
 class QtSessionRuntime;
 class QtSessionInput;
@@ -114,7 +112,7 @@ public:
         }
 
         // Make sure nobody forgets to update this for new SCM values
-        SDL_assert(serverCodecModes == 0);
+        Q_ASSERT(serverCodecModes == 0);
 
         int val = *this;
         return val & mask;
@@ -125,11 +123,7 @@ class Session : public QObject
 {
     Q_OBJECT
 
-    friend class SdlInputHandler;
-    friend class DeferredSessionCleanupTask;
     friend class AsyncConnectionStartThread;
-    friend class ExecThread;
-    friend class PlankReconnectThread;
     friend class QtSessionRuntime;
 
 public:
@@ -138,7 +132,7 @@ public:
                      ComputerManager *computerManager = nullptr);
 
     // NB: This may not get destroyed for a long time! Don't put any cleanup here.
-    // Use Session::exec() or DeferredSessionCleanupTask instead.
+    // QtSessionRuntime owns asynchronous teardown before readyForDeletion.
     virtual ~Session();
 
     Q_INVOKABLE void exec(QWindow* qtWindow);
@@ -147,27 +141,12 @@ public:
 
     Q_INVOKABLE void respondToActiveSessionTakeover(bool takeOver);
 
-    static
-    void getDecoderInfo(SDL_Window* window,
-                        bool& isHardwareAccelerated, bool& isFullScreenOnly,
-                        QSize& maxResolution);
-
     static Session* get()
     {
         return s_ActiveSession;
     }
 
-    Overlay::OverlayManager& getOverlayManager()
-    {
-        return m_OverlayManager;
-    }
-
-    void flushWindowEvents();
-
-    static void postTabletCursorActivationEvent();
-
-    // Worker-to-UI requests. The Linux Qt owner receives queued
-    // signals; ordinary sessions keep their existing SDL event dispatch.
+    // Worker-to-UI requests are queued to the Qt session owner.
     static void requestSessionQuit();
     static void requestDecoderReset();
     bool usesQtPresentation() const { return m_RendererFactory != nullptr; }
@@ -209,7 +188,6 @@ signals:
 
     void displayLaunchWarning(QString text);
 
-
     void sessionFinished();
 
     // Emitted after sessionFinished() when the session is ready to be destroyed
@@ -219,7 +197,6 @@ private:
 #ifdef Q_OS_MACOS
     std::atomic_bool m_ApplicationExitRequested{false};
 #endif
-    void execInternal();
 
     bool initialize(IFFmpegRendererFactory* presenter = nullptr);
 
@@ -228,7 +205,6 @@ private:
 
     struct PlankReconnectState {
         bool retainedRenderer = false;
-        bool inputCaptureWasActive = false;
         int videoFormat = 0;
         int videoWidth = 0;
         int videoHeight = 0;
@@ -271,17 +247,14 @@ private:
     void createClipboardSync();
     void startClipboardSync();
     void stopClipboardSync();
-    void startClipboardPollTimer();
-    void stopClipboardPollTimer();
-    void queueClipboardPollEvent();
     bool clipboardSyncEnabled() const;
 #endif
 
-    bool validateLaunch(SDL_Window* testWindow);
+    bool validateLaunch();
 
     void emitLaunchWarning(QString text);
 
-    bool populateDecoderProperties(SDL_Window* window);
+    bool populateDecoderProperties();
 
     IAudioRenderer* createAudioRenderer(const POPUS_MULTISTREAM_CONFIGURATION opusConfig);
 
@@ -291,35 +264,11 @@ private:
 
     int getAudioRendererCapabilities(int audioConfiguration);
 
-    void getWindowDimensions(int& x, int& y,
-                             int& width, int& height);
-
-    int getTargetDisplayIndex() const;
-
-    bool snapshotClientDisplays();
-
-    void rebuildPresentationLayout();
-
-    bool placeFullscreenWindowOnDisplay(SDL_Window* window,
-                                        SDL_DisplayID displayId);
-
-    SDL_Window* windowForEvent(Uint32 windowId) const;
-
-    bool anyPresentationWindowFocused() const;
-
-    void setPresentationWindowsFullscreen(bool fullscreen);
-
-    void minimizePresentationWindows();
-
     bool configurePlankHostLayout();
 
     QSize configurePlankDisplayMode();
 
     bool configurePlankLaunchGeometry();
-
-    void toggleFullscreen();
-
-    void updateOptimalWindowDisplayMode();
 
     enum class DecoderAvailability {
         None,
@@ -327,13 +276,12 @@ private:
         Hardware
     };
 
-    DecoderAvailability getDecoderAvailability(SDL_Window* window,
-                                               int videoFormat, int width, int height, int frameRate,
+    DecoderAvailability getDecoderAvailability(int videoFormat, int width, int height, int frameRate,
                                                bool enableIdentityGbr = false);
 
     static
     bool chooseDecoder(DecoderSelectionMode selectionMode,
-                       SDL_Window* window, int videoFormat, int width, int height,
+                       int videoFormat, int width, int height,
                        int frameRate, bool enableVsync, bool testOnly,
                        IVideoDecoder*& chosenDecoder,
                        bool enableIdentityGbr = false,
@@ -429,21 +377,17 @@ private:
     int m_PlankBitrateKbps;
     ComputerManager* m_ComputerManager;
     NvApp m_App;
-    SDL_Window* m_Window;
     IVideoDecoder* m_VideoDecoder;
     // Immutable during one active runtime, owned until all decoder workers exit.
     IFFmpegRendererFactory* m_RendererFactory = nullptr;
-    SDL_SpinLock m_DecoderLock;
+    std::mutex m_DecoderLock;
     bool m_AudioDisabled;
     bool m_AudioMuted;
-    Uint32 m_FullScreenFlag;
-    QWindow* m_QtWindow;
-    bool m_ThreadedExec;
     bool m_UnexpectedTermination;
     std::atomic_bool m_ReconnectRequested;
-    std::atomic<Uint64> m_DesktopHandoffNoticeDeadline {0};
+    std::atomic<quint64> m_DesktopHandoffNoticeDeadline {0};
     std::atomic_bool m_ReconnectGreeterConfirmed {false};
-    std::atomic<Uint64> m_LastPlankVideoReceived {0};
+    std::atomic<quint64> m_LastPlankVideoReceived {0};
     QString m_PlankWorkerInstance;
     QString m_PlankHostCertificateSha256;
     std::atomic_bool m_Reconnecting;
@@ -462,8 +406,8 @@ private:
     int m_ResolvedPrimaryOutput = -1;
 
     struct ClientDisplaySnapshot {
-        SDL_DisplayID displayId = 0;
-        SDL_Rect logicalBounds = {};
+        int displayId = 0;
+        QRect logicalBounds = {};
         QSize nativeSize;
         QSize macBackingSize;
         QRect macMatchedBounds;
@@ -471,20 +415,10 @@ private:
         bool primary = false;
     };
     QVector<ClientDisplaySnapshot> m_ClientDisplays;
-    SDL_DisplayID m_TargetDisplayId = 0;
+    int m_TargetDisplayId = 0;
     bool m_MultiDisplayPresentationAvailable = false;
     bool m_UseMultiDisplayPresentation = false;
-    bool m_PresentationFullscreen = false;
-    bool m_HasWindowedPresentationGeometry = false;
-    QVector<SDL_Window*> m_SecondaryWindows;
-    PlankPresentationLayout m_PresentationLayout;
-    SdlInputHandler* m_InputHandler;
-    PlankCallbackTarget<SdlInputHandler> m_InputCallbacks;
-#ifdef PLANK_QT_SESSION
     PlankCallbackTarget<QtSessionInput> m_QtInputCallbacks;
-#endif
-    void destroyInputHandler();
-    int m_FlushingWindowEventsRef;
 
     bool m_AsyncConnectionSuccess;
     int m_ActiveVideoFormat;
@@ -497,19 +431,14 @@ private:
     OPUS_MULTISTREAM_CONFIGURATION m_ActiveAudioConfig;
     OPUS_MULTISTREAM_CONFIGURATION m_OriginalAudioConfig;
     int m_AudioSampleCount;
-    Uint64 m_DropAudioEndTime;
+    quint64 m_DropAudioEndTime;
     quint64 m_AudioMediaFramesReceived;
     bool m_AvSyncTelemetryEnabled;
-    Uint64 m_LastAudioTelemetryTime;
+    quint64 m_LastAudioTelemetryTime;
 
-    Overlay::OverlayManager m_OverlayManager;
-    std::unique_ptr<PlankToolbar> m_PlankToolbar;
 #ifdef Q_OS_MACOS
     std::unique_ptr<MacClipboardSync> m_ClipboardSync;
-    ClipboardPollTimer m_ClipboardPollTimer;
-#ifdef PLANK_QT_SESSION
     std::atomic_bool m_QtClipboardFocused{false};
-#endif
 #endif
     std::atomic<float> m_CurrentRenderedFps;
     std::atomic<float> m_CurrentVideoMbps;

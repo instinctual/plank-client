@@ -1,7 +1,6 @@
 #include <QtTest>
 
 #include "streaming/plankpresentation.h"
-#include "streaming/input/plankmousemotion.h"
 #include "streaming/input/plankpointerlogic.h"
 
 class TestPlankPresentation : public QObject
@@ -10,9 +9,6 @@ class TestPlankPresentation : public QObject
 
 private slots:
     void rejectsStaleTabletFocus();
-    void coalescesAdjacentMouseMotion();
-    void preservesMouseMotionBarriers_data();
-    void preservesMouseMotionBarriers();
     void exactDualOutputSlices();
     void preservesAspectWithDifferentHostAndClientModes();
     void letterboxedDualOutputSlices();
@@ -300,81 +296,6 @@ void TestPlankPresentation::rejectsInvalidPointerSource()
     QCOMPARE(PlankPresentation::resolvePointerOutput({QRect()}, 0, QPointF(), local), -1);
     QCOMPARE(PlankPresentation::resolvePointerOutput({QRect(0, 0, 100, 100)},
         1, QPointF(), local), -1);
-}
-
-namespace {
-struct EventQueue {
-    bool initialized = SDL_InitSubSystem(SDL_INIT_EVENTS);
-    ~EventQueue() { if (initialized) SDL_QuitSubSystem(SDL_INIT_EVENTS); }
-};
-SDL_Event mouseMotion(float x)
-{
-    SDL_Event e{};
-    e.type = SDL_EVENT_MOUSE_MOTION;
-    e.motion.windowID = 1;
-    e.motion.which = 1;
-    e.motion.x = x;
-    e.motion.xrel = 2;
-    return e;
-}
-}
-
-void TestPlankPresentation::coalescesAdjacentMouseMotion()
-{
-    EventQueue queue;
-    QVERIFY(queue.initialized);
-    auto first = mouseMotion(10), second = mouseMotion(20), third = mouseMotion(30);
-    QVERIFY(SDL_PushEvent(&second));
-    QVERIFY(SDL_PushEvent(&third));
-    PlankMouseMotion::coalescePending(first.motion);
-    QCOMPARE(first.motion.x, 30.0f);
-    QCOMPARE(first.motion.xrel, 6.0f);
-    QVERIFY(!SDL_HasEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST));
-}
-
-void TestPlankPresentation::preservesMouseMotionBarriers_data()
-{
-    QTest::addColumn<int>("barrier");
-    QTest::newRow("press") << 0;
-    QTest::newRow("release") << 1;
-    QTest::newRow("key") << 2;
-    QTest::newRow("wheel") << 3;
-    QTest::newRow("focus") << 4;
-    QTest::newRow("other-window") << 5;
-    QTest::newRow("synthetic-touch") << 6;
-    QTest::newRow("button-state") << 7;
-}
-
-void TestPlankPresentation::preservesMouseMotionBarriers()
-{
-    QFETCH(int, barrier);
-    EventQueue queue;
-    QVERIFY(queue.initialized);
-    auto first = mouseMotion(10), adjacent = mouseMotion(20);
-    auto boundary = mouseMotion(30), later = mouseMotion(99);
-    switch (barrier) {
-    case 0: boundary.type = SDL_EVENT_MOUSE_BUTTON_DOWN; break;
-    case 1: boundary.type = SDL_EVENT_MOUSE_BUTTON_UP; break;
-    case 2: boundary.type = SDL_EVENT_KEY_DOWN; break;
-    case 3: boundary.type = SDL_EVENT_MOUSE_WHEEL; break;
-    case 4: boundary.type = SDL_EVENT_WINDOW_FOCUS_LOST; break;
-    case 5: boundary.motion.windowID = 2; break;
-    case 6: boundary.motion.which = SDL_TOUCH_MOUSEID; break;
-    case 7: boundary.motion.state = SDL_BUTTON_LMASK; break;
-    }
-    QVERIFY(SDL_PushEvent(&adjacent));
-    QVERIFY(SDL_PushEvent(&boundary));
-    QVERIFY(SDL_PushEvent(&later));
-    PlankMouseMotion::coalescePending(first.motion);
-    QCOMPARE(first.motion.x, 20.0f);
-    QCOMPARE(first.motion.xrel, 4.0f);
-    SDL_Event remaining[2];
-    QCOMPARE(SDL_PeepEvents(remaining, 2, SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST), 2);
-    QCOMPARE(remaining[0].type, boundary.type);
-    QCOMPARE(remaining[0].motion.windowID, boundary.motion.windowID);
-    QCOMPARE(remaining[0].motion.which, boundary.motion.which);
-    QCOMPARE(remaining[0].motion.state, boundary.motion.state);
-    QCOMPARE(remaining[1].motion.x, 99.0f);
 }
 
 QTEST_APPLESS_MAIN(TestPlankPresentation)

@@ -9,11 +9,6 @@
 #include <QSysInfo>
 #include <QThread>
 
-#ifndef PLANK_QT_SESSION
-#include "streaming/session.h"
-#include "streaming/streamutils.h"
-#endif
-
 #ifndef PLANK_VERSION_STR
 #define PLANK_VERSION_STR "development"
 #endif
@@ -68,7 +63,6 @@ SystemProperties::SystemProperties()
         friendlyNativeArchName = nativeArch.toUpper();
     }
 
-#ifdef PLANK_QT_SESSION
     const auto observe = [this](QScreen* screen) {
         connect(screen, &QScreen::geometryChanged, this, &SystemProperties::clientDisplaysChanged);
     };
@@ -83,11 +77,6 @@ SystemProperties::SystemProperties()
     hardwareCapabilityKnown = false;
     maximumResolution = QSize(8192, 8192);
     refreshDisplays();
-#else
-    // Populate data that requires talking to SDL. We do it all in one shot
-    // and cache the results to speed up future queries on this data.
-    querySdlVideoInfo();
-#endif
 
     Q_ASSERT(!monitorRefreshRates.isEmpty());
     Q_ASSERT(!monitorNativeResolutions.isEmpty());
@@ -124,112 +113,13 @@ int SystemProperties::getRefreshRate(int displayIndex)
     return monitorRefreshRates.value(displayIndex);
 }
 
-#ifndef PLANK_QT_SESSION
-class QuerySdlVideoThread : public QThread
-{
-public:
-    QuerySdlVideoThread(SystemProperties* me) :
-        QThread(nullptr),
-        m_Me(me) {}
-
-    void run() override
-    {
-        m_Me->querySdlVideoInfoInternal();
-    }
-
-    SystemProperties* m_Me;
-};
-
-void SystemProperties::querySdlVideoInfo()
-{
-    if (WMUtils::isRunningX11() || WMUtils::isRunningWayland()) {
-        // Use a separate thread to temporarily initialize SDL
-        // video to avoid stomping on Qt's X11 and OGL state.
-        QuerySdlVideoThread thread(this);
-        thread.start();
-        thread.wait();
-    }
-    else {
-        querySdlVideoInfoInternal();
-    }
-}
-
-void SystemProperties::querySdlVideoInfoInternal()
-{
-    hasHardwareAcceleration = false;
-
-    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                     "SDL_InitSubSystem(SDL_INIT_VIDEO) failed: %s",
-                     SDL_GetError());
-        return;
-    }
-
-    // Update display related attributes (max FPS, native resolution, etc).
-    // We call the internal variant because we're already in a safe thread context.
-    refreshDisplaysInternal();
-
-    SDL_Window* testWindow = SDL_CreateWindow("", 1280, 720,
-                                              SDL_WINDOW_HIDDEN | StreamUtils::getPlatformWindowFlags());
-    if (!testWindow) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                    "Failed to create test window with platform flags: %s",
-                    SDL_GetError());
-
-        testWindow = SDL_CreateWindow("", 1280, 720, SDL_WINDOW_HIDDEN);
-        if (!testWindow) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                         "Failed to create window for hardware decode test: %s",
-                         SDL_GetError());
-            SDL_QuitSubSystem(SDL_INIT_VIDEO);
-            return;
-        }
-    }
-
-    Session::getDecoderInfo(testWindow, hasHardwareAcceleration, rendererAlwaysFullScreen, maximumResolution);
-
-    SDL_DestroyWindow(testWindow);
-
-    SDL_QuitSubSystem(SDL_INIT_VIDEO);
-}
-
-class RefreshDisplaysThread : public QThread
-{
-public:
-    RefreshDisplaysThread(SystemProperties* me) :
-        QThread(nullptr),
-        m_Me(me) {}
-
-    void run() override
-    {
-        m_Me->refreshDisplaysInternal();
-    }
-
-    SystemProperties* m_Me;
-};
-#endif
-
 void SystemProperties::refreshDisplays()
 {
-#ifdef PLANK_QT_SESSION
     refreshDisplaysInternal();
-#else
-    if (WMUtils::isRunningX11() || WMUtils::isRunningWayland()) {
-        // Use a separate thread to temporarily initialize SDL
-        // video to avoid stomping on Qt's X11 and OGL state.
-        RefreshDisplaysThread thread(this);
-        thread.start();
-        thread.wait();
-    }
-    else {
-        refreshDisplaysInternal();
-    }
-#endif
 }
 
 void SystemProperties::refreshDisplaysInternal()
 {
-#ifdef PLANK_QT_SESSION
     Q_ASSERT(QThread::currentThread() == qGuiApp->thread());
     monitorNativeResolutions.clear();
     monitorSafeAreaResolutions.clear();
@@ -242,59 +132,4 @@ void SystemProperties::refreshDisplaysInternal()
         monitorRefreshRates.append(refresh >= 58 && refresh <= 62 ? 60 :
                                    refresh >= 28 && refresh <= 32 ? 30 : qRound(refresh));
     }
-#else
-    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                     "SDL_InitSubSystem(SDL_INIT_VIDEO) failed: %s",
-                     SDL_GetError());
-        return;
-    }
-
-    monitorNativeResolutions.clear();
-
-    SDL_DisplayMode bestMode;
-    for (int displayIndex = 0; displayIndex < StreamUtils::getDisplayCount(); displayIndex++) {
-        SDL_DisplayMode desktopMode;
-        SDL_Rect safeArea;
-
-        if (StreamUtils::getNativeDesktopMode(displayIndex, &desktopMode, &safeArea)) {
-            if (desktopMode.w <= 8192 && desktopMode.h <= 8192) {
-                monitorNativeResolutions.insert(displayIndex, QRect(0, 0, desktopMode.w, desktopMode.h));
-                monitorSafeAreaResolutions.insert(displayIndex, QRect(0, 0, safeArea.w, safeArea.h));
-            }
-            else {
-                SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                            "Skipping resolution over 8K: %dx%d",
-                            desktopMode.w, desktopMode.h);
-            }
-
-            // Start at desktop mode and work our way up
-            bestMode = desktopMode;
-            for (int i = 0; i < StreamUtils::getDisplayModeCount(displayIndex); i++) {
-                SDL_DisplayMode mode;
-                if (StreamUtils::getDisplayMode(displayIndex, i, &mode)) {
-                    if (mode.w == desktopMode.w && mode.h == desktopMode.h) {
-                        if (mode.refresh_rate > bestMode.refresh_rate) {
-                            bestMode = mode;
-                        }
-                    }
-                }
-            }
-
-            // Try to normalize values around our our standard refresh rates.
-            // Some displays/OSes report values that are slightly off.
-            if (bestMode.refresh_rate >= 58 && bestMode.refresh_rate <= 62) {
-                monitorRefreshRates.append(60);
-            }
-            else if (bestMode.refresh_rate >= 28 && bestMode.refresh_rate <= 32) {
-                monitorRefreshRates.append(30);
-            }
-            else {
-                monitorRefreshRates.append(qRound(bestMode.refresh_rate));
-            }
-        }
-    }
-
-    SDL_QuitSubSystem(SDL_INIT_VIDEO);
-#endif
 }

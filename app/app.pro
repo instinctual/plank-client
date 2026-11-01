@@ -53,7 +53,6 @@ PLANK_PRIVATE_LIB_NAME = plank
 linux|macx: CONFIG += plank-qt-session
 contains(CONFIG, plank-qt-session) {
     !linux:!macx: error("The Qt session frontend supports Linux and macOS")
-    DEFINES += PLANK_QT_SESSION
     include(streaming/qt/qtsession.pri)
     include(streaming/qt/qtvideo.pri)
     linux: include(streaming/qt/qtwaylandguard.pri)
@@ -91,145 +90,21 @@ contains(CONFIG, plank-frame-flow-trace): DEFINES += PLANK_FRAME_FLOW_TRACE
 # You can also select to disable deprecated APIs only up to a certain version of Qt.
 DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
-win32 {
-    !exists($$PWD/../libs/windows) {
-        error("Missing dependencies. Please run 'powershell .\setup-deps.ps1' to fetch prebuilt libraries.")
-    }
-
-    contains(QT_ARCH, x86_64) {
-        LIBS += -L$$PWD/../libs/windows/lib/x64
-        INCLUDEPATH += $$PWD/../libs/windows/include/x64 $$PWD/../libs/windows/include/x64/SDL3
-    }
-    contains(QT_ARCH, arm64) {
-        LIBS += -L$$PWD/../libs/windows/lib/arm64
-        INCLUDEPATH += $$PWD/../libs/windows/include/arm64 $$PWD/../libs/windows/include/arm64/SDL3
-    }
-
-    INCLUDEPATH += $$PWD/../libs/windows/include
-    LIBS += ws2_32.lib winmm.lib dxva2.lib ole32.lib gdi32.lib user32.lib d3d9.lib dwmapi.lib dbghelp.lib
-}
-macx:!disable-prebuilts {
-    !exists($$PWD/../libs/mac) {
-        error("Missing dependencies. Please run 'python3 setup-deps.py' to fetch prebuilt libraries.")
-    }
-
-    INCLUDEPATH += $$PWD/../libs/mac/include $$PWD/../libs/mac/include/SDL3
-    LIBS += -L$$PWD/../libs/mac/lib
-}
-
-unix:if(!macx|disable-prebuilts) {
-    CONFIG += link_pkgconfig
-    PKGCONFIG += openssl sdl3 sdl3-ttf
-
-    # We have our own optimized libopus.a for Steam Link
-    if(!config_SL|disable-prebuilts) {
-        PKGCONFIG += opus
-    }
-
-    !disable-ffmpeg {
-        packagesExist(libavcodec) {
-            PKGCONFIG += libavcodec libavutil libswscale libswresample
-            CONFIG += ffmpeg
-
-            !disable-libva {
-                packagesExist(libva) {
-                    !disable-x11 {
-                        packagesExist(libva-x11) {
-                            CONFIG += libva-x11
-                        }
-                    }
-                    !disable-wayland {
-                        packagesExist(libva-wayland) {
-                            CONFIG += libva-wayland
-                        }
-                    }
-                    !disable-libdrm {
-                        packagesExist(libva-drm) {
-                            CONFIG += libva-drm
-                        }
-                    }
-                    CONFIG += libva
-                }
-            }
-
-            !disable-libvdpau {
-                packagesExist(vdpau) {
-                    CONFIG += libvdpau
-                }
-            }
-
-            !disable-mmal {
-                packagesExist(mmal) {
-                    PKGCONFIG += mmal
-                    CONFIG += mmal
-                }
-            }
-
-            !disable-libdrm {
-                packagesExist(libdrm) {
-                    PKGCONFIG += libdrm
-                    CONFIG += libdrm
-                }
-            }
-
-            # Disabled by default due to reliability issues. See #1314.
-            # CUDA interop is superseded by VDPAU and Vulkan Video.
-            enable-cuda {
-                packagesExist(ffnvcodec) {
-                    PKGCONFIG += ffnvcodec
-                    CONFIG += cuda
-                }
-            }
-
-            !disable-libplacebo {
-                packagesExist(libplacebo) {
-                    PKGCONFIG += libplacebo
-                    CONFIG += libplacebo
-                }
-            }
-        }
-
-        !disable-wayland {
-            packagesExist(wayland-client) {
-                CONFIG += wayland
-                PKGCONFIG += wayland-client
-            }
-        }
-
-        !disable-x11 {
-            packagesExist(x11) {
-                DEFINES += HAS_X11
-                PKGCONFIG += x11
-            }
-        }
-    }
-}
-
+!linux:!macx: error("Supported desktop Clients are Linux and macOS")
+CONFIG += link_pkgconfig ffmpeg
+PKGCONFIG += openssl opus libavcodec libavutil libswscale libswresample
 linux {
-    PKGCONFIG += libpipewire-0.3
+    PKGCONFIG += libpipewire-0.3 wayland-client x11 egl libdrm libva libplacebo
+    DEFINES += HAS_X11 HAS_WAYLAND HAVE_EGL HAVE_DRM HAVE_LIBVA HAVE_LIBPLACEBO_VULKAN
     SOURCES += streaming/audio/linuxmicrophone.cpp
     HEADERS += streaming/audio/linuxmicrophone.h streaming/audio/microphonecapturequeue.h streaming/audio/microphonecaptureclock.h
-}
-
-linux:packagesExist(libinput):packagesExist(libudev) {
-    DEFINES += HAVE_LIBINPUT_TABLET
-    PKGCONFIG += libinput libudev
-}
-
-win32 {
-    LIBS += -llibssl -llibcrypto -lSDL3 -lSDL3_ttf -lavcodec -lavutil -lswscale -lopus -ldxgi -ld3d11 -llibplacebo
-    CONFIG += ffmpeg libplacebo
-}
-win32:!winrt {
+    packagesExist(libinput):packagesExist(libudev) {
+        DEFINES += HAVE_LIBINPUT_TABLET
+        PKGCONFIG += libinput libudev
+    }
 }
 macx {
-    !disable-prebuilts {
-        LIBS += -lssl.3 -lcrypto.3 -lavcodec.63 -lavutil.61 -lswscale.10 -lopus.0 -lSDL3 -lSDL3_ttf -lplacebo
-        CONFIG += libplacebo
-    }
-
-    LIBS += -lobjc -framework VideoToolbox -framework AVFoundation -framework CoreVideo -framework CoreGraphics -framework CoreMedia -framework AppKit -framework Metal -framework QuartzCore
-    CONFIG += ffmpeg
+    LIBS += -lobjc -framework VideoToolbox -framework AVFoundation -framework CoreVideo -framework CoreGraphics -framework CoreMedia -framework AppKit -framework Metal -framework QuartzCore -framework AudioToolbox -framework CoreAudio
 }
 
 SOURCES += \
@@ -249,25 +124,16 @@ SOURCES += \
     cli/startstream.cpp \
     settings/plankclientpolicy.cpp \
     settings/streamingpreferences.cpp \
-    streaming/input/input.cpp \
-    streaming/input/keyboard.cpp \
-    streaming/input/mouse.cpp \
     streaming/session.cpp \
     streaming/audio/microphone.cpp \
     streaming/camera/camera.cpp \
     streaming/avsynccontroller.cpp \
     streaming/plankdisplaymode.cpp \
     streaming/plankpresentation.cpp \
-    streaming/planktoolbar.cpp \
-    streaming/plankwaylandcursor.cpp \
-    streaming/plankwaylandtoolbar.cpp \
     streaming/audio/audio.cpp \
-    streaming/audio/renderers/sdlaud.cpp \
     gui/computermodel.cpp \
     streaming/bandwidth.cpp \
-    streaming/streamutils.cpp \
     path.cpp \
-    streaming/video/overlaymanager.cpp \
     backend/systemproperties.cpp \
     wm.cpp
 
@@ -296,30 +162,22 @@ HEADERS += \
     settings/plankclientpolicy.h \
     backend/internetconnectivity.h \
     streaming/avsynccontroller.h \
-    streaming/input/input.h \
     streaming/input/plankpointerlogic.h \
-    streaming/input/plankmousemotion.h \
     streaming/session.h \
     streaming/plankdisplaymode.h \
     streaming/plankpresentation.h \
-    streaming/planktoolbar.h \
     streaming/planktoolbarlogic.h \
     streaming/planktoolbarstats.h \
     streaming/plankreconnectpolicy.h \
     streaming/audio/renderers/renderer.h \
-    streaming/audio/renderers/sdl.h \
     gui/computermodel.h \
     streaming/video/decoder.h \
     streaming/bandwidth.h \
-    streaming/streamutils.h \
     path.h \
-    streaming/video/overlaymanager.h \
     backend/systemproperties.h
 HEADERS += backend/clientdisplays.h
 
-linux:contains(CONFIG, plank-qt-session) {
-    SOURCES -= streaming/audio/renderers/sdlaud.cpp
-    HEADERS -= streaming/audio/renderers/sdl.h
+linux {
     SOURCES += streaming/audio/renderers/pipewire.cpp
     HEADERS += streaming/audio/renderers/pipewire.h streaming/audio/renderers/pipewirebuffer.h
 }
@@ -338,175 +196,10 @@ linux:contains(CONFIG, plank-transport) {
         streaming/camera/nativecameraframe.h streaming/camera/uvch264control.h
 }
 
-ffmpeg {
-    message(FFmpeg decoder selected)
+DEFINES += HAVE_FFMPEG
+SOURCES += streaming/video/ffmpeg.cpp
+HEADERS += streaming/video/ffmpeg.h streaming/video/ffmpeg-renderers/renderer.h
 
-    DEFINES += HAVE_FFMPEG
-    SOURCES += \
-        streaming/video/ffmpeg.cpp \
-        streaming/video/ffmpeg-renderers/genhwaccel.cpp \
-        streaming/video/ffmpeg-renderers/sdlvid.cpp \
-        streaming/video/ffmpeg-renderers/swframemapper.cpp \
-        streaming/video/ffmpeg-renderers/pacer/pacer.cpp
-
-    HEADERS += \
-        streaming/video/ffmpeg.h \
-        streaming/video/ffmpeg-renderers/renderer.h \
-        streaming/video/ffmpeg-renderers/genhwaccel.h \
-        streaming/video/ffmpeg-renderers/sdlvid.h \
-        streaming/video/ffmpeg-renderers/swframemapper.h \
-        streaming/video/ffmpeg-renderers/pacer/pacer.h
-}
-libva {
-    message(VAAPI renderer selected)
-
-    PKGCONFIG += libva
-    DEFINES += HAVE_LIBVA
-    SOURCES += streaming/video/ffmpeg-renderers/vaapi.cpp
-    HEADERS += streaming/video/ffmpeg-renderers/vaapi.h
-}
-libva-x11 {
-    message(VAAPI X11 support enabled)
-
-    PKGCONFIG += libva-x11
-    DEFINES += HAVE_LIBVA_X11
-}
-libva-wayland {
-    message(VAAPI Wayland support enabled)
-
-    PKGCONFIG += libva-wayland
-    DEFINES += HAVE_LIBVA_WAYLAND
-}
-libva-drm {
-    message(VAAPI DRM support enabled)
-
-    PKGCONFIG += libva-drm
-    DEFINES += HAVE_LIBVA_DRM
-}
-libvdpau {
-    message(VDPAU renderer selected)
-
-    DEFINES += HAVE_LIBVDPAU
-    SOURCES += streaming/video/ffmpeg-renderers/vdpau.cpp
-    HEADERS += streaming/video/ffmpeg-renderers/vdpau.h
-}
-mmal {
-    message(MMAL renderer selected)
-
-    DEFINES += HAVE_MMAL
-    SOURCES += streaming/video/ffmpeg-renderers/mmal.cpp
-    HEADERS += streaming/video/ffmpeg-renderers/mmal.h
-
-    # We suppress EGL usage when MMAL is available because MMAL has
-    # significantly better performance than EGL on the Pi. Setting
-    # this option allows EGL usage even if built with MMAL support.
-    #
-    # It is highly recommended to also build with 'gpuslow' to avoid
-    # EGL being preferred if direct DRM rendering is available.
-    allow-egl-with-mmal {
-        message(Allowing EGL usage with MMAL enabled)
-
-        DEFINES += ALLOW_EGL_WITH_MMAL
-    }
-}
-libdrm {
-    message(DRM renderer selected)
-
-    DEFINES += HAVE_DRM
-    SOURCES += streaming/video/ffmpeg-renderers/drm.cpp
-    HEADERS += streaming/video/ffmpeg-renderers/drm.h
-
-    linux {
-        !disable-masterhooks {
-            message(Master hooks enabled)
-            DEFINES += HAVE_DRM_MASTER_HOOKS
-            SOURCES += masterhook.c masterhook_internal.c
-            LIBS += -ldl -pthread
-        }
-    }
-}
-cuda {
-    message(CUDA support enabled)
-
-    DEFINES += HAVE_CUDA
-    SOURCES += streaming/video/ffmpeg-renderers/cuda.cpp
-    HEADERS += streaming/video/ffmpeg-renderers/cuda.h
-
-    # ffnvcodec uses libdl in cuda_load_functions()/cuda_free_functions()
-    LIBS += -ldl
-}
-libplacebo {
-    message(Vulkan support enabled via libplacebo)
-
-    DEFINES += HAVE_LIBPLACEBO_VULKAN
-    SOURCES += \
-        streaming/video/ffmpeg-renderers/plvk.cpp \
-        streaming/video/ffmpeg-renderers/plvkframepool.cpp \
-        streaming/video/ffmpeg-renderers/plvk_c.c
-
-    contains(CONFIG, plank-qt-session) {
-        # qtsoftwarevideo.pri already names the same shared sources by their
-        # absolute paths. Link each allocator/transfer implementation once.
-        SOURCES -= streaming/video/ffmpeg-renderers/plvkframepool.cpp streaming/video/ffmpeg-renderers/plvk_c.c
-    }
-    HEADERS += \
-        streaming/video/ffmpeg-renderers/plvk.h \
-        streaming/video/ffmpeg-renderers/plvkframepool.h \
-        streaming/video/ffmpeg-testframes.h
-
-    macx {
-        SOURCES += streaming/video/ffmpeg-renderers/plvk_objc.mm
-    }
-}
-config_EGL {
-    message(EGL renderer selected)
-
-    CONFIG += egl
-    DEFINES += HAVE_EGL
-    SOURCES += \
-        streaming/video/ffmpeg-renderers/eglvid.cpp \
-        streaming/video/ffmpeg-renderers/egl_extensions.cpp \
-        streaming/video/ffmpeg-renderers/eglimagefactory.cpp
-    HEADERS += \
-        streaming/video/ffmpeg-renderers/eglvid.h \
-        streaming/video/ffmpeg-renderers/eglimagefactory.h
-}
-config_SL {
-    message(Steam Link build configuration selected)
-
-    !disable-prebuilts {
-        # Link against our NEON-optimized libopus build
-        LIBS += -L$$PWD/../libs/steamlink/lib
-        INCLUDEPATH += $$PWD/../libs/steamlink/include
-        LIBS += -lopus -larmasm -lNE10
-    }
-
-    DEFINES += EMBEDDED_BUILD STEAM_LINK HAVE_SLVIDEO HAVE_SLAUDIO
-    LIBS += -lSLVideo -lSLAudio
-
-    SOURCES += \
-        streaming/video/slvid.cpp \
-        streaming/audio/renderers/slaud.cpp
-    HEADERS += \
-        streaming/video/slvid.h \
-        streaming/audio/renderers/slaud.h
-}
-win32 {
-    HEADERS += streaming/video/ffmpeg-renderers/dxutil.h
-}
-win32:!winrt {
-    message(DXVA2 and D3D11VA renderers selected)
-
-    SOURCES += \
-        streaming/video/ffmpeg-renderers/dxva2.cpp \
-        streaming/video/ffmpeg-renderers/d3d11va.cpp \
-        streaming/video/ffmpeg-renderers/pacer/dxvsyncsource.cpp
-
-    HEADERS += \
-        streaming/video/ffmpeg-renderers/dxva2.h \
-        streaming/video/ffmpeg-renderers/d3d11va.h \
-        streaming/video/ffmpeg-renderers/pacer/dxvsyncsource.h
-}
 macx {
     message(VideoToolbox renderer selected)
 
@@ -518,24 +211,19 @@ macx {
 
     SOURCES += \
         streaming/macquitshortcut.mm \
-        streaming/mackeyboardcapture.mm \
-        streaming/macwindow.mm \
-        streaming/video/ffmpeg-renderers/vt_base.mm \
-        streaming/video/ffmpeg-renderers/vt_metal.mm
+        streaming/mackeyboardcapture.mm
 
     HEADERS += \
         streaming/macquitshortcut.h \
         streaming/mackeyboardcapture.h \
-        streaming/input/sdl-darwin-scancodes.h \
-        streaming/macwindow.h \
         streaming/macdisplaygeometry.h \
         streaming/macdisplaymode.h \
-        streaming/video/ffmpeg-renderers/vt.h \
         streaming/macclipboardsync.h \
-        streaming/clipboardpolltimer.h \
         streaming/plankclipboard.h
-    OBJECTIVE_SOURCES += streaming/macclipboardsync.mm
-    OBJECTIVE_SOURCES += streaming/audio/macmicrophonepermission.mm
+    OBJECTIVE_SOURCES += streaming/macclipboardsync.mm streaming/macdisplays.mm
+    HEADERS += streaming/macdisplays.h
+    OBJECTIVE_SOURCES += streaming/audio/macmicrophonepermission.mm streaming/audio/coreaudiodevice.mm streaming/audio/renderers/coreaudio.mm streaming/audio/macmicrophone.mm
+    HEADERS += streaming/audio/coreaudiodevice.h streaming/audio/renderers/coreaudio.h streaming/audio/macmicrophone.h streaming/audio/coreaudioplaybackstate.h
     OBJECTIVE_SOURCES += backend/macpermissions.mm
     HEADERS += backend/macpermissions.h
 }
@@ -563,13 +251,8 @@ wayland {
     message(Wayland extensions enabled)
 
     DEFINES += HAS_WAYLAND
-    SOURCES += streaming/video/ffmpeg-renderers/pacer/waylandvsyncsource.cpp
     HEADERS += \
-        streaming/plankwaylandcursor.h \
-        streaming/plankcallbacktarget.h \
-        streaming/plankembeddedcursor.h \
-        streaming/plankwaylandtoolbar.h \
-        streaming/video/ffmpeg-renderers/pacer/waylandvsyncsource.h
+        streaming/plankcallbacktarget.h
 }
 
 RESOURCES += \
@@ -672,11 +355,6 @@ unix:!macx: {
     appstream.path = $$PREFIX/$$DATADIR/metainfo/
 
     INSTALLS += target desktop icons appstream
-    contains(CONFIG, plank-qt-session) {
-        # Experimental metadata is installed by the co-installable DEB
-        # packager, never by overwriting production files via make install.
-        INSTALLS -= desktop icons appstream
-    }
 }
 win32 {
     RC_ICONS = moonlight.ico

@@ -1,8 +1,9 @@
+#include <QDebug>
+#include "../../monotonicclock.h"
 #include "pipewire.h"
 #include "pipewirebuffer.h"
 #include "streaming/avsynccontroller.h"
 
-#include <SDL3/SDL.h> // shared video-clock epoch and product log only; no SDL audio
 #include <pipewire/pipewire.h>
 #include <spa/param/audio/format-utils.h>
 #include <spa/param/audio/raw-utils.h>
@@ -46,7 +47,7 @@ struct PipeWireAudioRenderer::Impl {
         if (!self->stopping.load() && (current == PW_STREAM_STATE_ERROR ||
             (current == PW_STREAM_STATE_UNCONNECTED && old != PW_STREAM_STATE_UNCONNECTED))) {
             self->failed.store(true);
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "PLANK PipeWire stream failed: %s", error ? error : "disconnected");
+            qWarning("PLANK PipeWire stream failed: %s", error ? error : "disconnected");
         }
     }
     static void paramChanged(void* data, std::uint32_t id, const spa_pod* param) {
@@ -188,15 +189,14 @@ bool PipeWireAudioRenderer::prepareForPlayback(const OPUS_MULTISTREAM_CONFIGURAT
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
     while (!p.failed.load() && std::chrono::steady_clock::now() < deadline) {
         if (p.state.load() == PW_STREAM_STATE_STREAMING && p.formatted.load()) {
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                "PLANK Qt native PipeWire playback: rate=%d channels=%d source_block=%d mode=%s reserve_us=%d",
+            qInfo("PLANK Qt native PipeWire playback: rate=%d channels=%d source_block=%d mode=%s reserve_us=%d",
                 p.rate, p.channels, p.samplesPerFrame, p.commonEpoch ? "source-phase" : "relative-rate",
                 PlankPipeWire::ReserveUs);
             return true;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "PLANK PipeWire playback did not become ready (state=%d)", p.state.load());
+    qWarning("PLANK PipeWire playback did not become ready (state=%d)", p.state.load());
     return false;
 }
 
@@ -226,13 +226,13 @@ bool PipeWireAudioRenderer::submitAudio(int bytes, qint64 sourceUs)
         std::chrono::steady_clock::now() < deadline)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     if (p.failed.load() || aboveHighWater()) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "PLANK PipeWire playback stalled; recreating output");
+        qWarning("PLANK PipeWire playback stalled; recreating output");
         return false;
     }
 
     const auto clock = p.snapshot.get();
     const auto nowNs = pw_stream_get_nsec(p.stream);
-    const auto nowMs = SDL_GetTicks(); // same epoch as existing video swap feedback
+    const auto nowMs = PlankClock::milliseconds(); // same epoch as existing video swap feedback
     const auto delayUs = PlankPipeWire::queueDelayUs(clock, p.ring->written(), nowNs, p.rate);
     const auto video = PlankAvSync::readVideoClock();
     const auto timing = p.timestamp.observe(sourceUs, frames, p.rate, static_cast<std::uint32_t>(nowMs),
@@ -275,7 +275,7 @@ bool PipeWireAudioRenderer::submitAudio(int bytes, qint64 sourceUs)
         samples = p.corrected.data();
     }
     if (!p.ring->push(samples, count)) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "PLANK PipeWire PCM capacity exceeded; recreating output");
+        qWarning("PLANK PipeWire PCM capacity exceeded; recreating output");
         return false;
     }
     p.rawFrames += frames;
@@ -283,8 +283,7 @@ bool PipeWireAudioRenderer::submitAudio(int bytes, qint64 sourceUs)
     p.submittedFrames += count;
     if (!p.lastLogMs || nowMs - p.lastLogMs >= 1000) {
         p.lastLogMs = nowMs;
-        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-            "PLANK PipeWire playback: common=%d valid=%d lead_us=%lld delay_us=%lld queue_ms=%d quantum=%u reserve_us=%d requested_ppm=%d applied_ppm=%d pulls=%llu underruns=%llu missing_frames=%llu priming=%d gaps=%llu",
+        qInfo("PLANK PipeWire playback: common=%d valid=%d lead_us=%lld delay_us=%lld queue_ms=%d quantum=%u reserve_us=%d requested_ppm=%d applied_ppm=%d pulls=%llu underruns=%llu missing_frames=%llu priming=%d gaps=%llu",
             p.commonEpoch, timing.phaseValid, static_cast<long long>(timing.estimatedLeadUs),
             static_cast<long long>(delayUs), getQueuedAudioDurationMs(), clock.quantum,
             static_cast<int>(clock.headroom * 1000000LL / p.rate),

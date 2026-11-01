@@ -1,8 +1,8 @@
+#include <QDebug>
 #include "linuxrawwacom.h"
 
 #include <Limelight.h>
 #include <plank.h>
-#include <SDL3/SDL.h>
 #include <QtEndian>
 #include <libudev.h>
 
@@ -292,8 +292,7 @@ void LinuxRawWacomInput::waitForWork(std::chrono::milliseconds delay)
 
 void LinuxRawWacomInput::run()
 {
-    SDL_LogInfo(SDL_LOG_CATEGORY_INPUT,
-                "PLANK exact raw Wacom capture initialized");
+    qInfo("PLANK exact raw Wacom capture initialized");
     while (!m_Stopping.load()) {
         std::deque<std::vector<unsigned char>> controls;
         {
@@ -306,7 +305,7 @@ void LinuxRawWacomInput::run()
                 lock.unlock();
                 suspendForwarding();
                 if (overflow) {
-                    SDL_LogWarn(SDL_LOG_CATEGORY_INPUT, "Wacom control queue full; restarting attachment");
+                    qWarning("Wacom control queue full; restarting attachment");
                     m_AttachFailed.store(true);
                 }
                 lock.lock();
@@ -342,8 +341,7 @@ void LinuxRawWacomInput::run()
             }
             if (m_AttachPending &&
                     std::chrono::steady_clock::now() >= m_AttachDeadline) {
-                SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
-                            "Timed out waiting for exact Wacom host attachment; retrying");
+                qWarning("Timed out waiting for exact Wacom host attachment; retrying");
                 suspendForwarding();
                 delayRetry = true;
             }
@@ -352,8 +350,7 @@ void LinuxRawWacomInput::run()
                     delayRetry = true;
                 }
                 else if (!discover() || !sendAttach()) {
-                    SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
-                                "Unable to attach exact Wacom device; will retry after checking hidraw and input permissions");
+                    qWarning("Unable to attach exact Wacom device; will retry after checking hidraw and input permissions");
                     release();
                     m_AttachFailed.store(true);
                 }
@@ -582,8 +579,7 @@ bool LinuxRawWacomInput::sendAttach()
     m_AttachPending = true;
     m_AttachDeadline = std::chrono::steady_clock::now() +
             std::chrono::seconds(15);
-    SDL_LogInfo(SDL_LOG_CATEGORY_INPUT,
-                "Sent exact Wacom attach: %u interfaces, generation %u",
+    qInfo("Sent exact Wacom attach: %u interfaces, generation %u",
                 static_cast<unsigned int>(m_Interfaces.size()),
                 static_cast<unsigned int>(m_Generation));
     return true;
@@ -630,8 +626,7 @@ void LinuxRawWacomInput::handlePhysicalReports()
     const int result = poll(pollFds.data(), pollFds.size(), 10);
     if (result < 0) {
         if (errno != EINTR) {
-            SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
-                        "Wacom USB polling failed: %s; preserving host tablet during recovery",
+            qWarning("Wacom USB polling failed: %s; preserving host tablet during recovery",
                         std::strerror(errno));
             suspendForwarding();
             m_AttachFailed.store(false);
@@ -642,8 +637,7 @@ void LinuxRawWacomInput::handlePhysicalReports()
     std::array<unsigned char, PLANK_RAW_HID_MAX_REPORT_SIZE> report = {};
     for (std::size_t index = 0; index < pollFds.size(); ++index) {
         if ((pollFds[index].revents & (POLLHUP | POLLERR | POLLNVAL)) != 0) {
-            SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
-                        "Wacom USB interface became unavailable; preserving host tablet during recovery");
+            qWarning("Wacom USB interface became unavailable; preserving host tablet during recovery");
             suspendForwarding();
             m_AttachFailed.store(false);
             return;
@@ -659,8 +653,7 @@ void LinuxRawWacomInput::handlePhysicalReports()
             if (bytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
             if (bytes < 0 && errno == EINTR) continue;
             if (bytes <= 0) {
-                SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
-                            "Wacom USB read ended: %s; preserving host tablet during recovery",
+                qWarning("Wacom USB read ended: %s; preserving host tablet during recovery",
                             bytes == 0 ? "device closed" : std::strerror(errno));
                 suspendForwarding();
                 return;
@@ -725,12 +718,10 @@ void LinuxRawWacomInput::processControl(const unsigned char* data,
         m_AttachPending = false;
         if (result == 0 && setGrabbed(true)) {
             m_Attached = true;
-            SDL_LogInfo(SDL_LOG_CATEGORY_INPUT,
-                        "Exact Wacom device attached to host");
+            qInfo("Exact Wacom device attached to host");
         }
         else {
-            SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
-                        "Host rejected exact Wacom attach: %s",
+            qWarning("Host rejected exact Wacom attach: %s",
                         std::strerror(result));
             if (result == 0) sendFrame(PLANK_RAW_HID_SUSPEND, 0, 0, nullptr, 0);
             suspendForwarding();
@@ -806,8 +797,7 @@ bool LinuxRawWacomInput::setGrabbed(bool grabbed)
     for (int fd : m_EventFds) {
         if (ioctl(fd, EVIOCGRAB, value) < 0) {
             success = false;
-            SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
-                        "Unable to %s Wacom event node: %s",
+            qWarning("Unable to %s Wacom event node: %s",
                         grabbed ? "grab" : "release", std::strerror(errno));
         }
     }
@@ -822,12 +812,10 @@ void LinuxRawWacomInput::suspendForwarding()
 {
     if (m_AttachPending || m_Attached) {
         if (sendFrame(PLANK_RAW_HID_SUSPEND, 0, 0, nullptr, 0)) {
-            SDL_LogInfo(SDL_LOG_CATEGORY_INPUT,
-                        "Suspended exact Wacom forwarding while preserving host endpoints");
+            qInfo("Suspended exact Wacom forwarding while preserving host endpoints");
         }
         else {
-            SDL_LogWarn(SDL_LOG_CATEGORY_INPUT,
-                        "Unable to suspend exact Wacom forwarding cleanly");
+            qWarning("Unable to suspend exact Wacom forwarding cleanly");
         }
     }
     release();

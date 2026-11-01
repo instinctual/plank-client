@@ -17,8 +17,6 @@ private slots:
     void alignsLogicalHitRectWithPhysicalSurface_data();
     void alignsLogicalHitRectWithPhysicalSurface();
     void preservesHorizontalPositionAcrossScaleChanges();
-    void isolatesVisibleNativeChildFromParentMotion();
-    void keepsNativeButtonSequenceOutOfSdlPath();
     void keepsRemotePressReleaseTogether();
     void keepsLocalPressReleaseTogether();
     void keepsMultiButtonSequenceWithFirstOwner();
@@ -106,28 +104,6 @@ void TestPlankToolbarLogic::preservesHorizontalPositionAcrossScaleChanges()
 
     QVERIFY(qAbs(PlankToolbarLogic::horizontalPosition(
                      newLeft, newWindowWidth, toolbarWidth) - position) < 0.001f);
-}
-
-void TestPlankToolbarLogic::isolatesVisibleNativeChildFromParentMotion()
-{
-    QVERIFY(!PlankToolbarLogic::nativeChildOwnsPointerSequence(
-                false, true, false));
-    QVERIFY(!PlankToolbarLogic::nativeChildOwnsPointerSequence(
-                true, false, false));
-    QVERIFY(PlankToolbarLogic::nativeChildOwnsPointerSequence(
-                true, true, false));
-}
-
-void TestPlankToolbarLogic::keepsNativeButtonSequenceOutOfSdlPath()
-{
-    QVERIFY(!PlankToolbarLogic::nativeChildOwnsPointerSequence(
-                false, true, true));
-    QVERIFY(!PlankToolbarLogic::nativeChildOwnsPointerSequence(
-                true, false, false));
-    QVERIFY(PlankToolbarLogic::nativeChildOwnsPointerSequence(
-                true, true, false));
-    QVERIFY(PlankToolbarLogic::nativeChildOwnsPointerSequence(
-                true, false, true));
 }
 
 void TestPlankToolbarLogic::keepsRemotePressReleaseTogether()

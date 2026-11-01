@@ -1,80 +1,36 @@
+#include <QtGlobal>
+#include <QDebug>
+#include "../monotonicclock.h"
 #include "../session.h"
 #include "renderers/renderer.h"
 
-#ifdef HAVE_SLAUDIO
-#include "renderers/slaud.h"
-#endif
-
-#if defined(PLANK_QT_SESSION) && defined(Q_OS_LINUX)
+#include <QThread>
+#ifdef Q_OS_LINUX
 #include "renderers/pipewire.h"
 #else
-#include "renderers/sdl.h"
+#include "renderers/coreaudio.h"
 #endif
-
-#include <Limelight.h>
-
-#define TRY_INIT_RENDERER(renderer, opusConfig, ...)         \
-{                                                            \
-    IAudioRenderer* __renderer = new renderer(__VA_ARGS__);   \
-    if (__renderer->prepareForPlayback(opusConfig))    \
-        return __renderer;                             \
-    delete __renderer;                                 \
-}
 
 IAudioRenderer* Session::createAudioRenderer(const POPUS_MULTISTREAM_CONFIGURATION opusConfig)
 {
-#if defined(PLANK_QT_SESSION) && defined(Q_OS_LINUX)
-    // Direct PipeWire playback belongs to the Linux platform, not the window
-    // toolkit. macOS retains its qualified SDL/CoreAudio audio clock/backend.
-    TRY_INIT_RENDERER(PipeWireAudioRenderer, opusConfig,
-                      m_Computer->plankAuthentication,
-                      m_PlankCaptureSource == StreamingPreferences::PLANK_CAPTURE_SCREENCAPTUREKIT)
-    return nullptr;
+#ifdef Q_OS_LINUX
+    using Renderer = PipeWireAudioRenderer;
 #else
-    // Handle explicit ML_AUDIO setting and fail if the requested backend fails
-    QString mlAudio = qgetenv("ML_AUDIO").toLower();
-    if (mlAudio == "sdl") {
-        TRY_INIT_RENDERER(SdlAudioRenderer, opusConfig,
-                          m_Computer->plankAuthentication,
-                          m_PlankCaptureSource == StreamingPreferences::PLANK_CAPTURE_SCREENCAPTUREKIT)
-        return nullptr;
-    }
-#if defined(HAVE_SLAUDIO)
-    else if (mlAudio == "slaudio") {
-        TRY_INIT_RENDERER(SLAudioRenderer, opusConfig)
-        return nullptr;
-    }
+    using Renderer = CoreAudioRenderer;
 #endif
-    else if (!mlAudio.isEmpty()) {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                     "Unknown audio backend: %s",
-                     SDL_getenv("ML_AUDIO"));
-        return nullptr;
-    }
-
-    // -------------- Automatic backend selection below this line ---------------
-
-#if defined(HAVE_SLAUDIO)
-    // Steam Link should always have SLAudio
-    TRY_INIT_RENDERER(SLAudioRenderer, opusConfig)
-#endif
-
-    // Default playback backend on platforms without direct PipeWire.
-    TRY_INIT_RENDERER(SdlAudioRenderer, opusConfig,
-                      m_Computer->plankAuthentication,
-                      m_PlankCaptureSource == StreamingPreferences::PLANK_CAPTURE_SCREENCAPTUREKIT)
-
-    return nullptr;
-#endif
+    auto renderer = std::make_unique<Renderer>(m_Computer->plankAuthentication,
+        m_PlankCaptureSource == StreamingPreferences::PLANK_CAPTURE_SCREENCAPTUREKIT);
+    if (!renderer->prepareForPlayback(opusConfig)) return nullptr;
+    return renderer.release();
 }
 
 bool Session::initializeAudioRenderer()
 {
     int error;
 
-    SDL_assert(m_OriginalAudioConfig.channelCount > 0);
-    SDL_assert(m_AudioRenderer == nullptr);
-    SDL_assert(m_OpusDecoder == nullptr);
+    Q_ASSERT(m_OriginalAudioConfig.channelCount > 0);
+    Q_ASSERT(m_AudioRenderer == nullptr);
+    Q_ASSERT(m_OpusDecoder == nullptr);
 
     m_AudioRenderer = createAudioRenderer(&m_OriginalAudioConfig);
 
@@ -98,14 +54,12 @@ bool Session::initializeAudioRenderer()
     if (m_OpusDecoder == nullptr) {
         delete m_AudioRenderer;
         m_AudioRenderer = nullptr;
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                     "Failed to create decoder: %d",
+        qCritical("Failed to create decoder: %d",
                      error);
         return false;
     }
 
-    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                "Audio stream has %d channels",
+    qInfo("Audio stream has %d channels",
                 m_ActiveAudioConfig.channelCount);
     return true;
 }
@@ -150,7 +104,7 @@ int Session::arInit(int /* audioConfiguration */,
                     const POPUS_MULTISTREAM_CONFIGURATION opusConfig,
                     void* /* arContext */, int /* arFlags */)
 {
-    SDL_memcpy(&s_ActiveSession->m_OriginalAudioConfig, opusConfig, sizeof(*opusConfig));
+    s_ActiveSession->m_OriginalAudioConfig = *opusConfig;
     s_ActiveSession->initializeAudioRenderer();
     return 0;
 }
@@ -169,28 +123,16 @@ void Session::arDecodeAndPlaySample(char* sampleData, int sampleLength, int64_t 
     int samplesDecoded;
     const quint64 mediaFrameIndex = s_ActiveSession->m_AudioMediaFramesReceived++;
 
-#ifndef STEAM_LINK
-    // Set this thread to high priority to reduce the chance of missing
-    // our sample delivery time. On Steam Link, this causes starvation
-    // of other threads due to severely restricted CPU time available,
-    // so we will skip it on that platform.
-    if (s_ActiveSession->m_AudioSampleCount == 0) {
-        if (!SDL_SetCurrentThreadPriority(SDL_THREAD_PRIORITY_HIGH)) {
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                        "Unable to set audio thread to high priority: %s",
-                        SDL_GetError());
-        }
-    }
-#endif
+    if (s_ActiveSession->m_AudioSampleCount == 0)
+        QThread::currentThread()->setPriority(QThread::HighPriority);
 
     // See if we need to drop this sample
     if (s_ActiveSession->m_DropAudioEndTime != 0) {
-        if (SDL_GetTicks() >= s_ActiveSession->m_DropAudioEndTime) {
-            // Avoid calling SDL_GetTicks() now
+        if (PlankClock::milliseconds() >= s_ActiveSession->m_DropAudioEndTime) {
+            // Avoid calling PlankClock::milliseconds() now
             s_ActiveSession->m_DropAudioEndTime = 0;
 
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Audio drop window has ended");
+            qInfo("Audio drop window has ended");
         }
         else {
             // We're still in the drop window
@@ -233,7 +175,7 @@ void Session::arDecodeAndPlaySample(char* sampleData, int sampleLength, int64_t 
 
         // Update desiredSize with the number of bytes actually populated by the decoding operation
         if (samplesDecoded > 0) {
-            SDL_assert(desiredBufferSize >= frameSize * samplesDecoded);
+            Q_ASSERT(desiredBufferSize >= frameSize * samplesDecoded);
             desiredBufferSize = frameSize * samplesDecoded;
         }
         else {
@@ -241,8 +183,7 @@ void Session::arDecodeAndPlaySample(char* sampleData, int sampleLength, int64_t 
         }
 
         if (!s_ActiveSession->m_AudioRenderer->submitAudio(desiredBufferSize, presentationTimeUs)) {
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                        "Reinitializing audio renderer after failure");
+            qWarning("Reinitializing audio renderer after failure");
 
             opus_multistream_decoder_destroy(s_ActiveSession->m_OpusDecoder);
             s_ActiveSession->m_OpusDecoder = nullptr;
@@ -251,7 +192,7 @@ void Session::arDecodeAndPlaySample(char* sampleData, int sampleLength, int64_t 
             s_ActiveSession->m_AudioRenderer = nullptr;
         }
         else if (s_ActiveSession->m_AvSyncTelemetryEnabled) {
-            const Uint64 now = SDL_GetTicks();
+            const quint64 now = PlankClock::milliseconds();
             if (s_ActiveSession->m_LastAudioTelemetryTime == 0 ||
                     now - s_ActiveSession->m_LastAudioTelemetryTime >= 1000) {
                 const quint64 uncorrectedMediaTimeMs =
@@ -265,8 +206,7 @@ void Session::arDecodeAndPlaySample(char* sampleData, int sampleLength, int64_t 
                 const int frameDurationMs =
                     s_ActiveSession->m_ActiveAudioConfig.samplesPerFrame * 1000 /
                     s_ActiveSession->m_ActiveAudioConfig.sampleRate;
-                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                            "PLANK A/V audio clock: media=%llu submit=%llu queue=%d device=%d pending=%d frame=%d correction=%d skipped=%llu raw=%llu catchup=%d",
+                qInfo("PLANK A/V audio clock: media=%llu submit=%llu queue=%d device=%d pending=%d frame=%d correction=%d skipped=%llu raw=%llu catchup=%d",
                             static_cast<unsigned long long>(mediaTimeMs),
                             static_cast<unsigned long long>(now),
                             s_ActiveSession->m_AudioRenderer->getQueuedAudioDurationMs(),
@@ -291,13 +231,12 @@ void Session::arDecodeAndPlaySample(char* sampleData, int sampleLength, int64_t 
         // Since we're doing this inline and audio initialization takes time, we need
         // to drop samples to account for the time we've spent blocking audio rendering
         // so we return to real-time playback and don't accumulate latency.
-        Uint64 audioReinitStartTime = SDL_GetTicks();
+        quint64 audioReinitStartTime = PlankClock::milliseconds();
         if (s_ActiveSession->initializeAudioRenderer()) {
-            Uint64 audioReinitStopTime = SDL_GetTicks();
+            quint64 audioReinitStopTime = PlankClock::milliseconds();
 
             s_ActiveSession->m_DropAudioEndTime = audioReinitStopTime + (audioReinitStopTime - audioReinitStartTime);
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "Audio reinitialization took %llu ms - starting drop window",
+            qInfo("Audio reinitialization took %llu ms - starting drop window",
                         static_cast<unsigned long long>(
                             audioReinitStopTime - audioReinitStartTime));
         }

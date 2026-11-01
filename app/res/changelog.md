@@ -1,3 +1,10 @@
+## 1.3.00 — Native Client audio candidate
+
+### Client
+- Use Qt for both desktop Clients without the old SDL runtime.
+- Use native Core Audio for Mac playback and microphone capture, keeping the OS-selected devices and audio synchronization controls.
+- Preserve Ubuntu PipeWire playback, hardware decoding, ten-bit presentation and tablet forwarding.
+
 ## 1.2.13 — macOS Qt session candidate
 
 ### Client

@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-// Exact-format startup probes shared by SDL and Qt decoder implementations.
+// Exact-format startup probes for the Qt session decoder.
 namespace PlankDecoderTestFrames {
 
 // NOTE: All test frames MUST be 720p in order for us to provide the correct dimensions in the AVCodecContext!
@@ -516,7 +516,6 @@ inline constexpr uint8_t k_H264High10_422TestFrame[] = {
   0x5d, 0x75, 0xd7, 0x5d, 0x75, 0xd7, 0x5d, 0x75, 0xd7, 0x5d, 0x75, 0xd7,
   0x5d, 0x75, 0xd7, 0x5d, 0x75, 0xd7, 0x5d, 0x75, 0xd7, 0x5d, 0x75, 0xe0
 };
-
 
 // 720p H.264 High 4:4:4 Predictive 8-bit identity GBR.
 // The original frame was retagged losslessly with h264_metadata for PC range,
@@ -1134,7 +1133,6 @@ inline constexpr uint8_t k_HEVCRExt10_444IdentityGbrTestFrame[] = {
   0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00,
   0x03, 0x02, 0xbe
 };
-
 
 // 720p AV1 High8 4:4:4
 // ffmpeg -i green128.png -pix_fmt yuv444p -colorspace smpte170m -color_trc smpte170m -color_primaries smpte170m -c:v libaom-av1 test8_444.obu

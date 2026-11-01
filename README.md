@@ -32,10 +32,10 @@ configuration or log locations. The separate experimental `plank-client-qt`
 package is retired; its test profile is not automatically copied over existing
 PLANK settings. Quit and remove that test package separately if it is installed.
 Main now also uses the shared Qt streaming window and controls on macOS, with
-native Metal presentation and the existing SDL/CoreAudio playback path. This
+native Metal presentation. From 1.3.00, playback and microphone capture use
+native Core Audio, and both desktop Clients are built without SDL. This
 integration requires installed session validation before release; pointer
-confinement and Mac webcam capture remain open parity work. The preceding
-released Mac frontend uses SDL/Metal. See the
+confinement and Mac webcam capture remain open parity work. See the
 [integration plan](https://github.com/instinctual/plank/blob/main/docs/development/plans/macos-qt-session.plan)
 for scope and acceptance checks.
 
@@ -108,7 +108,7 @@ Build this component through the
 [from-source guide](https://github.com/instinctual/plank/blob/main/docs/development/build/from-source.md)
 and [release build runbook](https://github.com/instinctual/plank/blob/main/docs/development/build/release-build-runbook.md).
 
-The current application uses Qt 6, SDL3, a pinned/patched FFmpeg and PLANK's Rust
+The current application uses Qt 6, native platform audio, a pinned/patched FFmpeg and PLANK's Rust
 transport. The parent repository owns exact dependency versions, platform build
 scripts and package validation. Generic Moonlight build recipes or inherited
 prebuilt dependency bundles are not PLANK's supported build workflow.

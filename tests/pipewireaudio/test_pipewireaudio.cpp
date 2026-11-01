@@ -2,7 +2,7 @@
 #include "streaming/audio/renderers/pipewirebuffer.h"
 #include "streaming/avsynccontroller.h"
 #include <QtTest>
-#include <SDL3/SDL.h>
+#include "../../app/streaming/monotonicclock.h"
 #include <dbus/dbus.h>
 #include <thread>
 extern "C" {
@@ -211,7 +211,6 @@ private slots:
         config.sampleRate = 48000; config.channelCount = 100;
         QVERIFY(!output.prepareForPlayback(&config));
         QVERIFY(!output.prepareForPlayback(nullptr));
-        QCOMPARE(SDL_WasInit(SDL_INIT_AUDIO), 0U);
     }
     void realPipeWirePlayback()
     {
@@ -228,7 +227,7 @@ private slots:
             QElapsedTimer elapsed; elapsed.start();
             for (int block = 0; block < 400; ++block) {
                 while (elapsed.nsecsElapsed() < block * 5000000LL) QTest::qSleep(1);
-                const auto now = SDL_GetTicks();
+                const auto now = PlankClock::milliseconds();
                 PlankAvSync::publishVideoClock(block * 5, now);
                 int bytes = 240 * 2 * sizeof(float);
                 auto* samples = static_cast<float*>(output.getAudioBuffer(&bytes));
@@ -245,7 +244,6 @@ private slots:
             QVERIFY(stats.pulls > 20); QVERIFY(stats.quantumFrames > 0); QVERIFY(!stats.priming);
             QCOMPARE(stats.quantumFrames, expectedQuantum);
             QVERIFY(output.getDeviceBufferDurationMs() >= 0);
-            QCOMPARE(SDL_WasInit(SDL_INIT_AUDIO), 0U); // no hidden SDL output
             // Hosted scheduling is not acoustic qualification. A severe stall
             // still fails, but do not equate a virtual sink with real HDMI.
             QVERIFY(stats.underruns <= 2);
@@ -268,7 +266,6 @@ private slots:
         else qputenv("PIPEWIRE_REMOTE", previous);
         QVERIFY(!prepared);
         QVERIFY(elapsed.elapsed() < 2500);
-        QCOMPARE(SDL_WasInit(SDL_INIT_AUDIO), 0U);
     }
 };
 QTEST_GUILESS_MAIN(PipeWireAudioTest)

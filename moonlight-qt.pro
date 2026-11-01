@@ -17,5 +17,4 @@ CONFIG += debug_and_release
 
 # Run our compile tests
 load(configure)
-qtCompileTest(SL)
 qtCompileTest(EGL)

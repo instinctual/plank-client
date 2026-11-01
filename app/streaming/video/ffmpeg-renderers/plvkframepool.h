@@ -20,7 +20,7 @@ class PlVkFramePool final
 public:
     // A Qt rendering device can supply a lifetime token so outstanding AVFrames
     // keep its GPU alive across session teardown. With a borrowed GPU, the caller
-    // must release all frames before destroying that GPU (the SDL renderer does).
+    // must release all frames before destroying that GPU.
     explicit PlVkFramePool(pl_gpu gpu, std::shared_ptr<void> deviceLifetime = {});
     ~PlVkFramePool();
     PlVkFramePool(const PlVkFramePool&) = delete;

@@ -1,9 +1,9 @@
+#include <QDebug>
 #include "macrawwacom.h"
 #include "macrawwacomasync.h"
 #include "macrawwacomlogic.h"
 #include "linuxrawwacom.h" // shared device-family policy; no Linux dependencies
 #include <Limelight.h>
-#include <SDL3/SDL.h>
 #include <IOKit/hid/IOHIDManager.h>
 #include <IOKit/hid/IOHIDKeys.h>
 #include <IOKit/hidsystem/IOHIDLib.h>
@@ -155,7 +155,7 @@ public:
             else worker.detach(); // self-owned state remains until the worker exits
         }
         if (!released || !exited)
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Mac Wacom shutdown exceeded release deadline");
+            qWarning("Mac Wacom shutdown exceeded release deadline");
     }
     void setActive(bool value)
     {
@@ -211,7 +211,7 @@ private:
     bool barrier(std::uint64_t ticket)
     {
         if (lifecycle.wait(ticket, std::chrono::seconds(2))) return true;
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Mac Wacom release barrier timed out");
+        qWarning("Mac Wacom release barrier timed out");
         return false;
     }
     bool send(std::uint16_t type, std::uint16_t index, std::uint32_t transaction,
@@ -285,7 +285,7 @@ private:
             IOHIDDeviceClose(i->device, kIOHIDOptionsTypeSeizeDevice);
             CFRelease(i->device);
         }
-        if (!interfaces.empty()) SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Mac Wacom ownership released");
+        if (!interfaces.empty()) qInfo("Mac Wacom ownership released");
         interfaces.clear();
         ioFailed = false;
     }
@@ -356,7 +356,7 @@ private:
                 }
                 const IOReturn result = IOHIDDeviceOpen(i->device, kIOHIDOptionsTypeSeizeDevice);
                 if (result != kIOReturnSuccess) {
-                    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Mac Wacom exclusive open failed: 0x%x", unsigned(result));
+                    qWarning("Mac Wacom exclusive open failed: 0x%x", unsigned(result));
                     success = false; break;
                 }
                 CFRetain(i->device);
@@ -392,7 +392,7 @@ private:
         if (!send(PLANK_RAW_HID_DEVICE, 0, 0, reinterpret_cast<unsigned char*>(&device), sizeof(device))) return false;
         for (const auto& i : interfaces)
             if (!send(PLANK_RAW_HID_DESCRIPTOR, i->index, 0, i->descriptor.data(), i->descriptor.size())) return false;
-        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Mac Wacom attach sent: %u interfaces, generation %u",
+        qInfo("Mac Wacom attach sent: %u interfaces, generation %u",
                     unsigned(interfaces.size()), unsigned(generation));
         return true;
     }
@@ -408,11 +408,11 @@ private:
             std::memcpy(&status, payload, sizeof(status));
             status = qFromLittleEndian(status);
             if (status != 0) {
-                SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Mac Wacom host attach rejected: %d", int(status));
+                qWarning("Mac Wacom host attach rejected: %d", int(status));
                 release(false); retry = Clock::now() + std::chrono::seconds(1); return;
             }
             pending = false; attached = true;
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Mac Wacom attached; exclusive raw HID forwarding active");
+            qInfo("Mac Wacom attached; exclusive raw HID forwarding active");
             return;
         }
         if (c.interfaceId >= interfaces.size()) return;
@@ -480,7 +480,7 @@ private:
             send(completion.type == PLANK_RAW_HID_GET_REPORT ? PLANK_RAW_HID_GET_REPORT_REPLY : PLANK_RAW_HID_SET_REPORT_REPLY,
                  completion.interfaceId, completion.transaction, reply.data(), reply.size());
         if (result != kIOReturnSuccess)
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Mac Wacom report I/O failed: interface %u type %u result 0x%x",
+            qWarning("Mac Wacom report I/O failed: interface %u type %u result 0x%x",
                         unsigned(completion.interfaceId), unsigned(completion.type), unsigned(result));
         if (errorNumber(result) == ENODEV) ioFailed = true;
     }
@@ -508,7 +508,7 @@ private:
                 for (const auto& completion : reportResults->take()) completeReport(completion);
                 if (ioFailed) release(true);
                 if (pending && Clock::now() >= deadline) {
-                    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Mac Wacom attachment timed out");
+                    qWarning("Mac Wacom attachment timed out");
                     release(false); retry = Clock::now() + std::chrono::seconds(1);
                 }
                 if (interfaces.empty() && Clock::now() >= retry) {

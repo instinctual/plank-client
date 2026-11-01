@@ -46,7 +46,7 @@ void TestMacRawWacom::nativeFocusReconciliation()
     QVERIFY(!poll(true).value());     // Dialog/other app/Space is not a stream.
     QVERIFY(!poll(true).has_value());
     secondary.activeSpaceKey = true;
-    QVERIFY(poll(true).value());      // Poll recovers even without SDL events.
+    QVERIFY(poll(true).value());      // Poll recovers even without a native event notification.
     QVERIFY(!poll(false).value());    // Capture off wins over native focus.
     QVERIFY(!poll(false).has_value());
     outputs = {{nullptr}, {&secondary}};

@@ -1,3 +1,5 @@
+#include <QDebug>
+#include "../monotonicclock.h"
 #include "decodedvideorenderer.h"
 #ifdef Q_OS_LINUX
 #include "vaapivideoframe.h"
@@ -94,7 +96,6 @@ public:
 
     bool needsTestFrame() override { return true; }
     bool ownsPresentationScheduling() const override { return true; }
-    bool notifyWindowChanged(PWINDOW_STATE_CHANGE_INFO) override { return true; }
     int getDecoderColorspace() override { return m_Identity ? COLORSPACE_IDENTITY_GBR : COLORSPACE_REC_709; }
     int getDecoderColorRange() override { return COLOR_RANGE_FULL; }
 #ifdef Q_OS_MACOS
@@ -150,7 +151,7 @@ public:
                 // claim of panel scan-out; it is the same presentation edge
                 // used by the existing audio synchronizer, not decode arrival.
                 if (mediaPts != AV_NOPTS_VALUE)
-                    PlankAvSync::publishVideoClock(mediaPts, uint32_t(SDL_GetTicks()));
+                    PlankAvSync::publishVideoClock(mediaPts, uint32_t(PlankClock::milliseconds()));
             } else {
                 ++stats->dropped;
             }

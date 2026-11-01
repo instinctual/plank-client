@@ -4,13 +4,8 @@
 
 #include <QSize>
 #include <Limelight.h>
-#include <SDL3/SDL.h>
-
-#include "../plankpresentation.h"
 
 class IFFmpegRendererFactory;
-
-#define SDL_CODE_FRAME_READY 0
 
 #define MAX_SLICES 4
 
@@ -63,7 +58,6 @@ typedef struct _VIDEO_STATS {
 } VIDEO_STATS, *PVIDEO_STATS;
 
 typedef struct _DECODER_PARAMETERS {
-    SDL_Window* window;
     DecoderSelectionMode selectionMode;
     DecoderCaptureSource captureSource;
     DecoderEncoderBackend encoderBackend;
@@ -73,29 +67,12 @@ typedef struct _DECODER_PARAMETERS {
     int height;
     int frameRate;
     bool enableVsync;
-    bool enableFramePacing;
     bool enableIdentityGbr;
     bool testOnly;
-    const PlankPresentationLayout* presentationLayout;
-    // Optional UI-owned presenter. Null preserves the established SDL policy.
+    // Required UI-owned presenter.
     // The factory outlives decoder startup, reconnect and destruction.
     IFFmpegRendererFactory* rendererFactory;
 } DECODER_PARAMETERS, *PDECODER_PARAMETERS;
-
-#define WINDOW_STATE_CHANGE_SIZE 0x01
-#define WINDOW_STATE_CHANGE_DISPLAY 0x02
-
-typedef struct _WINDOW_STATE_CHANGE_INFO {
-    SDL_Window* window;
-    uint32_t stateChangeFlags;
-
-    // Populated if WINDOW_STATE_CHANGE_SIZE is set
-    int width;
-    int height;
-
-    // Populated if WINDOW_STATE_CHANGE_DISPLAY is set
-    SDL_DisplayID displayId;
-} WINDOW_STATE_CHANGE_INFO, *PWINDOW_STATE_CHANGE_INFO;
 
 class IVideoDecoder {
 public:
@@ -109,9 +86,7 @@ public:
     virtual int getDecoderColorRange() = 0;
     virtual QSize getDecoderMaxResolution() = 0;
     virtual int submitDecodeUnit(PDECODE_UNIT du) = 0;
-    virtual void renderFrameOnMainThread() = 0;
     virtual void setHdrMode(bool enabled) = 0;
-    virtual bool notifyWindowChanged(PWINDOW_STATE_CHANGE_INFO info) = 0;
 
     // PLANK may replace the host media worker when GDM hands the
     // display to an authenticated desktop. Decoders that support it can pause

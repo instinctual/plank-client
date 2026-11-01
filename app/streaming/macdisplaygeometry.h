@@ -3,7 +3,6 @@
 namespace MacDisplayGeometry {
 // Each presentation window uses native fullscreen, including mixed-DPI
 // multi-display sessions. Match Client must use the same camera-safe viewport.
-// Set SDL's Spaces hint before video initialization, when Cocoa caches it.
 inline bool useNativeFullscreen(int connectedDisplayCount)
 {
     return connectedDisplayCount > 0;

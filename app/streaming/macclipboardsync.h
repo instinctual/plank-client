@@ -9,11 +9,6 @@
 #include <string>
 #include <vector>
 
-#ifdef Q_OS_MACOS
-// Returns SDL_malloc'd UTF-8 text, or nullptr when unavailable.
-char* macReadGeneralPasteboardTextForSdl();
-#endif
-
 class MacClipboardSync {
 public:
     using SendInputFrame = std::function<bool(const std::uint8_t*, std::size_t)>;

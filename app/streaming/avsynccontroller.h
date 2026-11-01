@@ -87,8 +87,8 @@ private:
     bool m_Anchored = false;
 };
 
-// A snapshot at SDL's output pull boundary, not the speaker presentation clock.
-// The renderer serializes this observer with SDL's stream lock. No allocation,
+// A snapshot at the output pull boundary, not the speaker presentation clock.
+// Each renderer serializes this observer on its audio consumer. No allocation,
 // logging or additional mutex is permitted on the output callback.
 class AudioPlaybackObserver
 {

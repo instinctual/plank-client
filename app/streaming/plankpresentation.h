@@ -6,26 +6,6 @@
 #include <QSize>
 #include <QVector>
 
-#include <SDL3/SDL.h>
-
-struct PlankPresentationOutput
-{
-    SDL_Window* window = nullptr;
-    QRect canvasRect;
-    bool primary = false;
-};
-
-struct PlankPresentationLayout
-{
-    QSize canvasSize;
-    QVector<PlankPresentationOutput> outputs;
-
-    bool isMultiOutput() const
-    {
-        return outputs.size() > 1;
-    }
-};
-
 struct PlankPresentationSlice
 {
     QRectF sourceRect;
@@ -36,8 +16,6 @@ struct PlankPresentationSlice
 class PlankPresentation
 {
 public:
-    // Leave the native fullscreen Space before hiding a secondary surface.
-    static bool setSecondaryFullscreen(SDL_Window* window, bool fullscreen);
 
     static QRect videoRect(const QSize& streamSize, const QSize& canvasSize);
 

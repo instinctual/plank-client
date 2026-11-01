@@ -262,7 +262,7 @@ void AudioPlaybackObserver::observePull(int queuedBytes, int additionalBytes,
     m_Observation.ticks = ticks;
     const auto requestUs = std::int64_t(requestedBytes) * 1000000 / bytesPerSecond;
     m_Observation.requestUs = static_cast<int>(std::min<std::int64_t>(requestUs, INT32_MAX));
-    // SDL's request is in the stream's input format, including conversion
+    // The output request is measured in the stream's input format, including conversion
     // requirements. additionalBytes may slightly overestimate a shortfall;
     // call this a shortage request, not a measured audible/device underrun.
     if (additionalBytes != 0) {

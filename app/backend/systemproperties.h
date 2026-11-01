@@ -8,8 +8,6 @@ class SystemProperties : public QObject
 {
     Q_OBJECT
 
-    friend class QuerySdlVideoThread;
-    friend class RefreshDisplaysThread;
 
 public:
     SystemProperties();
@@ -40,22 +38,12 @@ signals:
 
 private:
     bool clientDisplaySelectionAvailable() const {
-#ifdef PLANK_QT_SESSION
         return true;
-#else
-        return false;
-#endif
     }
     bool automaticSessionRecovery() const {
-#ifdef PLANK_QT_SESSION
         return true;
-#else
-        return false;
-#endif
     }
     QString plankChangelog() const;
-    void querySdlVideoInfo();
-    void querySdlVideoInfoInternal();
     void refreshDisplaysInternal();
 
     bool hasHardwareAcceleration = false;

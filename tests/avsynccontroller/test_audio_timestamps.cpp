@@ -36,7 +36,7 @@ int main()
     observer.reset();
     sample = observer.observe(100030000, 240, 48000, 10, 20, 10, 0,
                              {99990, UINT32_MAX, true}, true);
-    assert(sample.phaseValid && sample.estimatedLeadUs == -1000); // SDL tick wrap
+    assert(sample.phaseValid && sample.estimatedLeadUs == -1000); // 32-bit monotonic tick wrap
     assert(sample.discontinuities == 0 && sample.sourceGapUs == 0);
     // Two-hour deterministic baseline; media and local epochs are unrelated.
     observer.reset();

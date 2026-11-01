@@ -1,8 +1,15 @@
 #pragma once
 
-#include <SDL3/SDL.h>
+#include <Qt>
+#include <cstdint>
 #include <functional>
 #include <memory>
+
+struct MacKeyEvent {
+    std::uint32_t code = 0;
+    bool down = false;
+    Qt::KeyboardModifiers modifiers;
+};
 
 // Main-thread, session-scoped keyboard capture. The tap only queues events;
 // normal session dispatch performs PLANK hotkeys and remote input delivery.
@@ -16,13 +23,10 @@ public:
                        std::function<void()> releaseKeys);
     ~MacKeyboardCapture();
     void refresh();
-    bool dispatch(const SDL_Event& event,
-                  const std::function<void(SDL_KeyboardEvent*)>& deliver);
-    bool suppressSdlKeyEvent() const;
-    // Qt owns its event loop while streaming. Reuse the bounded native tap
-    // queue, but wake Qt directly rather than polling SDL's event queue.
+    bool capturesKeys() const;
+    // Wake Qt to drain the bounded native event-tap queue.
     void setQueueWake(std::function<bool()> wake);
-    void dispatchPending(const std::function<void(SDL_KeyboardEvent*)>& deliver);
+    void dispatchPending(const std::function<void(const MacKeyEvent&)>& deliver);
 
     MacKeyboardCapture(const MacKeyboardCapture&) = delete;
     MacKeyboardCapture& operator=(const MacKeyboardCapture&) = delete;

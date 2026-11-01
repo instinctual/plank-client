@@ -1,6 +1,6 @@
 #import <AppKit/AppKit.h>
 #include <QtTest>
-#include <SDL3/SDL.h>
+#include <QTimer>
 #include "../../app/streaming/macquitshortcut.h"
 
 // Harmless target: exercise the real native Quit selector without terminating
@@ -123,27 +123,13 @@ private slots:
     }
     void keepsAlreadyQueuedRemoteKey()
     {
-        QVERIFY(SDL_Init(SDL_INIT_EVENTS));
-        SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
+        int delivered = 0;
         m_Captured = true;
-        {
-            MacQuitShortcut guard([this] { return m_Captured; });
-            // Reproduce SDL Cocoa's order: enqueue input, then native dispatch.
-            SDL_Event key = {};
-            key.type = SDL_EVENT_KEY_DOWN;
-            key.key.key = SDLK_Q;
-            key.key.mod = SDL_KMOD_GUI;
-            QVERIFY(SDL_PushEvent(&key));
-            [NSApp sendEvent:commandQ()];
-            SDL_Event received = {};
-            QCOMPARE(SDL_PeepEvents(&received, 1, SDL_GETEVENT,
-                                   SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_DOWN), 1);
-            QCOMPARE(received.key.key, SDLK_Q);
-            QVERIFY(!SDL_HasEvent(SDL_EVENT_QUIT));
-            QVERIFY(!SDL_HasEvent(SDL_EVENT_KEY_DOWN));
-            QCOMPARE(m_Target.calls, 0);
-        }
-        SDL_Quit();
+        MacQuitShortcut guard([this] { return m_Captured; });
+        QTimer::singleShot(0, this, [&] { ++delivered; });
+        [NSApp sendEvent:commandQ()];
+        QCOMPARE(m_Target.calls, 0);
+        QTRY_COMPARE(delivered, 1);
     }
 };
 

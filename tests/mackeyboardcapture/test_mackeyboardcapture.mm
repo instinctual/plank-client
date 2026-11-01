@@ -27,22 +27,14 @@ class TestMacKeyboardCapture : public QObject
         CFRelease(event);
         return consumed;
     }
-    std::vector<SDL_KeyboardEvent> drain()
+    std::vector<MacKeyEvent> drain()
     {
-        std::vector<SDL_KeyboardEvent> result;
-        SDL_Event event {};
-        while (SDL_PeepEvents(&event, 1, SDL_GETEVENT, state().eventType, state().eventType) == 1) {
-            m_Capture->dispatch(event, [&](SDL_KeyboardEvent* k) {
-                QVERIFY(!m_Capture->suppressSdlKeyEvent());
-                result.push_back(*k);
-            });
-        }
+        std::vector<MacKeyEvent> result;
+        m_Capture->dispatchPending([&](const MacKeyEvent& event) { result.push_back(event); });
         return result;
     }
 
 private slots:
-    void initTestCase() { QVERIFY(SDL_Init(SDL_INIT_EVENTS)); }
-    void cleanupTestCase() { SDL_Quit(); }
     void init()
     {
         m_Focus = true;
@@ -50,6 +42,7 @@ private slots:
         m_Releases = 0;
         m_Capture.reset(new MacKeyboardCapture([this] { return m_Focus && m_CaptureEnabled; },
                                                [this] { ++m_Releases; }, false));
+        m_Capture->setQueueWake([] { return true; });
         state().active = true;
         state().isoKeyboard = false;
         state().isTrusted = [] { return false; };
@@ -90,18 +83,18 @@ private slots:
         QVERIFY(capture(kVK_Command, kCGEventFlagsChanged));
         auto keys = drain();
         QCOMPARE(keys.size(), size_t(6));
-        QCOMPARE(keys[0].scancode, SDL_SCANCODE_LGUI);
+        QCOMPARE(keys[0].code, kVK_Command);
         QVERIFY(keys[0].down);
-        QCOMPARE(keys[1].scancode, SDL_SCANCODE_TAB);
-        QVERIFY(keys[1].mod & SDL_KMOD_LGUI);
+        QCOMPARE(keys[1].code, kVK_Tab);
+        QVERIFY(keys[1].modifiers & Qt::MetaModifier);
         QVERIFY(!keys[2].down);
-        QCOMPARE(keys[3].scancode, SDL_SCANCODE_SPACE);
+        QCOMPARE(keys[3].code, kVK_Space);
         QVERIFY(!keys[4].down);
         QVERIFY(!keys[5].down);
         QVERIFY(drain().empty());
-        QVERIFY(m_Capture->suppressSdlKeyEvent());
+        QVERIFY(m_Capture->capturesKeys());
     }
-    void qtDispatcherCoalescesWithoutSdlWakeEvents()
+    void qtDispatcherCoalescesWakeEvents()
     {
         state().active = false;
         int wakes = 0;
@@ -110,15 +103,14 @@ private slots:
         QVERIFY(capture(kVK_ANSI_A));
         QVERIFY(capture(kVK_ANSI_A, kCGEventKeyUp));
         QCOMPARE(wakes, 1);
-        QVERIFY(!SDL_HasEvent(state().eventType));
-        std::vector<SDL_KeyboardEvent> keys;
-        m_Capture->dispatchPending([&](SDL_KeyboardEvent* event) { keys.push_back(*event); });
+        std::vector<MacKeyEvent> keys;
+        m_Capture->dispatchPending([&](const MacKeyEvent& event) { keys.push_back(event); });
         QCOMPARE(keys.size(), size_t(2));
         QVERIFY(keys[0].down && !keys[1].down);
         QVERIFY(capture(kVK_ANSI_B));
         QCOMPARE(wakes, 2);
         m_Focus = false;
-        m_Capture->dispatchPending([&](SDL_KeyboardEvent* event) { keys.push_back(*event); });
+        m_Capture->dispatchPending([&](const MacKeyEvent& event) { keys.push_back(event); });
         QCOMPARE(keys.size(), size_t(2)); // Background keys cannot leak to Host.
         QVERIFY(state().pending.empty());
     }
@@ -139,9 +131,9 @@ private slots:
         QVERIFY(capture(kVK_Tab, kCGEventKeyDown, flags));
         auto keys = drain();
         QCOMPARE(keys.size(), size_t(3));
-        QCOMPARE(keys[0].scancode, SDL_SCANCODE_RSHIFT);
-        QCOMPARE(keys[1].scancode, SDL_SCANCODE_RGUI);
-        QCOMPARE(keys[2].scancode, SDL_SCANCODE_TAB);
+        QCOMPARE(keys[0].code, kVK_RightShift);
+        QCOMPARE(keys[1].code, kVK_RightCommand);
+        QCOMPARE(keys[2].code, kVK_Tab);
         QVERIFY(capture(kVK_RightCommand, kCGEventFlagsChanged));
         keys = drain();
         QCOMPARE(keys.size(), size_t(2));
@@ -152,22 +144,21 @@ private slots:
         QVERIFY(capture(kVK_Tab, kCGEventKeyDown, kCGEventFlagMaskCommand));
         auto keys = drain();
         QCOMPARE(keys.size(), size_t(2));
-        QCOMPARE(keys[0].scancode, SDL_SCANCODE_LGUI);
-        QCOMPARE(keys[1].mod, SDL_Keymod(SDL_KMOD_LGUI));
+        QCOMPARE(keys[0].code, kVK_Command);
+        QCOMPARE(keys[1].modifiers, Qt::KeyboardModifiers(Qt::MetaModifier));
     }
     void quitAndReleaseShortcutStayOnExistingInputPath()
     {
         QVERIFY(capture(kVK_ANSI_Q, kCGEventKeyDown, kCGEventFlagMaskCommand));
         auto keys = drain();
-        QCOMPARE(keys.back().scancode, SDL_SCANCODE_Q);
-        QVERIFY(!SDL_HasEvent(SDL_EVENT_QUIT));
+        QCOMPARE(keys.back().code, kVK_ANSI_Q);
         QVERIFY(capture(kVK_ANSI_Z, kCGEventKeyDown, kCGEventFlagMaskControl |
                         kCGEventFlagMaskAlternate | kCGEventFlagMaskShift));
         keys = drain();
-        QCOMPARE(keys.back().scancode, SDL_SCANCODE_Z);
-        QVERIFY(keys.back().mod & SDL_KMOD_CTRL);
-        QVERIFY(keys.back().mod & SDL_KMOD_ALT);
-        QVERIFY(keys.back().mod & SDL_KMOD_SHIFT);
+        QCOMPARE(keys.back().code, kVK_ANSI_Z);
+        QVERIFY(keys.back().modifiers & Qt::ControlModifier);
+        QVERIFY(keys.back().modifiers & Qt::AltModifier);
+        QVERIFY(keys.back().modifiers & Qt::ShiftModifier);
     }
     void repeatsDoNotFillQueue()
     {
@@ -188,9 +179,9 @@ private slots:
         QCOMPARE(m_Releases, 1);
         QVERIFY(!state().active);
         QVERIFY(!capture(kVK_Space));
-        QVERIFY(!m_Capture->suppressSdlKeyEvent());
+        QVERIFY(!m_Capture->capturesKeys());
     }
-    void focusIsCheckedInTapBeforeQueuedSdlFocusNotification()
+    void focusIsCheckedInTapBeforeQueuedQtFocusNotification()
     {
         m_Focus = false;
         QVERIFY(!capture(kVK_ANSI_A));
@@ -210,17 +201,17 @@ private slots:
             QVERIFY(!capture(kVK_Tab, kCGEventKeyUp, kCGEventFlagMaskCommand));
             QVERIFY(drain().empty());
 
-            // No SDL notification, explicit refresh or timer on return.
+            // No Qt notification, explicit refresh or timer on return.
             m_Focus = true;
             QVERIFY(capture(kVK_Tab, kCGEventKeyDown, kCGEventFlagMaskCommand));
             QVERIFY(capture(kVK_Tab, kCGEventKeyUp, kCGEventFlagMaskCommand));
             QVERIFY(capture(kVK_Command, kCGEventFlagsChanged));
             const auto keys = drain();
             QCOMPARE(keys.size(), size_t(4));
-            QCOMPARE(keys[0].scancode, SDL_SCANCODE_LGUI);
-            QCOMPARE(keys[1].scancode, SDL_SCANCODE_TAB);
+            QCOMPARE(keys[0].code, kVK_Command);
+            QCOMPARE(keys[1].code, kVK_Tab);
             QVERIFY(keys[1].down && !keys[2].down && !keys[3].down);
-            QVERIFY(m_Capture->suppressSdlKeyEvent());
+            QVERIFY(m_Capture->capturesKeys());
         }
         QCOMPARE(m_Releases, 10); // One release on departure and on re-arm.
     }
@@ -237,7 +228,7 @@ private slots:
         QVERIFY(drain().empty());
         m_CaptureEnabled = true;
         QVERIFY(capture(kVK_Space, kCGEventKeyDown, kCGEventFlagMaskCommand));
-        QCOMPARE(drain().back().scancode, SDL_SCANCODE_SPACE);
+        QCOMPARE(drain().back().code, kVK_Space);
     }
     void focusReturnDoesNotOverridePermissionRevocation()
     {
@@ -259,19 +250,14 @@ private slots:
         QCOMPARE(m_Releases, 1);
         QVERIFY(!state().active);
         QVERIFY(drain().empty());
-        QVERIFY(!m_Capture->suppressSdlKeyEvent());
+        QVERIFY(!m_Capture->capturesKeys());
     }
     void releaseDuringDispatchDropsRemainingKeys()
     {
         QVERIFY(capture(kVK_ANSI_A));
         QVERIFY(capture(kVK_ANSI_B));
-        SDL_Event event {};
-        event.type = state().eventType;
         int delivered = 0;
-        QVERIFY(m_Capture->dispatch(event, [&](SDL_KeyboardEvent*) {
-            ++delivered;
-            state().deactivate();
-        }));
+        m_Capture->dispatchPending([&](const MacKeyEvent&) { ++delivered; state().deactivate(); });
         QCOMPARE(delivered, 1);
         QCOMPARE(m_Releases, 1);
         QVERIFY(state().pending.empty());
@@ -297,7 +283,7 @@ private slots:
         QVERIFY(capture(kVK_Space));
         auto keys = drain();
         QCOMPARE(keys.size(), size_t(1));
-        QCOMPARE(keys[0].scancode, SDL_SCANCODE_SPACE);
+        QCOMPARE(keys[0].code, kVK_Space);
         state().handle(kCGEventTapDisabledByUserInput, nullptr);
         QCOMPARE(m_Releases, 2);
     }
@@ -309,34 +295,26 @@ private slots:
         QVERIFY(drain().empty());
         QCOMPARE(m_Releases, 1);
     }
-    void sdlQueueFailureDoesNotSwallowInput()
-    {
-        SDL_SetEventFilter([](void*, SDL_Event*) { return false; }, nullptr);
-        const bool consumed = capture(kVK_ANSI_A);
-        SDL_SetEventFilter(nullptr, nullptr);
-        QVERIFY(!consumed);
-        QVERIFY(!state().active);
-        QCOMPARE(m_Releases, 1);
-    }
+
     void capsLockIsABalancedPress()
     {
         QVERIFY(capture(kVK_CapsLock, kCGEventFlagsChanged, kCGEventFlagMaskAlphaShift));
         auto keys = drain();
         QCOMPARE(keys.size(), size_t(2));
-        QCOMPARE(keys[0].scancode, SDL_SCANCODE_CAPSLOCK);
+        QCOMPARE(keys[0].code, kVK_CapsLock);
         QVERIFY(keys[0].down && !keys[1].down);
     }
-    void isoAnsiAndJisMappingsMatchSdl()
+    void isoAnsiAndJisMappingsPreserveNativeKeys()
     {
         QVERIFY(capture(10));
-        QCOMPARE(drain().back().scancode, SDL_SCANCODE_NONUSBACKSLASH);
+        QCOMPARE(drain().back().code, 10u);
         state().isoKeyboard = true;
         QVERIFY(capture(10));
-        QCOMPARE(drain().back().scancode, SDL_SCANCODE_GRAVE);
+        QCOMPARE(drain().back().code, 50u);
         QVERIFY(capture(50));
-        QCOMPARE(drain().back().scancode, SDL_SCANCODE_NONUSBACKSLASH);
+        QCOMPARE(drain().back().code, 10u);
         QVERIFY(capture(93));
-        QCOMPARE(drain().back().scancode, SDL_SCANCODE_INTERNATIONAL3);
+        QCOMPARE(drain().back().code, 93u);
     }
     void gesturesAndHardwareControlsStayLocal()
     {
@@ -348,17 +326,11 @@ private slots:
         QVERIFY(!capture(kVK_VolumeUp));
         QVERIFY(drain().empty());
     }
-    void teardownFlushesOnlyItsOwnEvents()
+    void teardownReleasesPendingKeys()
     {
         QVERIFY(capture(kVK_ANSI_A));
-        const auto type = state().eventType;
-        SDL_Event other {};
-        other.type = SDL_EVENT_QUIT;
-        QVERIFY(SDL_PushEvent(&other));
+        QVERIFY(!state().pending.empty());
         m_Capture.reset();
-        QVERIFY(!SDL_HasEvent(type));
-        QVERIFY(SDL_HasEvent(SDL_EVENT_QUIT));
-        SDL_FlushEvent(SDL_EVENT_QUIT);
         QCOMPARE(m_Releases, 1);
     }
     void nativeForceQuitRemainsLocal()
@@ -369,13 +341,7 @@ private slots:
         QCOMPARE(m_Releases, 1);
         QVERIFY(drain().empty());
     }
-    void sessionControlEventsAreNotConsumed()
-    {
-        QVERIFY(state().eventType != SDL_EVENT_USER);
-        SDL_Event event {};
-        event.type = SDL_EVENT_USER;
-        QVERIFY(!m_Capture->dispatch(event, [](SDL_KeyboardEvent*) { QFAIL("unexpected key"); }));
-    }
+
 };
 
 QTEST_GUILESS_MAIN(TestMacKeyboardCapture)

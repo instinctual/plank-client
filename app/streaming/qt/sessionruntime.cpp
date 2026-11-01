@@ -1,3 +1,6 @@
+#include <QtGlobal>
+#include <QDebug>
+#include "../monotonicclock.h"
 #include "sessionruntime.h"
 #include "../session.h"
 #include "../../backend/hostrecovery.h"
@@ -8,7 +11,7 @@
 #ifdef Q_OS_MACOS
 #include "../../macapplication.h"
 #include "../macclipboardsync.h"
-#include "../streamutils.h"
+#include "../macdisplays.h"
 #endif
 
 #include <QEvent>
@@ -116,16 +119,13 @@ bool QtSessionRuntime::snapshotDisplays()
                                   qRound(bounds.height() * screen->devicePixelRatio()));
         if (!bounds.isValid() || !pixels.isValid()) return false;
         Session::ClientDisplaySnapshot display;
-        // Opaque snapshot identifier, not passed to any SDL display API.
+        // One-based index into the current Qt screen snapshot.
         display.displayId = index + 1;
         display.logicalBounds = {bounds.x(), bounds.y(), bounds.width(), bounds.height()};
         display.nativeSize = pixels;
 #ifdef Q_OS_MACOS
-        SDL_DisplayMode mode{};
-        SDL_Rect matched{};
-        if (!StreamUtils::getMacCurrentDisplayModeForBounds(display.logicalBounds, &mode, &matched, m_Fullscreen)) return false;
-        display.macMatchedBounds = QRect(matched.x, matched.y, matched.w, matched.h);
-        display.macBackingSize = QSize(mode.w, mode.h);
+        if (!MacDisplays::currentModeForBounds(display.logicalBounds, display.macBackingSize,
+                                               display.macMatchedBounds, m_Fullscreen)) return false;
         display.nativeSize = display.macBackingSize;
 #endif
         display.primary = screen->name() == selection.target;
@@ -135,14 +135,14 @@ bool QtSessionRuntime::snapshotDisplays()
     auto& displays = session.m_ClientDisplays;
     if (displays.isEmpty() || displays.size() != selection.names.size()) return false;
     std::sort(displays.begin(), displays.end(), [](const auto& a, const auto& b) {
-        return std::tie(a.logicalBounds.x, a.logicalBounds.y) < std::tie(b.logicalBounds.x, b.logicalBounds.y);
+        return std::make_pair(a.logicalBounds.x(), a.logicalBounds.y()) < std::make_pair(b.logicalBounds.x(), b.logicalBounds.y());
     });
     if (!session.m_TargetDisplayId) session.m_TargetDisplayId = displays.first().displayId;
     session.m_MultiDisplayPresentationAvailable = displays.size() == 2;
     if (displays.size() == 2) {
         const auto& a = displays[0].logicalBounds;
         const auto& b = displays[1].logicalBounds;
-        session.m_MultiDisplayPresentationAvailable = a.x + a.w <= b.x && a.y < b.y + b.h && b.y < a.y + a.h;
+        session.m_MultiDisplayPresentationAvailable = a.x() + a.width() <= b.x() && a.y() < b.y() + b.height() && b.y() < a.y() + a.height();
     }
     m_SpanDisplays = session.m_MultiDisplayPresentationAvailable;
     int x = 0;
@@ -159,8 +159,6 @@ void QtSessionRuntime::start(QWindow* launcher)
     if (m_Started) return;
     m_Started = true;
     m_Launcher = launcher;
-    m_Session->m_QtWindow = launcher;
-    m_Session->m_ThreadedExec = true;
     m_PreviousQuitOnLastWindow = QGuiApplication::quitOnLastWindowClosed();
     QGuiApplication::setQuitOnLastWindowClosed(false);
     QCoreApplication::instance()->installEventFilter(this);
@@ -245,7 +243,7 @@ void QtSessionRuntime::start(QWindow* launcher)
         connect(&surface, &QtSessionWindow::bitrateRequested, this, [this](int bitrate) {
             if (bitrate == m_TargetBitrate) return;
             m_TargetBitrate = bitrate; m_RecoveryBitrate.store(bitrate);
-            m_BitrateChanged = SDL_GetTicks();
+            m_BitrateChanged = PlankClock::milliseconds();
             for (auto& window : m_Windows) window->surface().setBitrateKbps(bitrate);
         });
         connect(&surface, &QtSessionWindow::microphoneRequested, this, [this] {
@@ -354,20 +352,22 @@ void QtSessionRuntime::stop()
 bool QtSessionRuntime::resetDecoder()
 {
     auto& s = *m_Session;
-    SDL_LockSpinlock(&s.m_DecoderLock);
+    {
+    std::lock_guard<std::mutex> decoderLock(s.m_DecoderLock);
     delete s.m_VideoDecoder;
     s.m_VideoDecoder = nullptr;
-    SDL_UnlockSpinlock(&s.m_DecoderLock);
+    }
     if (m_Stop.load()) return false;
     IVideoDecoder* decoder = nullptr;
     const bool ready = Session::chooseDecoder(DecoderSelectionMode::PreferExactHardwareThenSoftware,
-        nullptr, s.m_ActiveVideoFormat, s.m_ActiveVideoWidth, s.m_ActiveVideoHeight,
+        s.m_ActiveVideoFormat, s.m_ActiveVideoWidth, s.m_ActiveVideoHeight,
         s.m_ActiveVideoFrameRate, true, false, decoder, s.isIdentityGbrEnabledForFormat(s.m_ActiveVideoFormat),
         s.decoderCaptureSource(), s.decoderEncoderBackend(), m_Factory.get());
     if (!ready || m_Stop.load()) { delete decoder; return false; }
-    SDL_LockSpinlock(&s.m_DecoderLock);
+    {
+    std::lock_guard<std::mutex> decoderLock(s.m_DecoderLock);
     s.m_VideoDecoder = decoder;
-    SDL_UnlockSpinlock(&s.m_DecoderLock);
+    }
     LiRequestIdrFrame();
     const QSize size(s.m_ActiveVideoWidth, s.m_ActiveVideoHeight);
     QMetaObject::invokeMethod(this, [this, size] { setStreaming(size); }, Qt::QueuedConnection);
@@ -425,7 +425,7 @@ void QtSessionRuntime::workerMain()
             ready = resetDecoder();
         }
         if (!ready || m_Stop.load()) break;
-        const auto now = SDL_GetTicks();
+        const auto now = PlankClock::milliseconds();
         if (now >= nextProbe && !s.m_ReconnectRequested.load() && s.m_CanReconnect.load() &&
                 PlankHostRecovery::videoSilent(now, s.m_LastPlankVideoReceived.load()) && !s.m_PlankWorkerInstance.isEmpty()) {
             nextProbe = now + PlankHostRecovery::ProbeIntervalMs;
@@ -442,13 +442,14 @@ void QtSessionRuntime::workerMain()
     s.m_CanReconnect.store(false);
     s.m_ReconnectCancelled.store(true);
     QMetaObject::invokeMethod(this, [this] { m_Streaming = false; setInputEnabled(false); }, Qt::QueuedConnection);
-    m_Input->shutdown();
     s.m_QtInputCallbacks.clear();
+    m_Input->shutdown();
     s.stopPlankTransportMediaReceivers();
-    SDL_LockSpinlock(&s.m_DecoderLock);
+    {
+    std::lock_guard<std::mutex> decoderLock(s.m_DecoderLock);
     delete s.m_VideoDecoder;
     s.m_VideoDecoder = nullptr;
-    SDL_UnlockSpinlock(&s.m_DecoderLock);
+    }
     LiStopConnection();
     s.stopPlankTransportDataPlane();
     s.clearPlankReconnectCredentials();
@@ -506,7 +507,7 @@ void QtSessionRuntime::setStreaming(QSize size)
     if (m_Stop.load()) return;
     m_StreamSize = size;
     if (!m_DisplayNotice.isEmpty() && !m_DisplayNoticeDeadline)
-        m_DisplayNoticeDeadline = SDL_GetTicks() + 12000;
+        m_DisplayNoticeDeadline = PlankClock::milliseconds() + 12000;
     m_Input->setStreamSize(size);
     m_Streaming = true;
     m_ReconnectNoticeDeadline = 0;
@@ -568,13 +569,13 @@ void QtSessionRuntime::updateGeometry()
 
 void QtSessionRuntime::setStatus(const QString& text)
 {
-    const auto visible = text.isEmpty() && SDL_GetTicks() < m_DisplayNoticeDeadline ? m_DisplayNotice : text;
+    const auto visible = text.isEmpty() && PlankClock::milliseconds() < m_DisplayNoticeDeadline ? m_DisplayNotice : text;
     for (auto& shell : m_Windows) shell->surface().setStatusText(visible);
 }
 
 void QtSessionRuntime::beginRecovery()
 {
-    m_ReconnectNoticeDeadline = SDL_GetTicks() + quint64(m_Session->m_Preferences->plankUnreachableTimeoutSeconds) * 1000;
+    m_ReconnectNoticeDeadline = PlankClock::milliseconds() + quint64(m_Session->m_Preferences->plankUnreachableTimeoutSeconds) * 1000;
     if (m_Session->m_Preferences->plankUnreachableAction == StreamingPreferences::PLANK_UNREACHABLE_DISCONNECT)
         m_Session->m_ReconnectPolicy.allowUntil(m_ReconnectNoticeDeadline);
     else
@@ -720,14 +721,13 @@ void QtSessionRuntime::tick()
     }
 #endif
     if (m_Session->m_ReconnectGreeterConfirmed.exchange(false)) setStatus(tr("Returning to the sign-in screen…"));
-    if (m_ReconnectNoticeDeadline && SDL_GetTicks() >= m_ReconnectNoticeDeadline) {
+    if (m_ReconnectNoticeDeadline && PlankClock::milliseconds() >= m_ReconnectNoticeDeadline) {
         m_ReconnectNoticeDeadline = 0;
         if (m_Session->m_Preferences->plankUnreachableAction == StreamingPreferences::PLANK_UNREACHABLE_DISCONNECT) {
             stop();
             return;
         } else {
-            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                        "PLANK Qt waiting for workstation; automatic recovery remains active");
+            qInfo("PLANK Qt waiting for workstation; automatic recovery remains active");
             setInputEnabled(false);
             for (auto& shell : m_Windows) shell->surface().setWaiting(true);
         }
@@ -739,7 +739,7 @@ void QtSessionRuntime::tick()
         // and timeout notice remain owned by that recovery path.
         setStatus(m_Presenter->hasPresentedLiveFrame() ? QString() : tr("Connecting to workstation…"));
     }
-    const auto now = SDL_GetTicks();
+    const auto now = PlankClock::milliseconds();
     const auto requested = m_Session->m_ConfirmedBitrateRequestKbps.load();
     const auto applied = m_Session->m_ConfirmedBitrateAppliedKbps.load();
     if (requested == m_TargetBitrate && applied > 0 && applied != m_TargetBitrate) {

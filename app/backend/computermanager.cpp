@@ -12,7 +12,7 @@
 #include <QGuiApplication>
 #include <QScreen>
 #ifdef Q_OS_DARWIN
-#include "streaming/streamutils.h"
+#include "streaming/macdisplays.h"
 #include "streaming/macdisplaygeometry.h"
 #include <ApplicationServices/ApplicationServices.h>
 #endif
@@ -871,7 +871,6 @@ void ComputerManager::authenticateHost(NvComputer* computer, QString username,
 {
     QString matchedMode;
     int matchedScale = 1;
-#ifdef PLANK_QT_SESSION
     Q_ASSERT(QThread::currentThread() == qApp->thread());
     const auto clientOutputs = ClientDisplays::snapshot();
     ClientDisplays::Selection clientSelection;
@@ -883,7 +882,6 @@ void ComputerManager::authenticateHost(NvComputer* computer, QString username,
         computer->plankSessionTargetDisplay = clientSelection.target;
         computer->plankSessionDisplayNotice = clientSelection.notice;
     }
-#endif
     bool matchMac;
     {
         QReadLocker lock(&computer->lock);
@@ -901,28 +899,21 @@ void ComputerManager::authenticateHost(NvComputer* computer, QString username,
         uint32_t count = 0;
         if (CGGetActiveDisplayList(16, ids, &count) == kCGErrorSuccess) {
             for (uint32_t index = 0; index < count; ++index) {
-                SDL_DisplayMode mode;
-                SDL_Rect safeArea;
-                if (!StreamUtils::getMacCurrentDisplayMode(ids[index], &mode, &safeArea,
+                QSize mode;
+                QRect safeArea;
+                if (!MacDisplays::currentMode(ids[index], mode, safeArea,
                         m_Prefs->windowMode != StreamingPreferences::WM_WINDOWED &&
                         MacDisplayGeometry::useNativeFullscreen(count))) {
                     displays.clear();
                     break;
                 }
-                displays.append({QRect(safeArea.x, safeArea.y, safeArea.w, safeArea.h),
-                    QSize(mode.w, mode.h), QSize(mode.w, mode.h)});
+                displays.append({safeArea, mode, mode});
             }
         }
-#elif defined(PLANK_QT_SESSION)
+#else
         for (const auto& output : clientOutputs) {
             if (clientSelection.names.contains(output.name))
                 displays.append({output.bounds, output.pixels, {}, output.name == clientSelection.target});
-        }
-#else
-        for (QScreen* screen : QGuiApplication::screens()) {
-            const QRect geometry = screen->geometry();
-            const qreal ratio = screen->devicePixelRatio();
-            displays.append({geometry, QSize(qRound(geometry.width() * ratio), qRound(geometry.height() * ratio))});
         }
 #endif
         QString error;

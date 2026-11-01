@@ -2,22 +2,6 @@
 
 #include <QtMath>
 
-bool PlankPresentation::setSecondaryFullscreen(SDL_Window* window, bool fullscreen)
-{
-#ifdef Q_OS_DARWIN
-    if (fullscreen && !SDL_ShowWindow(window)) return false;
-    if (!SDL_SetWindowFullscreen(window, fullscreen) || !SDL_SyncWindow(window)) return false;
-    // Hiding a Cocoa fullscreen window alone leaves its native Space behind.
-    // Wait for AppKit's exit transition before ordering the window out.
-    return fullscreen || SDL_HideWindow(window);
-#else
-    // Native Spaces need an explicit exit; retain the existing compositor
-    // lifecycle on other platforms until separately qualified there.
-    if (!fullscreen) return SDL_HideWindow(window);
-    return SDL_ShowWindow(window) && SDL_SetWindowFullscreen(window, true);
-#endif
-}
-
 QRect PlankPresentation::videoRect(const QSize& streamSize,
                                              const QSize& canvasSize)
 {

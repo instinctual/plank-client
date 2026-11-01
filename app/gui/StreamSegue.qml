@@ -106,7 +106,7 @@ Item {
     function sessionReadyForDeletion()
     {
         // Garbage collect the Session object since it's pretty heavyweight
-        // and keeps other libraries (like SDL_TTF) around until it is deleted.
+        // and keeps session-owned resources alive until it is deleted.
         session = null
         gc()
     }

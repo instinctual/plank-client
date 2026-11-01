@@ -3,7 +3,7 @@
 #include "renderer.h"
 #include <memory>
 
-// Native playback for the Linux Qt frontend. macOS retains its SDL renderer;
+// Native playback for the Linux Qt frontend. macOS uses Core Audio;
 // Host audio capture is independent of the Client playback backend.
 class PipeWireAudioRenderer : public IAudioRenderer
 {
