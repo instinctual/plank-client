@@ -31,8 +31,11 @@
 #ifdef Q_OS_UNIX
 #include <sys/socket.h>
 #include <signal.h>
+#include <unistd.h>
 #endif
 
+#include <cerrno>
+#include <system_error>
 #include <thread>
 
 #ifdef Q_OS_MACOS
