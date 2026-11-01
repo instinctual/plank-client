@@ -353,9 +353,9 @@ bool QtSessionRuntime::resetDecoder()
 {
     auto& s = *m_Session;
     {
-    std::lock_guard<std::mutex> decoderLock(s.m_DecoderLock);
-    delete s.m_VideoDecoder;
-    s.m_VideoDecoder = nullptr;
+        std::lock_guard<std::mutex> decoderLock(s.m_DecoderLock);
+        delete s.m_VideoDecoder;
+        s.m_VideoDecoder = nullptr;
     }
     if (m_Stop.load()) return false;
     IVideoDecoder* decoder = nullptr;
@@ -365,8 +365,8 @@ bool QtSessionRuntime::resetDecoder()
         s.decoderCaptureSource(), s.decoderEncoderBackend(), m_Factory.get());
     if (!ready || m_Stop.load()) { delete decoder; return false; }
     {
-    std::lock_guard<std::mutex> decoderLock(s.m_DecoderLock);
-    s.m_VideoDecoder = decoder;
+        std::lock_guard<std::mutex> decoderLock(s.m_DecoderLock);
+        s.m_VideoDecoder = decoder;
     }
     LiRequestIdrFrame();
     const QSize size(s.m_ActiveVideoWidth, s.m_ActiveVideoHeight);
@@ -446,9 +446,9 @@ void QtSessionRuntime::workerMain()
     m_Input->shutdown();
     s.stopPlankTransportMediaReceivers();
     {
-    std::lock_guard<std::mutex> decoderLock(s.m_DecoderLock);
-    delete s.m_VideoDecoder;
-    s.m_VideoDecoder = nullptr;
+        std::lock_guard<std::mutex> decoderLock(s.m_DecoderLock);
+        delete s.m_VideoDecoder;
+        s.m_VideoDecoder = nullptr;
     }
     LiStopConnection();
     s.stopPlankTransportDataPlane();

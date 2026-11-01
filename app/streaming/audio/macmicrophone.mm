@@ -87,7 +87,9 @@ struct PlankMacMicrophone::Impl {
         av_channel_layout_uninit(&source);
         if (allocated < 0 || !swr || swr_init(swr) < 0) return false;
         AURenderCallbackStruct callback {input, this};
-        if (AudioUnitSetProperty(unit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 1,
+        // AUHAL input notification is a global property on element 0;
+        // AudioUnitRender below reads the captured data from input bus 1.
+        if (AudioUnitSetProperty(unit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 0,
                                  &callback, sizeof(callback)) != noErr ||
             AudioUnitInitialize(unit) != noErr || AudioOutputUnitStart(unit) != noErr || !device.valid()) return false;
         qInfo("Core Audio microphone: OS-selected input, %u channels at %u Hz; stream is stereo 48000 Hz", channels, rate);

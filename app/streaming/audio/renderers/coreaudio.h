@@ -37,6 +37,7 @@ public:
 private:
     friend class TestCoreAudio;
     static OSStatus render(void*, AudioUnitRenderActionFlags*, const AudioTimeStamp*, UInt32, UInt32, AudioBufferList*);
+    int queueLimitMs() const;
     AudioUnit m_Unit = nullptr;
     PlankCoreAudio::DeviceWatch m_Device;
     std::unique_ptr<PlankAudio::PcmRing> m_Ring;

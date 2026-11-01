@@ -87,11 +87,7 @@
 // Log to console for debug Mac builds
 #endif
 
-// Serialized product logging; retained while all workers finish teardown.
-QAtomicInt g_AsyncLoggingEnabled;
-
 static QTextStream s_LoggerStream(stderr);
-static QThreadPool s_LoggerThread;
 static QMutex s_SyncLoggerMutex;
 #ifdef LOG_TO_FILE
 // Max log file size of 10 MB
@@ -111,29 +107,6 @@ static QString currentLogTimestamp()
     const QDateTime localTime = QDateTime::currentDateTime();
     return localTime.toOffsetFromUtc(localTime.offsetFromUtc()).toString(Qt::ISODateWithMs);
 }
-
-class LoggerTask : public QRunnable
-{
-public:
-    LoggerTask(const QString& msg) : m_Msg(msg)
-    {
-        setAutoDelete(true);
-    }
-
-    void run() override
-    {
-        // QTextStream is not thread-safe, so we must lock. This will generally
-        // only contend in synchronous logging mode or during a transition
-        // between synchronous and asynchronous. Asynchronous won't contend in
-        // the common case because we only have a single logging thread.
-        QMutexLocker locker(&s_SyncLoggerMutex);
-        s_LoggerStream << m_Msg;
-        s_LoggerStream.flush();
-    }
-
-private:
-    QString m_Msg;
-};
 
 void logToLoggerStream(QString& message)
 {
@@ -288,11 +261,6 @@ LONG WINAPI UnhandledExceptionHandler(struct _EXCEPTION_POINTERS *ExceptionInfo)
     }
     else {
         qCritical() << "Unhandled exception! Failed to open dump file:" << qDmpFileName << "with error" << GetLastError();
-    }
-
-    // Sleep for a moment to allow the logging thread to finish up before crashing
-    if (g_AsyncLoggingEnabled) {
-        Sleep(500);
     }
 
     // Let the program crash and WER collect a dump
@@ -454,8 +422,6 @@ int main(int argc, char *argv[])
     }
 #endif
 
-    // Serialize log messages on a single thread
-    s_LoggerThread.setMaxThreadCount(1);
     // Register our logger with all libraries
     qInstallMessageHandler(qtLogToDiskHandler);
 #ifdef HAVE_FFMPEG
@@ -887,12 +853,6 @@ int main(int argc, char *argv[])
 #ifdef HAVE_FFMPEG
     av_log_set_callback(av_log_default_callback);
 #endif
-
-    // We should not be in async logging mode anymore
-    Q_ASSERT(g_AsyncLoggingEnabled == 0);
-
-    // Wait for pending log messages to be printed
-    s_LoggerThread.waitForDone();
 
 #ifdef Q_OS_WIN32
     // Ensure redirected command-line output reaches the destination file.

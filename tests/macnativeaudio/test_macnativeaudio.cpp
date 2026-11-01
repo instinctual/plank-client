@@ -43,6 +43,21 @@ private slots:
         QCOMPARE(CoreAudioRenderer::render(&renderer, nullptr, nullptr, 0, 256, &list), noErr);
         QCOMPARE(renderer.m_PlaybackSnapshot.read().shortageRequests, std::uint64_t(0));
         QCOMPARE(renderer.m_Ring->queued(), 0u);
+        QCOMPARE(renderer.queueLimitMs(), 50);
+    }
+    void largeDevicePullCanRefillWithoutPermanentStarvation() {
+        CoreAudioRenderer renderer;
+        configure(renderer);
+        renderer.m_FrameDurationMs = 5;
+        renderer.m_Ring = std::make_unique<PlankAudio::PcmRing>(8192, 2);
+        std::vector<float> samples(4096 * 2, 0.25f), output(samples.size());
+        AudioBufferList list {1, {{2, UInt32(output.size() * sizeof(float)), output.data()}}};
+        QCOMPARE(CoreAudioRenderer::render(&renderer, nullptr, nullptr, 0, 4096, &list), noErr);
+        QVERIFY(renderer.queueLimitMs() >= 4096 * 1000 / 48000 + 5);
+        QVERIFY(renderer.m_Ring->push(samples.data(), 4096));
+        QCOMPARE(CoreAudioRenderer::render(&renderer, nullptr, nullptr, 0, 4096, &list), noErr);
+        for (const auto sample : output) QCOMPARE(sample, 0.25f);
+        QCOMPARE(renderer.m_PlaybackSnapshot.read().shortageRequests, std::uint64_t(1));
     }
     void invalidBufferFailsWithoutOverrun() {
         CoreAudioRenderer renderer;

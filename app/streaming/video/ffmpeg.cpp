@@ -10,7 +10,7 @@
 
 #include <h264_stream.h>
 #include <QThread>
-#include <QDebug>
+#include <QMap>
 
 extern "C" {
 #include <libavutil/hwcontext.h>

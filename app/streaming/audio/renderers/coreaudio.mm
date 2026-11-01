@@ -165,6 +165,15 @@ void* CoreAudioRenderer::getAudioBuffer(int* size)
     return m_AudioBuffer;
 }
 
+int CoreAudioRenderer::queueLimitMs() const
+{
+    // Some OS-selected outputs pull larger blocks. A fixed 50 ms ceiling
+    // would starve a 90 ms device forever. Permit one measured device pull
+    // plus an input block; ordinary low-latency devices keep the 50 ms cap.
+    const auto demand = m_PlaybackSnapshot.read();
+    return std::max(50, (std::max(0, demand.requestUs) + 999) / 1000 + m_FrameDurationMs);
+}
+
 bool CoreAudioRenderer::submitAudio(int bytesWritten, qint64 sourceTimeUs)
 {
     if (bytesWritten == 0) {
@@ -178,12 +187,14 @@ bool CoreAudioRenderer::submitAudio(int bytesWritten, qint64 sourceTimeUs)
     if (bytesWritten < 0 || bytesWritten > m_FrameSize || !inputFrames || bytesWritten % m_BytesPerSampleFrame) return false;
     // Backpressure is bounded; a stopped output must cause device recovery,
     // never an unbounded queue or a join that hangs during disconnect.
-    for (int i = 0; getQueuedAudioDurationMs() > 50 && i < 100; ++i) {
+    const int limit = queueLimitMs();
+    const int waitLimit = std::min(250, limit + 50);
+    for (int i = 0; getQueuedAudioDurationMs() > limit && i < waitLimit; ++i) {
         if (m_Failed.load() || !m_Device.valid()) return false;
         QThread::msleep(1);
     }
     if (m_Failed.load() || !m_Device.valid() ||
-        PlankClock::milliseconds() - m_LastPull.load() > 500 || getQueuedAudioDurationMs() > 50) return false;
+        PlankClock::milliseconds() - m_LastPull.load() > 500 || getQueuedAudioDurationMs() > limit) return false;
 
     const void* queuedBuffer = m_AudioBuffer;
     int queuedBytes = bytesWritten;

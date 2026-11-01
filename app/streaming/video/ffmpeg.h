@@ -5,6 +5,8 @@
 #include <functional>
 #include <limits>
 #include <QQueue>
+#include <QSet>
+#include <QByteArray>
 
 #include "decoder.h"
 #include "ffmpeg-renderers/renderer.h"

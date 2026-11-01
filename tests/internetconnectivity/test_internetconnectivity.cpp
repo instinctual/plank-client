@@ -163,17 +163,15 @@ void ConnectivityTest::deadlineDoesNotBlockUiOrLeaveChildren()
 {
     Settings settings;
     settings.timeoutMs = 100;
-    int heartbeat = 0;
-    QTimer timer;
-    connect(&timer, &QTimer::timeout, this, [&heartbeat] { ++heartbeat; });
-    timer.start(10);
     Monitor monitor(settings, nullptr, [](const QString&, int) { return stub(0, 60000); });
     QElapsedTimer elapsed;
     elapsed.start();
     monitor.start();
+    bool responsiveWhilePending = false;
+    QTimer::singleShot(0, &monitor, [&] { responsiveWhilePending = monitor.state() == Monitor::Checking; });
     QTRY_COMPARE_WITH_TIMEOUT(monitor.state(), Monitor::NoResponse, 2500);
     QVERIFY(elapsed.elapsed() < 2500);
-    QVERIFY(heartbeat >= 5);
+    QVERIFY(responsiveWhilePending);
     QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
 }
 
@@ -343,18 +341,19 @@ void ConnectivityTest::summaryFailuresAndDeadlines()
     Settings settings;
     settings.hosts = {"192.0.2.1", "192.0.2.2", "192.0.2.3"};
     settings.timeoutMs = 200;
-    int heartbeat = 0;
-    QTimer timer;
-    connect(&timer, &QTimer::timeout, this, [&heartbeat] { ++heartbeat; });
-    timer.start(10);
     Monitor monitor(settings, nullptr, [](const QString& address, int) {
         if (address.endsWith(".1")) return stub(0, 60000);
         if (address.endsWith(".2")) return Monitor::PingCommand{"/no-such-plank-test-ping", {}, 1};
         return stub(64, 0, "ping: sendto: No route to host");
     });
     monitor.refreshSummary();
+    // Require an event-loop turn while the probe is pending. QTRY's wait
+    // coalesces timer deliveries, so counting 10 ms ticks is not reliable.
+    // A synchronous wait would finish the summary before this can run.
+    bool responsiveWhilePending = false;
+    QTimer::singleShot(0, &monitor, [&] { responsiveWhilePending = monitor.summaryRunning(); });
     QTRY_VERIFY_WITH_TIMEOUT(!monitor.summaryRunning(), 2500);
-    QVERIFY(heartbeat >= 5);
+    QVERIFY(responsiveWhilePending);
     const auto rows = monitor.summaryResults();
     QCOMPARE(rows[0].toMap().value("state").toInt(), int(Monitor::NoResponse));
     QCOMPARE(rows[1].toMap().value("state").toInt(), int(Monitor::Unavailable));

@@ -394,7 +394,7 @@ int Session::drSubmitDecodeUnit(PDECODE_UNIT du)
 }
 
 Session::DecoderAvailability
-Session::getDecoderAvailability(                                int videoFormat, int width, int height, int frameRate,
+Session::getDecoderAvailability(int videoFormat, int width, int height, int frameRate,
                                 bool enableIdentityGbr)
 {
     IVideoDecoder* decoder;
@@ -989,8 +989,6 @@ void Session::startPlankTransportMediaReceivers()
 
 void Session::stopPlankTransportMediaReceivers()
 {
-#ifdef Q_OS_MACOS
-#endif
     m_PlankTransportReceiversStopping.store(true);
     if (m_PlankTransportVideoThread.joinable()) {
         m_PlankTransportVideoThread.join();
