@@ -45,6 +45,19 @@ final class PencilImageSocketCheck: @unchecked Sendable {
             }
         }
         server.start(queue:DispatchQueue(label:"pencil.image.test.listener",qos:.utility))
+        let diagnostics = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "pencil.image.test.progress"))
+        diagnostics.schedule(deadline: .now() + .milliseconds(500), repeating: .milliseconds(500))
+        diagnostics.setEventHandler { [self] in
+            lock.lock(); let s = sender, r = receiver; lock.unlock()
+            for (role, peer) in [("sender", s), ("receiver", r)] {
+                peer?.inspectTransfer { offset, pending, buffered, sending, wait in
+                    let message = "Image loopback \(role): offset=\(offset) pending=\(pending) buffered=\(buffered) sending=\(sending) budget_us=\(wait / 1000)\n"
+                    FileHandle.standardError.write(Data(message.utf8))
+                }
+            }
+        }
+        diagnostics.resume()
+        defer { diagnostics.cancel() }
         assert(done.wait(timeout:.now() + .seconds(10)) == .success,"Image loopback timed out")
         lock.lock(); let s=sender,r=receiver,frames=received,times=deliveryTimes; finished=true; lock.unlock()
         s?.close(); r?.close(); server.cancel(); listener=nil

@@ -96,6 +96,16 @@ final class PlankPencilImagePeer: @unchecked Sendable {
         outgoing.close(); callbacks.close()
         queue.async { [self] in finish("Reference image stopped") }
     }
+    /// On-demand counters for bounded transfer diagnostics. No image data,
+    /// peer identity or credentials leave the transport executor.
+    func inspectTransfer(_ completion: @escaping @Sendable (Int, Int, Int, Bool, Int64) -> Void) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            let now = DispatchTime.now().uptimeNanoseconds
+            let wait = self.nextChunkAt >= now ? Int64(self.nextChunkAt - now) : -Int64(now - self.nextChunkAt)
+            completion(self.currentOffset, self.assembler.pendingBytes, self.buffer.count, self.sending, wait)
+        }
+    }
     private func output(_ operation:(OpaquePointer,UnsafeMutablePointer<UInt8>,Int,UnsafeMutablePointer<Int>)->Int32) throws -> Data {
         guard let crypto else { throw PlankPencilImageError.crypto }
         var bytes=[UInt8](repeating:0,count:PlankPencilImageLimits.maximumCiphertextBytes), count=0
