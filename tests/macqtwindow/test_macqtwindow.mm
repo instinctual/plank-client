@@ -120,7 +120,13 @@ private slots:
                 item->setFrame(picture);
                 const unsigned previous = swaps.load();
                 scene.update();
-                QVERIFY(until([&] { return swaps.load()>previous || !errors.isEmpty(); }));
+                // A resize/toolbar swap can finish before the newly delivered
+                // video reaches the scene graph. Require video feedback too;
+                // an unrelated pending swap is not presentation of this item.
+                QVERIFY(until([&] {
+                    return (swaps.load()>previous && item->status()->livePresented.load()) ||
+                        !errors.isEmpty() || item->status()->error.load() != QtVideoStatus::None;
+                }));
                 QVERIFY(errors.isEmpty());
                 QCOMPARE(item->status()->error.load(),QtVideoStatus::None);
                 QVERIFY(item->status()->livePresented);
