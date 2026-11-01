@@ -14,25 +14,25 @@ class CoreAudioRenderer : public IAudioRenderer
 public:
     explicit CoreAudioRenderer(bool enableAvSyncCorrection = false, bool commonAudioVideoEpoch = false);
 
-    virtual ~CoreAudioRenderer();
+    ~CoreAudioRenderer() override;
 
-    virtual bool prepareForPlayback(const OPUS_MULTISTREAM_CONFIGURATION* opusConfig);
+    bool prepareForPlayback(const OPUS_MULTISTREAM_CONFIGURATION* opusConfig) override;
 
-    virtual void* getAudioBuffer(int* size);
+    void* getAudioBuffer(int* size) override;
 
-    virtual bool submitAudio(int bytesWritten, qint64 sourceTimeUs);
+    bool submitAudio(int bytesWritten, qint64 sourceTimeUs) override;
 
-    virtual int getCapabilities();
+    int getCapabilities() override;
 
-    virtual int getQueuedAudioDurationMs() override;
+    int getQueuedAudioDurationMs() override;
 
-    virtual int getDeviceBufferDurationMs() override;
+    int getDeviceBufferDurationMs() override;
 
-    virtual qint64 getSubmittedAudioMediaTimeMs() override;
+    qint64 getSubmittedAudioMediaTimeMs() override;
 
-    virtual int getAudioClockCorrectionPpm() override;
+    int getAudioClockCorrectionPpm() override;
 
-    virtual AudioFormat getAudioBufferFormat();
+    AudioFormat getAudioBufferFormat() override;
 
 private:
     friend class TestCoreAudio;
