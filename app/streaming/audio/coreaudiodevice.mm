@@ -47,7 +47,21 @@ int outputLatencyMs(AudioDeviceID device, AudioUnit unit)
         !property(device, kAudioDevicePropertyLatency, kAudioObjectPropertyScopeOutput, latency) ||
         !property(device, kAudioDevicePropertySafetyOffset, kAudioObjectPropertyScopeOutput, safety)) return -1;
     AudioUnitGetProperty(unit, kAudioUnitProperty_Latency, kAudioUnitScope_Global, 0, &unitSeconds, &size);
-    const double milliseconds = 1000 * ((double(latency) + safety + buffer) / rate + unitSeconds);
+    // Stream latency is distinct from device latency. Use the first output
+    // stream for the single A/V clock, also when a device exposes several.
+    AudioObjectPropertyAddress streams {kAudioDevicePropertyStreams,
+        kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain};
+    UInt32 streamLatency = 0;
+    size = 0;
+    if (AudioObjectGetPropertyDataSize(device, &streams, 0, nullptr, &size) == noErr &&
+            size >= sizeof(AudioStreamID) && size <= 64 * sizeof(AudioStreamID) &&
+            size % sizeof(AudioStreamID) == 0) {
+        std::vector<AudioStreamID> ids(size / sizeof(AudioStreamID));
+        if (AudioObjectGetPropertyData(device, &streams, 0, nullptr, &size, ids.data()) == noErr &&
+                size >= sizeof(AudioStreamID))
+            property(ids.front(), kAudioStreamPropertyLatency, kAudioObjectPropertyScopeOutput, streamLatency);
+    }
+    const double milliseconds = 1000 * ((double(latency) + streamLatency + safety + buffer) / rate + unitSeconds);
     return std::isfinite(milliseconds) && milliseconds >= 0 && milliseconds < 2000 ? int(std::ceil(milliseconds)) : -1;
 }
 
