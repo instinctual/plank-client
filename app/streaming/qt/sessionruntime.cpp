@@ -3,6 +3,7 @@
 #include "../monotonicclock.h"
 #include "sessionruntime.h"
 #include "../session.h"
+#include "../plankpresentation.h"
 #include "../../backend/hostrecovery.h"
 #include "../../backend/clientdisplays.h"
 #include "../../backend/nvhttp.h"
