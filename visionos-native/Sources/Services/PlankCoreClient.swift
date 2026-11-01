@@ -454,6 +454,7 @@ final class PlankCoreClient: ObservableObject {
 
     func startSession(displaySize: SpatialDisplaySize, frameRate: Int, videoBitrateKbps: Int,
                       secondDisplaySize: SpatialDisplaySize? = nil,
+                      presentation: PlankDesktopPresentation = .combinedWindow,
                       localDisplayLayout: PlankLocalDisplayLayout? = nil) {
         guard !isClosingSession else { return }
         guard let httpClient,
@@ -539,6 +540,7 @@ final class PlankCoreClient: ObservableObject {
                 identity: identity,
                 authentication: authentication,
                 connectedHost: connectedHost,
+                presentation: presentation,
                 localDisplayLayout: localDisplayLayout,
                 inputQueue: sessionInputQueue,
                 generation: generation
@@ -547,12 +549,13 @@ final class PlankCoreClient: ObservableObject {
         stoppingStreamTask = nil
     }
 
-    func retrySession(displaySize: SpatialDisplaySize, frameRate: Int, videoBitrateKbps: Int) {
+    func retrySession(displaySize: SpatialDisplaySize, frameRate: Int, videoBitrateKbps: Int,
+                      secondDisplaySize: SpatialDisplaySize? = nil) {
         guard !isClosingSession else { return }
         guard let identity = lastIdentity, let authentication = lastAuthentication else { return }
         phase = .authenticated(identity, authentication)
         startSession(displaySize: displaySize, frameRate: frameRate,
-                     videoBitrateKbps: videoBitrateKbps)
+                     videoBitrateKbps: videoBitrateKbps, secondDisplaySize: secondDisplaySize)
     }
 
     private func runSession(
@@ -560,6 +563,7 @@ final class PlankCoreClient: ObservableObject {
         identity: PlankHostIdentity,
         authentication: PlankAuthentication,
         connectedHost: HostBookmark,
+        presentation: PlankDesktopPresentation,
         localDisplayLayout: PlankLocalDisplayLayout?,
         inputQueue: PlankInputQueue,
         generation: UUID
@@ -648,6 +652,7 @@ final class PlankCoreClient: ObservableObject {
                 connectedHost: connectedHost,
                 applicationID: desktop.id,
                 requestedTopology: requestedTopology,
+                presentation: presentation,
                 // Read once per connection: a change applies to the next one.
                 playAudioOnHost: PlankAudioPreferences.playOnHost()
             )
@@ -873,6 +878,7 @@ final class PlankCoreClient: ObservableObject {
         connectedHost: HostBookmark,
         applicationID: Int,
         requestedTopology: PlankTopology,
+        presentation: PlankDesktopPresentation,
         playAudioOnHost: Bool
     ) async throws -> (PlankHTTPClient, PlankAuthentication, PlankTopology, PlankLaunchCredentials) {
         try Task.checkCancellation()
@@ -883,6 +889,7 @@ final class PlankCoreClient: ObservableObject {
                 topology: requestedTopology,
                 applicationID: applicationID,
                 frameRate: connectedHost.streamFrameRate,
+                presentation: presentation,
                 playAudioOnHost: playAudioOnHost
             )
             return (initialClient, initialAuthentication, requestedTopology, launch)
@@ -937,6 +944,7 @@ final class PlankCoreClient: ObservableObject {
                     topology: verifiedRequest,
                     applicationID: applicationID,
                     frameRate: connectedHost.streamFrameRate,
+                    presentation: presentation,
                     playAudioOnHost: playAudioOnHost
                 )
                 return (client, authentication, verifiedRequest, launch)

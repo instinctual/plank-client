@@ -24,6 +24,18 @@ for name in AudioFormat AudioLevel; do
         "$vision/Tests/Plank${name}Tests.swift" -o "$output/$name"
     "$output/$name"
 done
+xcrun --sdk macosx swiftc -swift-version 6 -Onone -parse-as-library \
+    "$vision/Sources/Models/HostBookmark.swift" \
+    "$vision/Tests/PlankBookmarkSessionPolicyTests.swift" -o "$output/bookmark-session"
+"$output/bookmark-session"
+xcrun --sdk macosx swiftc -swift-version 6 -Onone -parse-as-library \
+    "$vision/Sources/Models/HostBookmark.swift" \
+    "$vision/Sources/Models/PlankDesktopCanvas.swift" \
+    "$vision/Sources/Models/PlankTopologyDecoder.swift" \
+    "$vision/Sources/Models/PlankStreamRequest.swift" \
+    "$vision/Sources/Services/HostStore.swift" \
+    "$vision/Tests/PlankDesktopCanvasTests.swift" -o "$output/desktop-canvas"
+"$output/desktop-canvas" "$repo/apple-native/Tests/Fixtures/output-topology-v13.json"
 xcrun --sdk macosx clang "$vision/Bridge/PlankRawHidFrame.c" \
     "$vision/Tests/test_raw_hid_frame.c" -o "$output/raw-hid-frame"
 "$output/raw-hid-frame"

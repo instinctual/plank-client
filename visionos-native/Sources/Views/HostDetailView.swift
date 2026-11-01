@@ -30,9 +30,17 @@ struct HostDetailView: View {
                 Text("\(host.address):\(host.port)")
                     .font(.title3.monospaced())
                     .foregroundStyle(.secondary)
-                Text("Virtual display: \(host.spatialDisplaySize.title) · \(host.streamFrameRate) fps")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                VStack(spacing: 4) {
+                    if let second = host.secondDisplaySize {
+                        Text("Display 1 — Left: \(host.spatialDisplaySize.title)")
+                        Text("Display 2 — Right: \(second.title)")
+                        Text("One window · \(host.desktopDimensions.width) × \(host.desktopDimensions.height) · \(host.streamFrameRate) fps")
+                    } else {
+                        Text("Virtual display: \(host.spatialDisplaySize.title) · \(host.streamFrameRate) fps")
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             }
 
             status
@@ -61,7 +69,8 @@ struct HostDetailView: View {
                     openWindow(id: "plank-desktop")
                     client.startSession(displaySize: host.spatialDisplaySize,
                                         frameRate: host.streamFrameRate,
-                                        videoBitrateKbps: host.videoBitrateKbps)
+                                        videoBitrateKbps: host.videoBitrateKbps,
+                                        secondDisplaySize: host.secondDisplaySize)
                 } label: {
                     Label("Start Session", systemImage: "play.rectangle.fill")
                         .frame(minWidth: 160)
@@ -128,7 +137,8 @@ struct HostDetailView: View {
                                     openWindow(id: "plank-desktop")
                                     client.retrySession(displaySize: host.spatialDisplaySize,
                                                         frameRate: host.streamFrameRate,
-                                                        videoBitrateKbps: host.videoBitrateKbps)
+                                                        videoBitrateKbps: host.videoBitrateKbps,
+                                                        secondDisplaySize: host.secondDisplaySize)
                                 } label: {
                                     Label("Retry Session", systemImage: "arrow.clockwise")
                                         .frame(minWidth: 120)

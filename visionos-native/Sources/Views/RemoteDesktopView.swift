@@ -84,8 +84,8 @@ struct RemoteDesktopView: View {
             keyboardSurface
 
             WindowGeometryConfigurator(
-                pixelWidth: host.spatialDisplaySize.pixelSize.width,
-                pixelHeight: host.spatialDisplaySize.pixelSize.height,
+                pixelWidth: desktopDimensions.width,
+                pixelHeight: desktopDimensions.height,
                 allowsUserResize: allowWindowResizing
             )
             .frame(width: 0, height: 0)
@@ -148,9 +148,17 @@ struct RemoteDesktopView: View {
         }
     }
 
+    private var desktopDimensions: PlankFrameDimensions {
+        // Use the requested composite before startup, then the authenticated
+        // Host canvas. Display 1's aspect ratio must not squeeze Display 2.
+        if let topology = client.sessionTopology {
+            return .init(width: topology.desktopWidth, height: topology.desktopHeight)
+        }
+        return host.desktopDimensions
+    }
+
     private var desktopAspectRatio: CGFloat {
-        let size = host.spatialDisplaySize.pixelSize
-        return CGFloat(max(1, size.width)) / CGFloat(max(1, size.height))
+        CGFloat(max(1, desktopDimensions.width)) / CGFloat(max(1, desktopDimensions.height))
     }
 
     private var sessionCanvas: some View {
@@ -367,27 +375,8 @@ struct RemoteDesktopView: View {
         in availableSize: CGSize,
         frame: PlankFrameDimensions
     ) {
-        let scale = min(
-            availableSize.width / CGFloat(frame.width),
-            availableSize.height / CGFloat(frame.height)
-        )
-        guard scale > 0 else { return }
-        let imageSize = CGSize(
-            width: CGFloat(frame.width) * scale,
-            height: CGFloat(frame.height) * scale
-        )
-        let origin = CGPoint(
-            x: (availableSize.width - imageSize.width) / 2,
-            y: (availableSize.height - imageSize.height) / 2
-        )
-        let local = CGPoint(x: location.x - origin.x, y: location.y - origin.y)
-        guard local.x >= 0, local.y >= 0,
-              local.x <= imageSize.width, local.y <= imageSize.height else { return }
-        // Include the final row/column instead of rounding to an out-of-range
-        // coordinate and dropping events at the far edge of the canvas.
-        let x = min(frame.width - 1, Int((local.x / imageSize.width * CGFloat(frame.width - 1)).rounded()))
-        let y = min(frame.height - 1, Int((local.y / imageSize.height * CGFloat(frame.height - 1)).rounded()))
-        client.movePointer(x: x, y: y, width: frame.width, height: frame.height)
+        guard let point = PlankDesktopCanvas(dimensions: frame).remotePoint(location, in: availableSize) else { return }
+        client.movePointer(x: point.x, y: point.y, width: frame.width, height: frame.height)
     }
 
     private func handleKeyboardCharacters(_ characters: String) {
@@ -615,18 +604,7 @@ private final class VideoSurfaceView: UIView {
             metalVideo.frame = bounds
             return
         }
-        let scale = min(
-            bounds.width / CGFloat(dimensions.width),
-            bounds.height / CGFloat(dimensions.height)
-        )
-        let width = CGFloat(dimensions.width) * scale
-        let height = CGFloat(dimensions.height) * scale
-        metalVideo.frame = CGRect(
-            x: (bounds.width - width) / 2,
-            y: (bounds.height - height) / 2,
-            width: width,
-            height: height
-        )
+        metalVideo.frame = PlankDesktopCanvas(dimensions: dimensions).rect(in: bounds.size)
     }
 
     private func layoutCursor() {
@@ -638,15 +616,11 @@ private final class VideoSurfaceView: UIView {
             cursorFallback.isHidden = true
             return
         }
-        let scale = min(
-            bounds.width / CGFloat(dimensions.width),
-            bounds.height / CGFloat(dimensions.height)
-        )
-        let imageWidth = CGFloat(dimensions.width) * scale
-        let imageHeight = CGFloat(dimensions.height) * scale
+        let canvas = PlankDesktopCanvas(dimensions: dimensions).rect(in: bounds.size)
+        let scale = canvas.width / CGFloat(dimensions.width)
         let pointer = CGPoint(
-            x: (bounds.width - imageWidth) / 2 + CGFloat(cursor.x) * scale,
-            y: (bounds.height - imageHeight) / 2 + CGFloat(cursor.y) * scale
+            x: canvas.minX + CGFloat(cursor.x) * scale,
+            y: canvas.minY + CGFloat(cursor.y) * scale
         )
         guard let cursorShape else {
             cursorLayer.isHidden = true
@@ -1204,13 +1178,8 @@ private struct RemoteInputSurface: UIViewControllerRepresentable {
         }
 
         private var canvasBounds: CGRect {
-            guard let view = inputView, frameDimensions.width > 0, frameDimensions.height > 0 else { return .zero }
-            let scale = min(view.bounds.width / CGFloat(frameDimensions.width),
-                            view.bounds.height / CGFloat(frameDimensions.height))
-            let size = CGSize(width: CGFloat(frameDimensions.width) * scale,
-                              height: CGFloat(frameDimensions.height) * scale)
-            return CGRect(x: (view.bounds.width - size.width) / 2,
-                          y: (view.bounds.height - size.height) / 2, width: size.width, height: size.height)
+            guard let view = inputView else { return .zero }
+            return PlankDesktopCanvas(dimensions: frameDimensions).rect(in: view.bounds.size)
         }
 
         private func anchorFromHost() {

@@ -34,6 +34,7 @@ add_executable(PlankVision MACOSX_BUNDLE
     ../apple-native/Shared/PlankControlKeyOwnership.swift
     Sources/Models/PlankTopologyDecoder.swift
     Sources/Models/HostBookmark.swift
+    Sources/Models/PlankDesktopCanvas.swift
     Sources/Models/PlankAudioFormat.swift
     Sources/Models/PlankAudioLevel.swift
     Sources/Models/PlankStreamRequest.swift

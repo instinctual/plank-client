@@ -18,6 +18,8 @@ struct AddHostView: View {
     @State private var address = ""
     @State private var port = "28989"
     @State private var displaySize: SpatialDisplaySize = .standard
+    @State private var useSecondDisplay = false
+    @State private var secondDisplaySize: SpatialDisplaySize = .standard
     @State private var frameRateSelection = StreamFrameRate.defaultValue
     @State private var customFrameRate = ""
 
@@ -29,6 +31,8 @@ struct AddHostView: View {
         _address = State(initialValue: host?.address ?? "")
         _port = State(initialValue: host.map { String($0.port) } ?? "28989")
         _displaySize = State(initialValue: host?.spatialDisplaySize ?? .standard)
+        _useSecondDisplay = State(initialValue: host?.secondDisplaySize != nil)
+        _secondDisplaySize = State(initialValue: host?.secondDisplaySize ?? .standard)
         let savedRate = host?.streamFrameRate ?? StreamFrameRate.defaultValue
         _frameRateSelection = State(initialValue:
             StreamFrameRate.presets.contains(savedRate) ? savedRate : 0)
@@ -45,7 +49,17 @@ struct AddHostView: View {
     private var canSave: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        parsedPort.map { $0 > 0 } == true && parsedFrameRate != nil
+        parsedPort.map { $0 > 0 } == true && parsedFrameRate != nil && validCanvas
+    }
+
+    private var selectedSecondDisplay: SpatialDisplaySize? {
+        useSecondDisplay ? secondDisplaySize : nil
+    }
+    private var validCanvas: Bool {
+        PlankTopology.validCanvas(first: displaySize, second: selectedSecondDisplay)
+    }
+    private var desktopDimensions: PlankFrameDimensions {
+        PlankTopology.canvas(first: displaySize, second: selectedSecondDisplay)
     }
 
     private var isSessionActive: Bool {
@@ -73,14 +87,47 @@ struct AddHostView: View {
                         .keyboardType(.numberPad)
                 }
 
-                Section("Virtual display") {
-                    Picker("Resolution", selection: $displaySize) {
+                Section {
+                    Picker("Host display layout", selection: $useSecondDisplay) {
+                        Text("One Virtual Display").tag(false)
+                        Text("Two Virtual Displays").tag(true)
+                    }
+                    .pickerStyle(.menu)
+
+                    Picker(useSecondDisplay ? "Display 1 — Left" : "Resolution", selection: $displaySize) {
                         ForEach(SpatialDisplaySize.allCases) { size in
                             Text(size.title).tag(size)
                         }
                     }
                     .pickerStyle(.menu)
 
+                    if useSecondDisplay {
+                        Picker("Display 2 — Right", selection: $secondDisplaySize) {
+                            ForEach(SpatialDisplaySize.allCases) { size in
+                                Text(size.title).tag(size)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+
+                    if validCanvas {
+                        LabeledContent("Desktop canvas",
+                            value: "\(desktopDimensions.width) × \(desktopDimensions.height)")
+                    } else {
+                        Label("The two display widths must total no more than 8192 pixels.",
+                              systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.red)
+                    }
+
+                } header: {
+                    Text("Virtual displays")
+                } footer: {
+                    if useSecondDisplay {
+                        Text("Both displays appear side by side in one spatial window. Display 1 is on the left. Displays are aligned along the top.")
+                    }
+                }
+
+                Section("Streaming") {
                     Picker("Stream frame rate", selection: $frameRateSelection) {
                         ForEach(StreamFrameRate.presets, id: \.self) { rate in
                             Text("\(rate) fps").tag(rate)
@@ -159,7 +206,7 @@ struct AddHostView: View {
         .frame(minWidth: 540, minHeight: 420)
     }
     private func requestSave() {
-        guard !saving, let parsedPort, let parsedFrameRate else { return }
+        guard !saving, canSave, let parsedPort, let parsedFrameRate else { return }
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
         if var edited = editingHost {
@@ -167,6 +214,7 @@ struct AddHostView: View {
             edited.address = cleanAddress
             edited.port = parsedPort
             edited.spatialDisplaySize = displaySize
+            edited.secondDisplaySize = selectedSecondDisplay
             edited.streamFrameRate = parsedFrameRate
             if client.requiresSessionCloseForBookmark(edited) {
                 pendingEdit = edited
@@ -178,7 +226,7 @@ struct AddHostView: View {
         } else {
             store.add(name: cleanName, address: cleanAddress,
                       port: parsedPort, displaySize: displaySize,
-                      frameRate: parsedFrameRate)
+                      frameRate: parsedFrameRate, secondDisplaySize: selectedSecondDisplay)
             dismiss()
         }
     }

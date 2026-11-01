@@ -14,7 +14,7 @@ import Foundation
         let real = try PlankTopologyDecoder.decode(data)
         check(real.orderedOutputs.map(\.id) == ["x11:DP-0", "x11:DP-2"], "opaque Host identities retained")
         check(real.orderedOutputs.first?.primary == true, "primary retained")
-        check(real.displayMode == "separate-displays", "dual negotiates existing composite mode")
+        check(PlankDesktopPresentation.separateWindows.launchMode(for: real) == "separate-displays", "dual negotiates existing composite mode")
         check(real.matches(.ultraHD, second: .portrait1280), "independent Host modes retained")
         check(real.requesting(.ultraHD, second: .portrait1280) == real, "matching request preserves snapshot")
         var rightPrimary = real
@@ -99,7 +99,7 @@ import Foundation
         let virtualPrimary = PlankMacDisplayGeometry(frameWidth: 4480, frameHeight: 1440, topology: negotiated, outputIndex: 0)!
         check(virtualPrimary.remote(.zero, in: CGRect(x: 0, y: 0, width: 2560, height: 1440), dragging: false)! == (1920, 0), "right-primary input retains authentic composite offset")
         let single = real.requesting(.standard)
-        check(single.displayMode == "scaled-span" && single.outputs.isEmpty && single.desktopWidth == 2560,
+        check(PlankDesktopPresentation.separateWindows.launchMode(for: single) == "scaled-span" && single.outputs.isEmpty && single.desktopWidth == 2560,
               "layout replacement never invents source identities")
         check(!PlankTopology.validCanvas(first: .ultrawide, second: .ultrawide), "unsupported canvas rejected")
         check(PlankTopology.validCanvas(first: .dci4K, second: .dci4K), "8192 boundary accepted")

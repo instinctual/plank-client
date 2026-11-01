@@ -298,6 +298,7 @@ final class PlankHTTPClient: @unchecked Sendable {
         topology: PlankTopology,
         applicationID: Int,
         frameRate: Int,
+        presentation: PlankDesktopPresentation,
         playAudioOnHost: Bool
     ) async throws -> PlankLaunchCredentials {
         let encodingMode = "hevc-10-444-nvenc"
@@ -319,7 +320,7 @@ final class PlankHTTPClient: @unchecked Sendable {
             .init(name: "gcpersist", value: "0"),
             .init(name: "plankProtocolVersion", value: String(topology.schemaVersion)),
             .init(name: "plankFeatureFlags", value: String(topology.featureFlags)),
-            .init(name: "plankDisplayMode", value: topology.displayMode),
+            .init(name: "plankDisplayMode", value: presentation.launchMode(for: topology)),
             .init(name: "plankCaptureSource", value: "nvfbc"),
             .init(name: "plankEncoderBackend", value: "nvenc-direct"),
             .init(name: "plankEncodingMode", value: encodingMode),

@@ -75,6 +75,7 @@ struct PlankMacBrowser: View {
         client.setTabletActive(true)
         client.startSession(displaySize: host.spatialDisplaySize, frameRate: host.streamFrameRate,
             videoBitrateKbps: host.videoBitrateKbps, secondDisplaySize: host.secondDisplaySize,
+            presentation: .separateWindows,
             localDisplayLayout: host.secondDisplaySize == nil ? nil : PlankMacDisplayPriority.snapshot())
         store.markConnected(host); openWindow(id: "desktop")
     }

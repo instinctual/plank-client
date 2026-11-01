@@ -98,8 +98,12 @@ struct HostBookmark: Identifiable, Codable, Hashable, Sendable {
     var spatialDisplaySize: SpatialDisplaySize
     var streamFrameRate: Int
     var videoBitrateKbps: Int
-    /// nil preserves the existing single-display bookmark. Mac only.
+    /// Display 1 is left, Display 2 is right. nil selects one virtual display.
     var secondDisplaySize: SpatialDisplaySize?
+
+    var desktopDimensions: PlankFrameDimensions {
+        PlankTopology.canvas(first: spatialDisplaySize, second: secondDisplaySize)
+    }
 
     init(
         id: UUID = UUID(),
@@ -220,7 +224,6 @@ struct PlankTopology: Equatable, Sendable {
         outputs.sorted { ($0.x, $0.y, $0.id) < ($1.x, $1.y, $1.id) }
     }
     var splitPresentation: Bool { layout.kind == "dual-horizontal" }
-    var displayMode: String { splitPresentation ? "separate-displays" : "scaled-span" }
 
     var supportsVirtualPrimary: Bool { featureFlags & 0x2000000 != 0 && layout.startupKind == "single" }
     var launchLayoutQuery: [URLQueryItem] {
@@ -233,13 +236,11 @@ struct PlankTopology: Equatable, Sendable {
     }
     func requesting(_ displaySize: SpatialDisplaySize, second: SpatialDisplaySize? = nil,
                     primaryOutput: Int? = nil) -> PlankTopology {
-        let first = displaySize.pixelSize
-        let other = second?.pixelSize
+        let canvas = Self.canvas(first: displaySize, second: second)
         let primary = supportsVirtualPrimary && second != nil && (primaryOutput == 0 || primaryOutput == 1) ? primaryOutput : nil
         let matches = matches(displaySize, second: second, primaryOutput: primary)
         return PlankTopology(schemaVersion: schemaVersion, featureFlags: featureFlags,
-            generation: generation, desktopWidth: first.width + (other?.width ?? 0),
-            desktopHeight: max(first.height, other?.height ?? 0),
+            generation: generation, desktopWidth: canvas.width, desktopHeight: canvas.height,
             layout: .init(kind: second == nil ? "single" : "dual-horizontal",
                           virtualModes: [displaySize.virtualMode] + (second.map { [$0.virtualMode] } ?? []),
                           startupKind: layout.startupKind),
@@ -266,11 +267,26 @@ struct PlankTopology: Equatable, Sendable {
             desktopWidth == displaySize.pixelSize.width + (other?.width ?? 0) &&
             desktopHeight == max(displaySize.pixelSize.height, other?.height ?? 0)
     }
+    static func canvas(first: SpatialDisplaySize, second: SpatialDisplaySize?) -> PlankFrameDimensions {
+        .init(width: first.pixelSize.width + (second?.pixelSize.width ?? 0),
+              height: max(first.pixelSize.height, second?.pixelSize.height ?? 0))
+    }
     static func validCanvas(first: SpatialDisplaySize, second: SpatialDisplaySize?) -> Bool {
         // Host v13 plank_topology.h limits the combined virtual canvas to 8192.
-        first.pixelSize.width + (second?.pixelSize.width ?? 0) <= 8192
+        canvas(first: first, second: second).width <= 8192
     }
 
+}
+
+/// Host layout and local presentation are independent. A dual-display Host
+/// still sends one composite frame when Vision presents it in one window.
+enum PlankDesktopPresentation: Equatable, Sendable {
+    case combinedWindow
+    case separateWindows
+
+    func launchMode(for topology: PlankTopology) -> String {
+        self == .separateWindows && topology.splitPresentation ? "separate-displays" : "scaled-span"
+    }
 }
 
 /// Local logical bounds are queried once per connection. They determine
