@@ -32,6 +32,7 @@ final class PlankPencilImagePeer: @unchecked Sendable {
     private let admissionLock = NSLock()
     private var admitting = false
     private var timer: DispatchSourceTimer?
+    private var pumpTimer: DispatchSourceTimer?
     private var deadline: UInt64 = 0, lastReceive: UInt64 = 0, lastPing: UInt64 = 0
     private static let prefix = Data([0x50,0x4c,0x49,0x4d,1])
     private enum PendingWrite { case handshake(Data), secure(PlankPencilImageRecord) }
@@ -80,6 +81,19 @@ final class PlankPencilImagePeer: @unchecked Sendable {
             let tick=DispatchSource.makeTimerSource(queue:queue); timer=tick
             tick.schedule(deadline:.now() + .milliseconds(250),repeating:.milliseconds(250))
             tick.setEventHandler { [weak self] in self?.tick() }; tick.resume()
+            // Byte-budget wakes are a few milliseconds apart. Utility queue
+            // asyncAfter timers can be coalesced enough to turn a one-second
+            // frame into an assembly timeout. Keep utility QoS and the same
+            // byte cap, but request timely one-shot wakes while sending.
+            let pumpWake = DispatchSource.makeTimerSource(flags: .strict, queue: queue)
+            pumpTimer = pumpWake
+            pumpWake.schedule(deadline: .distantFuture)
+            pumpWake.setEventHandler { [weak self] in
+                guard let self else { return }
+                self.pumpScheduled = false
+                self.pump()
+            }
+            pumpWake.resume()
         }
     }
     @discardableResult func offer(_ frame:PlankPencilImageFrame)->Bool {
@@ -95,16 +109,6 @@ final class PlankPencilImagePeer: @unchecked Sendable {
         admissionLock.lock(); admitting=false; admissionLock.unlock()
         outgoing.close(); callbacks.close()
         queue.async { [self] in finish("Reference image stopped") }
-    }
-    /// On-demand counters for bounded transfer diagnostics. No image data,
-    /// peer identity or credentials leave the transport executor.
-    func inspectTransfer(_ completion: @escaping @Sendable (Int, Int, Int, Bool, Int64) -> Void) {
-        queue.async { [weak self] in
-            guard let self else { return }
-            let now = DispatchTime.now().uptimeNanoseconds
-            let wait = self.nextChunkAt >= now ? Int64(self.nextChunkAt - now) : -Int64(now - self.nextChunkAt)
-            completion(self.currentOffset, self.assembler.pendingBytes, self.buffer.count, self.sending, wait)
-        }
     }
     private func output(_ operation:(OpaquePointer,UnsafeMutablePointer<UInt8>,Int,UnsafeMutablePointer<Int>)->Int32) throws -> Data {
         guard let crypto else { throw PlankPencilImageError.crypto }
@@ -240,9 +244,8 @@ final class PlankPencilImagePeer: @unchecked Sendable {
     }
     private func schedulePump(at deadline:UInt64) {
         guard !pumpScheduled else { return }; pumpScheduled=true
-        queue.asyncAfter(deadline:DispatchTime(uptimeNanoseconds:deadline)) { [self] in
-            pumpScheduled=false; pump()
-        }
+        pumpTimer?.schedule(deadline: DispatchTime(uptimeNanoseconds: deadline),
+                            leeway: .microseconds(100))
     }
     private func secure(_ record:PlankPencilImageRecord) throws {
         let plain=try record.encoded()
@@ -287,6 +290,7 @@ final class PlankPencilImagePeer: @unchecked Sendable {
         admissionLock.lock(); admitting=false; admissionLock.unlock()
         outgoing.close(); callbacks.close(); assembler.clear()
         timer?.cancel(); timer=nil; currentFrame=nil; writes.removeAll(); buffer.removeAll()
+        pumpTimer?.cancel(); pumpTimer=nil; pumpScheduled=false
         connection.stateUpdateHandler=nil; connection.cancel()
         if let crypto { plank_pencil_image_crypto_destroy(crypto); self.crypto=nil }
         callbackQueue.async { [event] in event(.ended(reason)) }
