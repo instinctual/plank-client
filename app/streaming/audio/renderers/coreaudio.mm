@@ -54,7 +54,9 @@ bool CoreAudioRenderer::prepareForPlayback(const OPUS_MULTISTREAM_CONFIGURATION*
     case 1: layout.mChannelLayoutTag = kAudioChannelLayoutTag_Mono; break;
     case 2: layout.mChannelLayoutTag = kAudioChannelLayoutTag_Stereo; break;
     case 6: layout.mChannelLayoutTag = kAudioChannelLayoutTag_MPEG_5_1_A; break;
-    case 8: layout.mChannelLayoutTag = kAudioChannelLayoutTag_MPEG_7_1_C; break;
+    // The decoded order is L R C LFE rear-L rear-R side-L side-R.
+    // MPEG 7.1 C reverses the side/rear pairs; WAVE preserves this order.
+    case 8: layout.mChannelLayoutTag = kAudioChannelLayoutTag_WAVE_7_1; break;
     }
     if (AudioUnitSetProperty(m_Unit, kAudioUnitProperty_AudioChannelLayout, kAudioUnitScope_Input, 0,
                              &layout, sizeof(layout)) != noErr) return false;
