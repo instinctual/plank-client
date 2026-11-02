@@ -1,3 +1,14 @@
+## 1.3.05 — Desktop simplification candidate
+
+### Client
+- Reduce copies of encoded video frames before decoding.
+- Keep cancelled connections stopped when delayed recovery responses arrive.
+- Share encoding-profile definitions with both Hosts while retaining exact-format decoder checks.
+
+### Host
+- Keep Mac shutdown and session takeover responsive during display changes, with restoration after failure.
+- Remove unused Windows Host code, dependencies and settings from the Linux Host.
+
 ## 1.3.04 — Desktop cleanup candidate
 
 ### Client
