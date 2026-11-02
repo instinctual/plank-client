@@ -64,16 +64,13 @@ public:
         slot->frame = m_Frame->hardwareFrame();
         slot->delivery = m_Frame;
         if (!slot->frame) { fail(QtVideoStatus::ImportFailed); return; }
-        slot->display = eglGetCurrentDisplay();
-        auto createImage = reinterpret_cast<PFNEGLCREATEIMAGEKHRPROC>(eglGetProcAddress("eglCreateImageKHR"));
-        slot->destroyImage = reinterpret_cast<PFNEGLDESTROYIMAGEKHRPROC>(eglGetProcAddress("eglDestroyImageKHR"));
-        const auto extensions = QByteArray(eglQueryString(slot->display, EGL_EXTENSIONS));
-        const auto tokens = extensions.split(' ');
-        if (slot->display == EGL_NO_DISPLAY || !createImage || !slot->destroyImage ||
-                !tokens.contains("EGL_EXT_image_dma_buf_import")) {
-            qWarning("Qt VA-API import requires EGL DMA-BUF image support");
+        QString importError;
+        if (!m_Importer.prepare(importError) || !m_Importer.hasDmaBufImport()) {
+            qWarning().noquote() << "Qt VA-API import requires EGL DMA-BUF image support" << importError;
             fail(QtVideoStatus::ImportFailed); return;
         }
+        slot->display = m_Importer.display();
+        slot->destroyImage = m_Importer.destroyImage();
         const auto& d = slot->frame->descriptor();
         const auto& p = d.layers[0];
         for (unsigned index = 0; index < p.num_planes; ++index) {
@@ -88,7 +85,7 @@ public:
             };
             // INVALID means an implicit layout, not a numeric modifier to import.
             if (object.drm_format_modifier != DRM_FORMAT_MOD_INVALID) {
-                if (tokens.contains("EGL_EXT_image_dma_buf_import_modifiers")) {
+                if (m_Importer.hasModifiers()) {
                     attributes.insert(attributes.end(), {
                         EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, EGLint(object.drm_format_modifier & 0xffffffff),
                         EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, EGLint(object.drm_format_modifier >> 32)});
@@ -99,7 +96,7 @@ public:
                 }
             }
             attributes.push_back(EGL_NONE);
-            slot->images[index] = createImage(slot->display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, attributes.data());
+            slot->images[index] = m_Importer.createImage()(slot->display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, attributes.data());
             if (slot->images[index] == EGL_NO_IMAGE_KHR) {
                 qWarning("Qt VA-API plane %u image creation failed (format 0x%x, modifier 0x%llx, EGL 0x%x)",
                          index, slot->frame->importFormat(index),
@@ -107,7 +104,7 @@ public:
                 fail(QtVideoStatus::ImportFailed); return;
             }
             QString error;
-            if (!importQtEglTexture(slot->images[index], slot->textures[index], error)) {
+            if (!m_Importer.importTexture(slot->images[index], slot->textures[index], error)) {
                 qWarning().noquote() << error << "VA-API plane" << index;
                 fail(QtVideoStatus::ImportFailed); return;
             }
@@ -167,6 +164,7 @@ public:
         m_ConvertedFrame.reset();
         m_ImageDevice.reset();
         m_Blitter.release();
+        m_Importer.reset();
     }
 
 private:
@@ -243,6 +241,7 @@ private:
     std::unique_ptr<QtVulkanGlImage> m_SoftwareImage;
     QtSessionGeometry m_Geometry;
     QtPackedVideoBlitter m_Blitter;
+    QtEglTextureImporter m_Importer;
     std::shared_ptr<QtVideoStatus> m_Status;
     std::vector<std::unique_ptr<Slot>> m_Slots;
     Slot* m_Current = nullptr;
