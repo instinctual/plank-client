@@ -1,3 +1,15 @@
+## 1.3.04 — Desktop cleanup candidate
+
+### Client
+- Remove unused connection preflights, old encryption helpers, renderer assets and inherited packaging tools.
+- Use current Mac media negotiation, with a clear error when an older Host needs updating.
+- Test packed ten-bit color against the shader used by the Qt renderer.
+
+### Host
+- Remove inactive Linux capture, encoder and display-control backends and their build dependencies.
+- Require current Mac media negotiation while retaining optional audio, clipboard, microphone and camera features.
+- Keep the standard Mac installer with its FileVault safety check.
+
 ## 1.3.01 — Client dependency cleanup candidate
 
 ### Client
