@@ -1,3 +1,10 @@
+## 1.3.14 — Multiple bookmarks per Host candidate
+
+### Client
+- Save several bookmarks for the same Host, each with its own name and settings.
+- Edit or remove one bookmark without replacing another for the same address.
+- Preserve existing bookmarks and shared Host certificate trust.
+
 ## 1.3.13 — Native input and media cleanup candidate
 
 ### Client

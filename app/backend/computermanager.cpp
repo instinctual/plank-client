@@ -26,6 +26,12 @@
 namespace {
 bool parseManualAddress(const QString& address, NvAddress& manualAddress)
 {
+    // Accept an unbracketed IPv6 literal through the same bookmark path, so
+    // it also retains the requested settings and independent bookmark ID.
+    if (QHostAddress(address.trimmed()).protocol() == QAbstractSocket::IPv6Protocol) {
+        manualAddress = NvAddress(address.trimmed(), PlankClientPolicy().networkPort());
+        return true;
+    }
     const QUrl url = QUrl::fromUserInput("plank://" + address.trimmed());
     if (!url.isValid() || url.host().isEmpty() || url.scheme() != "plank") {
         return false;
@@ -338,8 +344,11 @@ ComputerManager::~ComputerManager()
     // to avoid deadlocking with a flush that needs the lock in read mode.
     {
         // Wake the delayed flush thread
-        m_DelayedFlushThread->requestInterruption();
-        m_DelayedFlushCondition.wakeOne();
+        {
+            QMutexLocker flushLock(&m_DelayedFlushMutex);
+            m_DelayedFlushThread->requestInterruption();
+            m_DelayedFlushCondition.wakeOne();
+        }
 
         // Wait for it to terminate (and finish any pending flush)
         m_DelayedFlushThread->wait();
@@ -399,6 +408,7 @@ void DelayedFlushThread::run() {
             m_ComputerManager->m_NeedsDelayedFlush = false;
 
             // Update the last serialized hosts map under the delayed flush mutex
+            QReadLocker hostsLock(&m_ComputerManager->m_Lock);
             m_ComputerManager->m_LastSerializedHosts.clear();
             for (const NvComputer* computer : std::as_const(m_ComputerManager->m_KnownHosts)) {
                 // Copy the current state of the NvComputer to allow us to check later if we need
@@ -1066,60 +1076,23 @@ void ComputerManager::addNewHostManually(QString address, QString nickname,
             nickname = manualAddress.address();
         }
 
-        NvComputer* bookmark = nullptr;
+        // Add always creates a distinct configuration. Only Edit may change
+        // an existing bookmark; the Host address is not a bookmark identity.
+        auto* bookmark = new NvComputer(manualAddress, nickname.trimmed(), videoProfile,
+                                        captureSource, profileBitratesKbps);
+        bookmark->plankScalingMode = scalingMode;
+        bookmark->plankClientDisplays = clientDisplays;
+        bookmark->plankHostLayout = hostLayout;
+        bookmark->plankVirtualMode1 = virtualMode1;
+        bookmark->plankVirtualMode2 = virtualMode2;
         {
             QWriteLocker lock(&m_Lock);
-            for (NvComputer* computer : m_KnownHosts) {
-                QReadLocker computerLock(&computer->lock);
-                if (computer->manualAddress == manualAddress) {
-                    bookmark = computer;
-                    break;
-                }
-            }
-
-            if (bookmark == nullptr) {
-                bookmark = new NvComputer(manualAddress, nickname.trimmed(), videoProfile,
-                                          captureSource,
-                                          profileBitratesKbps);
-                bookmark->plankScalingMode = scalingMode;
-                bookmark->plankClientDisplays = clientDisplays;
-                bookmark->plankHostLayout = hostLayout;
-                bookmark->plankVirtualMode1 = virtualMode1;
-                bookmark->plankVirtualMode2 = virtualMode2;
-                m_KnownHosts[bookmark->uuid] = bookmark;
-                startPollingComputer(bookmark);
-            }
+            m_KnownHosts[bookmark->uuid] = bookmark;
+            startPollingComputer(bookmark);
         }
-
-        {
-            QWriteLocker bookmarkLock(&bookmark->lock);
-            bookmark->plankScalingMode = scalingMode;
-            bookmark->plankClientDisplays = clientDisplays;
-            bookmark->plankHostLayout = hostLayout;
-            bookmark->plankVirtualMode1 = virtualMode1;
-            bookmark->plankVirtualMode2 = virtualMode2;
-            bookmark->plankVideoProfile = videoProfile;
-            bookmark->plankCaptureSource = captureSource;
-            bookmark->plankProfileBitratesKbps = profileBitratesKbps;
-        }
-
-        bool nicknameChanged;
-        {
-            QReadLocker bookmarkLock(&bookmark->lock);
-            nicknameChanged = bookmark->name != nickname.trimmed();
-        }
-        if (nicknameChanged) {
-            renameHost(bookmark, nickname.trimmed());
-        }
-        else {
-            saveHosts();
-            emit computerStateChanged(bookmark);
-        }
+        saveHosts();
+        emit computerStateChanged(bookmark);
         emit computerAddCompleted(true);
-    }
-    else if (QHostAddress(address).protocol() == QAbstractSocket::IPv6Protocol) {
-        // The user specified an IPv6 literal without URL escaping, so use the default port
-        addNewHost(NvAddress(address, PlankClientPolicy().networkPort()), false);
     }
     else {
         emit computerAddCompleted(false);
@@ -1169,22 +1142,10 @@ bool ComputerManager::editManualBookmark(NvComputer* computer, QString address,
         addressChanged = computer->manualAddress != manualAddress;
     }
 
-    QString oldUuid;
-    ComputerPollingEntry* pollingEntry = nullptr;
     if (addressChanged) {
         {
             QWriteLocker managerLock(&m_Lock);
-            for (NvComputer* candidate : m_KnownHosts) {
-                if (candidate == computer) {
-                    continue;
-                }
-                QReadLocker candidateLock(&candidate->lock);
-                if (candidate->manualAddress == manualAddress) {
-                    return false;
-                }
-            }
-            oldUuid = computer->uuid;
-            pollingEntry = m_PollEntries.take(computer->uuid);
+            auto* pollingEntry = m_PollEntries.value(computer->uuid);
             if (pollingEntry != nullptr) {
                 pollingEntry->interrupt();
             }
@@ -1194,11 +1155,6 @@ bool ComputerManager::editManualBookmark(NvComputer* computer, QString address,
                                            virtualMode1, virtualMode2,
                                            videoProfile, captureSource,
                                            profileBitratesKbps, clientDisplays);
-            m_KnownHosts.remove(oldUuid);
-            m_KnownHosts[computer->uuid] = computer;
-            if (pollingEntry != nullptr) {
-                m_PollEntries[computer->uuid] = pollingEntry;
-            }
             startPollingComputer(computer);
         }
 

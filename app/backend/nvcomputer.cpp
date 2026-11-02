@@ -5,7 +5,7 @@
 #include "planknetwork.h"
 #include "clientdisplays.h"
 
-#include <QCryptographicHash>
+#include <QUuid>
 #include <QJsonDocument>
 #include <QNetworkInterface>
 #include <QNetworkProxy>
@@ -51,21 +51,16 @@ bool validRememberedUsername(const QString& username)
     }
     return true;
 }
-
-QString manualBookmarkUuid(const NvAddress& address)
-{
-    const QByteArray bookmarkKey = address.toString().toUtf8();
-    return QStringLiteral("plank-bookmark-") +
-            QString::fromLatin1(QCryptographicHash::hash(
-                                    bookmarkKey, QCryptographicHash::Sha256).toHex().left(32));
-}
 }
 
 NvComputer::NvComputer(NvAddress address, QString nickname, int videoProfile,
                        int captureSource,
                        const QVector<int>& profileBitratesKbps)
 {
-    this->uuid = manualBookmarkUuid(address);
+    // This identifies the saved configuration, not the remote workstation.
+    // Several bookmarks may intentionally refer to the same Host.
+    this->uuid = QStringLiteral("plank-bookmark-") +
+            QUuid::createUuid().toString(QUuid::WithoutBraces);
     this->name = nickname;
     this->hasCustomName = true;
     this->manualAddress = address;
@@ -99,7 +94,6 @@ bool NvComputer::updateManualBookmark(NvAddress address, QString nickname,
 
     const bool addressChanged = manualAddress != address;
     if (addressChanged) {
-        uuid = manualBookmarkUuid(address);
         manualAddress = address;
         localAddress = NvAddress();
         remoteAddress = NvAddress();
@@ -110,6 +104,7 @@ bool NvComputer::updateManualBookmark(NvAddress address, QString nickname,
         appList.clear();
         outputTopology = NvOutputTopology();
         sessionToken.clear();
+        sessionIdentityKey.clear();
         authorizationState = AS_UNKNOWN;
         state = CS_UNKNOWN;
         currentGameId = 0;

@@ -583,7 +583,7 @@ CenteredGridView {
                                                     editCaptureSource.captureSource,
                                                     profileBitratesKbps,
                                                     editClientDisplays.selection)) {
-                errorDialog.text = qsTr("Unable to update the workstation bookmark. Check the address and ensure another bookmark is not already using it.")
+                errorDialog.text = qsTr("Unable to update the workstation bookmark. Check the address and selected settings.")
                 errorDialog.open()
             }
         }
