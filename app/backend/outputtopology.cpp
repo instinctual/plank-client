@@ -27,7 +27,8 @@ bool NvOutputTopology::supportsDescription(int version, int featureFlags)
 namespace {
 QJsonObject applePreviewProfile(const QString& mode)
 {
-    const auto* profile = plank_encoding_profile_named(mode.toUtf8().constData());
+    const auto bytes = mode.toUtf8();
+    const auto* profile = plank_encoding_profile_named(bytes.constData(), bytes.size());
     if (!profile || profile->encoder != PLANK_ENCODER_APPLE) return {};
     return {{"capture_source", "screencapturekit"}, {"encoder_backend", profile->backend},
             {"encoding_mode", profile->mode}, {"codec", profile->codec},

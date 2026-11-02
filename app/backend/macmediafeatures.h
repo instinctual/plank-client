@@ -21,7 +21,8 @@ inline bool cameraSupported()
 }
 inline bool encodingSupported(const QString& mode)
 {
-    const auto* profile = plank_encoding_profile_named(mode.toUtf8().constData());
+    const auto bytes = mode.toUtf8();
+    const auto* profile = plank_encoding_profile_named(bytes.constData(), bytes.size());
     return profile && profile->encoder == PLANK_ENCODER_APPLE;
 }
 inline QJsonObject profile(const QString& name, const QString& mode)
