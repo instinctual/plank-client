@@ -4,6 +4,10 @@
 #include <libplacebo/dispatch.h>
 
 #include <QString>
+#include <QByteArray>
+#include <array>
+#include <optional>
+#include <tuple>
 
 // Ubuntu Qt's software-decoded path. The decode allocator is the same cacheable
 // imported pool as the existing Vulkan presenter. The GPU performs the planar
@@ -29,6 +33,29 @@ public:
     static pl_fmt outputFormat(pl_gpu gpu);
 
 private:
+    struct ShaderPlane {
+        pl_fmt format;
+        int width, height, mapping;
+        float shiftX, shiftY;
+        bool flipped;
+        bool operator==(const ShaderPlane& other) const {
+            return std::tie(format, width, height, mapping, shiftX, shiftY, flipped) ==
+                   std::tie(other.format, other.width, other.height, other.mapping,
+                            other.shiftX, other.shiftY, other.flipped);
+        }
+    };
+    struct ShaderKey {
+        AVPixelFormat format;
+        int width, height;
+        bool limited;
+        std::array<ShaderPlane, 3> planes;
+        bool operator==(const ShaderKey& other) const {
+            return std::tie(format, width, height, limited, planes) ==
+                   std::tie(other.format, other.width, other.height, other.limited, other.planes);
+        }
+    };
+    std::optional<ShaderKey> m_ShaderKey;
+    QByteArray m_ShaderBody;
     std::shared_ptr<void> m_DeviceLifetime;
     pl_gpu m_Gpu;
     PlVkFramePool m_Pool;

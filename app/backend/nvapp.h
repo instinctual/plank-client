@@ -12,7 +12,6 @@ public:
     {
         return id == other.id &&
                 name == other.name &&
-                hdrSupported == other.hdrSupported &&
                 isAppCollectorGame == other.isAppCollectorGame &&
                 hidden == other.hidden &&
                 directLaunch == other.directLaunch;
@@ -35,7 +34,6 @@ public:
 
     int id = 0;
     QString name;
-    bool hdrSupported = false;
     bool isAppCollectorGame = false;
     bool hidden = false;
     bool directLaunch = false;

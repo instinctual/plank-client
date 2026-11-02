@@ -4,83 +4,28 @@
 #include <Limelight.h>
 #include "ffmpeg.h"
 #include "decodepump.h"
+#include "decodepacket.h"
 #include "applevideoprofile.h"
 #include "applevideo-test-frame.h"
 #include "streaming/session.h"
 #include "streaming/planktoolbarstats.h"
 
-#include <h264_stream.h>
 #include <QThread>
-#include <QMap>
 
 extern "C" {
 #include <libavutil/hwcontext.h>
-#include <libavutil/mastering_display_metadata.h>
 #include <libavutil/pixdesc.h>
 }
 
 // This is gross but it allows us to use sizeof()
 #include "ffmpeg-testframes.h"
 
-#define MAX_SPS_EXTRA_SIZE 16
 
 #define FAILED_DECODES_RESET_THRESHOLD 20
 
-// Note: This is NOT an exhaustive list of all decoders
-// that Moonlight could pick. It will pick any working
-// decoder that matches the codec ID and outputs one of
-// the pixel formats that we have a renderer for.
-static const QMap<QString, int> k_NonHwaccelCodecInfo = {
-    // H.264
-    {"h264_mmal", 0},
-    {"h264_rkmpp", 0},
-    {"h264_nvv4l2", 0},
-    {"h264_nvmpi", 0},
-    {"h264_v4l2m2m", 0},
-    {"h264_omx", 0},
-
-    // HEVC
-    {"hevc_rkmpp", 0},
-    {"hevc_nvv4l2", CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC},
-    {"hevc_nvmpi", 0},
-    {"hevc_v4l2m2m", 0},
-    {"hevc_omx", 0},
-};
-
-static const AVPixelFormat* getSupportedPixelFormats(const AVCodec* decoder)
-{
-#if LIBAVCODEC_VERSION_MAJOR >= 61
-    const void* formats = nullptr;
-    if (avcodec_get_supported_config(nullptr, decoder,
-                                     AV_CODEC_CONFIG_PIX_FORMAT, 0,
-                                     &formats, nullptr) < 0) {
-        return nullptr;
-    }
-    return static_cast<const AVPixelFormat*>(formats);
-#else
-    return decoder->pix_fmts;
-#endif
-}
-
 bool FFmpegVideoDecoder::isHardwareAccelerated()
 {
-    return m_HwDecodeCfg != nullptr ||
-            (getAVCodecCapabilities(m_VideoDecoderCtx->codec) & AV_CODEC_CAP_HARDWARE) != 0;
-}
-
-bool FFmpegVideoDecoder::isAlwaysFullScreen()
-{
-    return m_BackendRenderer->getRendererAttributes() & RENDERER_ATTRIBUTE_FULLSCREEN_ONLY;
-}
-
-bool FFmpegVideoDecoder::isHdrSupported()
-{
-    return m_BackendRenderer->getRendererAttributes() & RENDERER_ATTRIBUTE_HDR_SUPPORT;
-}
-
-void FFmpegVideoDecoder::setHdrMode(bool enabled)
-{
-    m_BackendRenderer->setHdrMode(enabled);
+    return m_HwDecodeCfg != nullptr;
 }
 
 bool FFmpegVideoDecoder::suspendForReconnect()
@@ -142,13 +87,6 @@ int FFmpegVideoDecoder::getDecoderCapabilities()
             // Enable HEVC RFI when using the FFmpeg software decoder
             capabilities |= CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC;
         }
-        else if (m_HwDecodeCfg == nullptr) {
-            // Non-hwaccel hardware decoders advertise capabilities by codec name.
-            capabilities = k_NonHwaccelCodecInfo.value(m_VideoDecoderCtx->codec->name, 0);
-            qInfo("Using capabilities table for decoder: %s -> %d",
-                        m_VideoDecoderCtx->codec->name,
-                        capabilities);
-        }
     }
 
     // We use our own decoder thread with the "pull" model. This cannot
@@ -169,17 +107,6 @@ int FFmpegVideoDecoder::getDecoderColorRange()
 {
     return m_IdentityGbrEnabled ? COLOR_RANGE_FULL :
                                   m_BackendRenderer->getDecoderColorRange();
-}
-
-QSize FFmpegVideoDecoder::getDecoderMaxResolution()
-{
-    if (m_BackendRenderer->getRendererAttributes() & RENDERER_ATTRIBUTE_1080P_MAX) {
-        return QSize(1920, 1080);
-    }
-    else {
-        // No known maximum
-        return QSize(0, 0);
-    }
 }
 
 enum AVPixelFormat FFmpegVideoDecoder::ffGetFormat(AVCodecContext* context,
@@ -227,7 +154,6 @@ FFmpegVideoDecoder::FFmpegVideoDecoder(bool testOnly)
       m_VideoFormat(0),
       m_CaptureSource(DecoderCaptureSource::Nvfbc8Bit),
       m_IdentityGbrEnabled(false),
-      m_NeedsSpsFixup(false),
       m_TestOnly(testOnly)
 {
     m_ActiveWndVideoStats = {};
@@ -453,14 +379,8 @@ bool FFmpegVideoDecoder::completeInitialization(const AVCodec* decoder, enum AVP
                 return false;
             }
 
-            // A few FFmpeg decoders (h264_mmal) process here using a "pull" model.
-            // Those decoders will fail here if the format is not supported.
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(62, 28, 100)
             err = avcodec_receive_frame_flags(m_VideoDecoderCtx, frame,
                                               AV_CODEC_RECEIVE_FRAME_FLAG_SYNCHRONOUS);
-#else
-            err = avcodec_receive_frame(m_VideoDecoderCtx, frame);
-#endif
             if (err != AVERROR(EAGAIN)) {
                 // Done!
                 break;
@@ -494,15 +414,6 @@ bool FFmpegVideoDecoder::completeInitialization(const AVCodec* decoder, enum AVP
         av_frame_free(&frame);
     }
     else {
-        if ((params->videoFormat & VIDEO_FORMAT_MASK_H264) &&
-                !(m_BackendRenderer->getDecoderCapabilities() & CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC)) {
-            qInfo("Using H.264 SPS fixup");
-            m_NeedsSpsFixup = true;
-        }
-        else {
-            m_NeedsSpsFixup = false;
-        }
-
         // Network state exists only for live decoding, never qualification.
         if (!startDecoderThread()) return false;
     }
@@ -915,8 +826,7 @@ uint16_t FFmpegVideoDecoder::getDecodeLatencyPercentile(unsigned int percentile)
 bool FFmpegVideoDecoder::tryInitializeRenderer(const AVCodec* decoder,
                                                enum AVPixelFormat requiredFormat,
                                                PDECODER_PARAMETERS params,
-                                               const AVCodecHWConfig* hwConfig,
-                                               IFFmpegRenderer::InitFailureReason* failureReason)
+                                               const AVCodecHWConfig* hwConfig)
 {
     Q_ASSERT(params->rendererFactory);
     Q_ASSERT(!m_BackendRenderer);
@@ -924,15 +834,12 @@ bool FFmpegVideoDecoder::tryInitializeRenderer(const AVCodec* decoder,
     probe.width = params->captureSource == DecoderCaptureSource::ScreenCaptureKit ? 3840 : 1280;
     probe.height = params->captureSource == DecoderCaptureSource::ScreenCaptureKit ? 2160 : 720;
     m_HwDecodeCfg = hwConfig;
-    if (failureReason) *failureReason = IFFmpegRenderer::InitFailureReason::Unknown;
 
     m_BackendRenderer = params->rendererFactory->createRenderer(hwConfig);
     if (m_BackendRenderer) {
-        const bool test = m_TestOnly || m_BackendRenderer->needsTestFrame();
-        auto* initial = test ? &probe : params;
-        if (m_BackendRenderer->initialize(initial) &&
-                completeInitialization(decoder, requiredFormat, initial, test)) {
-            if (m_TestOnly || !test) return true;
+        if (m_BackendRenderer->initialize(&probe) &&
+                completeInitialization(decoder, requiredFormat, &probe, true)) {
+            if (m_TestOnly) return true;
             // A successful profile-specific test is mandatory before live use.
             // Recreate the renderer at the actual requested stream dimensions.
             reset();
@@ -942,169 +849,7 @@ bool FFmpegVideoDecoder::tryInitializeRenderer(const AVCodec* decoder,
             qCritical("Decoder failed to initialize after successful profile test");
         }
     }
-    if (m_BackendRenderer && failureReason) *failureReason = m_BackendRenderer->getInitFailureReason();
     reset();
-    return false;
-}
-
-bool FFmpegVideoDecoder::tryInitializeRendererForUnknownDecoder(const AVCodec* decoder,
-                                                                PDECODER_PARAMETERS params,
-                                                                bool tryHwAccel)
-{
-    if (!decoder) return false;
-    if (tryHwAccel) {
-        for (int i = 0; const auto* config = avcodec_get_hw_config(decoder, i); ++i) {
-            IFFmpegRenderer::InitFailureReason reason;
-            if (tryInitializeRenderer(decoder, AV_PIX_FMT_NONE, params, config, &reason)) return true;
-            if (reason == IFFmpegRenderer::InitFailureReason::NoHardwareSupport) return false;
-        }
-    }
-    return tryInitializeRenderer(decoder, AV_PIX_FMT_NONE, params, nullptr, nullptr);
-}
-
-int FFmpegVideoDecoder::getAVCodecCapabilities(const AVCodec *codec)
-{
-    int caps = codec->capabilities;
-
-    // There are a bunch of out-of-tree OMX decoder implementations
-    // from various SBC manufacturers that all seem to forget to set
-    // AV_CODEC_CAP_HARDWARE (probably because the upstream OMX code
-    // also doesn't set it). Avoid a false decoder warning on startup
-    // by setting it ourselves.
-    if (QString::fromUtf8(codec->name).endsWith("_omx", Qt::CaseInsensitive)) {
-        caps |= AV_CODEC_CAP_HARDWARE;
-    }
-
-    return caps;
-}
-
-bool FFmpegVideoDecoder::isDecoderMatchForParams(const AVCodec *decoder, PDECODER_PARAMETERS params)
-{
-    Q_ASSERT(params->videoFormat & (VIDEO_FORMAT_MASK_H264 | VIDEO_FORMAT_MASK_H265));
-
-#if defined(HAVE_MMAL) && !defined(ALLOW_EGL_WITH_MMAL)
-    // Only enable V4L2M2M by default on non-MMAL (RPi) builds. The performance
-    // of the V4L2M2M wrapper around MMAL is not enough for 1080p 60 FPS, so we
-    // would rather show the missing hardware acceleration warning when the user
-    // is in Full KMS mode rather than try to use a poorly performing hwaccel.
-    // See discussion on https://github.com/jc-kynesim/rpi-ffmpeg/pull/25
-    if (strcmp(decoder->name, "h264_v4l2m2m") == 0) {
-        return false;
-    }
-#endif
-
-    return ((params->videoFormat & VIDEO_FORMAT_MASK_H264) && decoder->id == AV_CODEC_ID_H264) ||
-           ((params->videoFormat & VIDEO_FORMAT_MASK_H265) && decoder->id == AV_CODEC_ID_HEVC);
-}
-
-bool FFmpegVideoDecoder::tryInitializeHwAccelDecoder(PDECODER_PARAMETERS params, QSet<const AVCodec*>& terminallyFailedHardwareDecoders)
-{
-    const AVCodec* decoder;
-    void* codecIterator;
-
-    // Iterate through hwaccel decoders
-    codecIterator = NULL;
-    while ((decoder = av_codec_iterate(&codecIterator))) {
-        // Skip codecs that aren't decoders
-        if (!av_codec_is_decoder(decoder)) {
-            continue;
-        }
-
-        // Skip decoders that don't match our decoding parameters
-        if (!isDecoderMatchForParams(decoder, params)) {
-            continue;
-        }
-
-        // Skip non-hwaccel hardware decoders
-        if (getAVCodecCapabilities(decoder) & AV_CODEC_CAP_HARDWARE) {
-            continue;
-        }
-
-        // Skip hardware decoders that have returned a terminal failure status
-        if (terminallyFailedHardwareDecoders.contains(decoder)) {
-            continue;
-        }
-
-        // Look for the first matching hwaccel hardware decoder
-        for (int i = 0;; i++) {
-            const AVCodecHWConfig *config = avcodec_get_hw_config(decoder, i);
-            if (!config) {
-                // No remaining hwaccel options
-                break;
-            }
-
-            // Initialize the hardware codec and submit a test frame if the renderer needs it
-            IFFmpegRenderer::InitFailureReason failureReason;
-            if (tryInitializeRenderer(decoder, AV_PIX_FMT_NONE, params, config, &failureReason)) {
-                return true;
-            }
-            else if (failureReason == IFFmpegRenderer::InitFailureReason::NoHardwareSupport) {
-                terminallyFailedHardwareDecoders.insert(decoder);
-                qInfo("Skipping remaining hwaccels due lack of hardware support for specified codec");
-                break;
-            }
-        }
-    }
-
-    return false;
-}
-
-bool FFmpegVideoDecoder::isZeroCopyFormat(AVPixelFormat format)
-{
-    const AVPixFmtDescriptor* formatDesc = av_pix_fmt_desc_get(format);
-    return (formatDesc && !!(formatDesc->flags & AV_PIX_FMT_FLAG_HWACCEL));
-}
-
-bool FFmpegVideoDecoder::tryInitializeNonHwAccelDecoder(PDECODER_PARAMETERS params, bool requireZeroCopyFormat, QSet<const AVCodec*>& terminallyFailedHardwareDecoders)
-{
-    const AVCodec* decoder;
-    void* codecIterator;
-
-    // Iterate through non-hwaccel and non-standard hwaccel hardware decoders that have AV_CODEC_CAP_HARDWARE set
-    codecIterator = NULL;
-    while ((decoder = av_codec_iterate(&codecIterator))) {
-        // Skip codecs that aren't decoders
-        if (!av_codec_is_decoder(decoder)) {
-            continue;
-        }
-
-        // Skip decoders that don't match our decoding parameters
-        if (!isDecoderMatchForParams(decoder, params)) {
-            continue;
-        }
-
-        // Skip software/hybrid decoders and normal hwaccel decoders (which were handled in the loop above)
-        if (!(getAVCodecCapabilities(decoder) & AV_CODEC_CAP_HARDWARE)) {
-            continue;
-        }
-
-        // Skip decoders without zero-copy output formats if requested
-        if (requireZeroCopyFormat) {
-            bool foundZeroCopyFormat = false;
-            const AVPixelFormat* pixelFormats = getSupportedPixelFormats(decoder);
-            for (int i = 0; pixelFormats && pixelFormats[i] != AV_PIX_FMT_NONE; i++) {
-                if (isZeroCopyFormat(pixelFormats[i])) {
-                    foundZeroCopyFormat = true;
-                    break;
-                }
-            }
-
-            if (!foundZeroCopyFormat) {
-                continue;
-            }
-        }
-
-        // Skip hardware decoders that have returned a terminal failure status
-        if (terminallyFailedHardwareDecoders.contains(decoder)) {
-            continue;
-        }
-
-        // Try to initialize this decoder both as hwaccel and non-hwaccel
-        if (tryInitializeRendererForUnknownDecoder(decoder, params, true)) {
-            return true;
-        }
-    }
-
     return false;
 }
 
@@ -1112,112 +857,23 @@ bool FFmpegVideoDecoder::initialize(PDECODER_PARAMETERS params)
 {
     m_CaptureSource = params->captureSource;
     m_EncoderBackend = params->encoderBackend;
-
-    // Increase log level until the first frame is decoded
     av_log_set_level(AV_LOG_DEBUG);
 
-    const AVCodec* decoder;
-    void* codecIterator;
+    const auto codecId = (params->videoFormat & VIDEO_FORMAT_MASK_H264) ?
+                AV_CODEC_ID_H264 : AV_CODEC_ID_HEVC;
+    const AVCodec* decoder = avcodec_find_decoder(codecId);
+    if (!decoder) return false;
 
-    // Hardware is always attempted first. Each candidate must successfully
-    // decode and exactly validate the selected PLANK profile before
-    // it can be accepted.
-    {
-        QSet<const AVCodec*> terminallyFailedHardwareDecoders;
-
-        // Try tier 1 hwaccel decoders first
-        if (tryInitializeHwAccelDecoder(params, terminallyFailedHardwareDecoders)) {
-            return true;
-        }
-
-        // Iterate through non-hwaccel and non-standard hwaccel hardware decoders that have AV_CODEC_CAP_HARDWARE set.
-        //
-        // We first try to find decoders with a hwaccel format that can be rendered without CPU copyback.
-        // Failing that, we will accept a decoder that only supports copyback (or one with unknown pixfmts).
-        if (tryInitializeNonHwAccelDecoder(params, true /* zero copy */, terminallyFailedHardwareDecoders)) {
-            return true;
-        }
-        if (tryInitializeNonHwAccelDecoder(params, false /* zero copy */, terminallyFailedHardwareDecoders)) {
-            return true;
-        }
-
+    // The Qt factory accepts the platform's VA-API or VideoToolbox backend.
+    // Every attempt must decode and present the exact selected profile first.
+    for (int i = 0; const auto* hardware = avcodec_get_hw_config(decoder, i); ++i) {
+        if (tryInitializeRenderer(decoder, AV_PIX_FMT_NONE, params, hardware)) return true;
     }
+    if (params->selectionMode != DecoderSelectionMode::ExactHardwareOnly &&
+            tryInitializeRenderer(decoder, AV_PIX_FMT_NONE, params, nullptr)) return true;
 
-    // Iterate through all software decoders if allowed
-    if (params->selectionMode != DecoderSelectionMode::ExactHardwareOnly) {
-        codecIterator = NULL;
-        while ((decoder = av_codec_iterate(&codecIterator))) {
-            // Skip codecs that aren't decoders
-            if (!av_codec_is_decoder(decoder)) {
-                continue;
-            }
-
-            // Skip decoders that don't match our decoding parameters
-            if (!isDecoderMatchForParams(decoder, params)) {
-                continue;
-            }
-
-            // Skip hardware decoders
-            //
-            // NB: We can't skip hwaccel decoders here because they can be both
-            // hardware and software depending on whether an hwaccel is supplied.
-            // Instead, we tell tryInitializeRendererForUnknownDecoder() not to
-            // try hwaccel for this decoder.
-            if (getAVCodecCapabilities(decoder) & AV_CODEC_CAP_HARDWARE) {
-                continue;
-            }
-
-            // Try this decoder without hwaccel
-            if (tryInitializeRendererForUnknownDecoder(decoder, params, false)) {
-                return true;
-            }
-        }
-    }
-
-    qCritical("Unable to find working decoder for format: %x",
-                 params->videoFormat);
+    qCritical("Unable to find working decoder for format: %x", params->videoFormat);
     return false;
-}
-
-void FFmpegVideoDecoder::writeBuffer(PLENTRY entry, int& offset)
-{
-    if (m_NeedsSpsFixup && entry->bufferType == BUFFER_TYPE_SPS) {
-        h264_stream_t* stream = h264_new();
-        int nalStart, nalEnd;
-
-        // Read the old NALU
-        find_nal_unit((uint8_t*)entry->data, entry->length, &nalStart, &nalEnd);
-        read_nal_unit(stream,
-                      (unsigned char *)&entry->data[nalStart],
-                      nalEnd - nalStart);
-
-        Q_ASSERT(nalStart == 3 || nalStart == 4); // 3 or 4 byte Annex B start sequence
-        Q_ASSERT(nalEnd == entry->length);
-
-        // Fixup the SPS to what OS X needs to use hardware acceleration
-        stream->sps->num_ref_frames = 1;
-        stream->sps->vui.max_dec_frame_buffering = 1;
-
-        int initialOffset = offset;
-
-        // Copy the modified NALU data. This clobbers byte 0 and starts NALU data at byte 1.
-        // Since it prepended one extra byte, subtract one from the returned length.
-        offset += write_nal_unit(stream, (uint8_t*)&m_DecodeBuffer.data()[initialOffset + nalStart - 1],
-                                 MAX_SPS_EXTRA_SIZE + entry->length - nalStart) - 1;
-
-        // Copy the NALU prefix over from the original SPS
-        memcpy(&m_DecodeBuffer.data()[initialOffset], entry->data, nalStart);
-        offset += nalStart;
-
-        h264_free(stream);
-    }
-    else {
-        // Write the buffer as-is
-        memcpy(&m_DecodeBuffer.data()[offset],
-               entry->data,
-               entry->length);
-        offset += entry->length;
-    }
 }
 
 void FFmpegVideoDecoder::decoderThreadProc()
@@ -1269,40 +925,6 @@ int FFmpegVideoDecoder::drainDecodedFrames()
 
 void FFmpegVideoDecoder::presentDecodedFrame(AVFrame* frame)
 {
-    // Attach HDR metadata to the frame if it's not already present. We will defer to
-    // any metadata contained in the bitstream itself since that is guaranteed to be
-    // correctly synchronized to each frame, unlike our async HDR metadata message.
-    SS_HDR_METADATA hdrMetadata;
-    if (LiGetHdrMetadata(&hdrMetadata)) {
-        if (av_frame_get_side_data(frame, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA) == nullptr) {
-            auto mdm = av_mastering_display_metadata_create_side_data(frame);
-
-            mdm->display_primaries[0][0] = av_make_q(hdrMetadata.displayPrimaries[0].x, 50000);
-            mdm->display_primaries[0][1] = av_make_q(hdrMetadata.displayPrimaries[0].y, 50000);
-            mdm->display_primaries[1][0] = av_make_q(hdrMetadata.displayPrimaries[1].x, 50000);
-            mdm->display_primaries[1][1] = av_make_q(hdrMetadata.displayPrimaries[1].y, 50000);
-            mdm->display_primaries[2][0] = av_make_q(hdrMetadata.displayPrimaries[2].x, 50000);
-            mdm->display_primaries[2][1] = av_make_q(hdrMetadata.displayPrimaries[2].y, 50000);
-
-            mdm->white_point[0] = av_make_q(hdrMetadata.whitePoint.x, 50000);
-            mdm->white_point[1] = av_make_q(hdrMetadata.whitePoint.y, 50000);
-
-            mdm->min_luminance = av_make_q(hdrMetadata.minDisplayLuminance, 10000);
-            mdm->max_luminance = av_make_q(hdrMetadata.maxDisplayLuminance, 1);
-
-            mdm->has_luminance = hdrMetadata.maxDisplayLuminance != 0 ? 1 : 0;
-            mdm->has_primaries = hdrMetadata.displayPrimaries[0].x != 0 ? 1 : 0;
-        }
-
-        if ((hdrMetadata.maxContentLightLevel != 0 || hdrMetadata.maxFrameAverageLightLevel != 0) &&
-                av_frame_get_side_data(frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL) == nullptr) {
-            auto clm = av_content_light_metadata_create_side_data(frame);
-
-            clm->MaxCLL = hdrMetadata.maxContentLightLevel;
-            clm->MaxFALL = hdrMetadata.maxFrameAverageLightLevel;
-        }
-    }
-
     // Reset failed decodes count if we reached this far
     m_ConsecutiveFailedDecodes = 0;
 
@@ -1344,7 +966,6 @@ void FFmpegVideoDecoder::presentDecodedFrame(AVFrame* frame)
 
 int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
 {
-    PLENTRY entry = du->bufferList;
     int err;
 
     Q_ASSERT(!m_TestOnly);
@@ -1411,42 +1032,7 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
     m_ActiveWndVideoStats.receivedVideoBytes += static_cast<uint64_t>(du->fullLength);
     m_ActiveWndVideoStats.totalFrames++;
 
-    av_packet_unref(m_Pkt);
-    const auto* contiguous = LiVideoFrameData(du);
-    if (contiguous && (!m_NeedsSpsFixup || du->frameType != FRAME_TYPE_IDR)) {
-        static_assert(PLANK_VIDEO_BUFFER_PADDING >= AV_INPUT_BUFFER_PADDING_SIZE);
-        LiRetainVideoBuffer(du->frameBuffer);
-        m_Pkt->buf = av_buffer_create(const_cast<uint8_t*>(contiguous),
-            du->fullLength + AV_INPUT_BUFFER_PADDING_SIZE,
-            [](void* owner, uint8_t*) { LiReleaseVideoBuffer(static_cast<PLANK_VIDEO_BUFFER*>(owner)); },
-            du->frameBuffer, AV_BUFFER_FLAG_READONLY);
-        if (!m_Pkt->buf) {
-            LiReleaseVideoBuffer(du->frameBuffer);
-            return DR_NEED_IDR;
-        }
-        m_Pkt->data = m_Pkt->buf->data;
-        m_Pkt->size = du->fullLength;
-    } else {
-        // SPS rewriting or removed noncontiguous prefix NALs need assembly.
-        // Keep this exception explicit; ordinary frames share the receive bytes.
-        const int extra = du->frameType == FRAME_TYPE_IDR ? MAX_SPS_EXTRA_SIZE : 0;
-        m_DecodeBuffer.resize(du->fullLength + extra + AV_INPUT_BUFFER_PADDING_SIZE);
-        int offset = 0;
-        while (entry != nullptr) {
-            writeBuffer(entry, offset);
-            entry = entry->next;
-        }
-        memset(m_DecodeBuffer.data() + offset, 0, AV_INPUT_BUFFER_PADDING_SIZE);
-        m_Pkt->data = reinterpret_cast<uint8_t*>(m_DecodeBuffer.data());
-        m_Pkt->size = offset;
-    }
-
-    if (du->frameType == FRAME_TYPE_IDR) {
-        m_Pkt->flags = AV_PKT_FLAG_KEY;
-    }
-    else {
-        m_Pkt->flags = 0;
-    }
+    if (!plankSetDecodePacket(m_Pkt, du, m_DecodeBuffer)) return DR_NEED_IDR;
 
     m_ActiveWndVideoStats.totalReassemblyTime += static_cast<uint32_t>(
         (du->enqueueTimeUs - du->receiveTimeUs) / 1000);

@@ -189,7 +189,7 @@ linux:contains(CONFIG, plank-transport) {
 
 DEFINES += HAVE_FFMPEG
 SOURCES += streaming/video/ffmpeg.cpp
-HEADERS += streaming/video/ffmpeg.h streaming/video/ffmpeg-renderers/renderer.h
+HEADERS += streaming/video/decodepacket.h streaming/video/ffmpeg.h streaming/video/ffmpeg-renderers/renderer.h
 
 macx {
     message(VideoToolbox renderer selected)
@@ -272,10 +272,7 @@ LIBS += -L$$OUT_PWD/../qmdnsengine/ -lqmdnsengine
 INCLUDEPATH += $$PWD/../qmdnsengine/qmdnsengine/src/include $$PWD/../qmdnsengine
 DEPENDPATH += $$PWD/../qmdnsengine/qmdnsengine/src/include $$PWD/../qmdnsengine
 
-LIBS += -L$$OUT_PWD/../h264bitstream/ -lh264bitstream
 
-INCLUDEPATH += $$PWD/../h264bitstream
-DEPENDPATH += $$PWD/../h264bitstream
 
 unix:!macx: {
     # The packaged Linux executable lives in /usr/bin while its qualified

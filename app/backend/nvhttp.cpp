@@ -280,9 +280,6 @@ NvHTTP::startApp(QString verb,
                                    "&mode="+QString::number(streamConfig->width)+"x"+
                                    QString::number(streamConfig->height)+"x"+
                                    QString::number(streamConfig->fps)+
-                                   ((streamConfig->supportedVideoFormats & VIDEO_FORMAT_MASK_10BIT) ?
-                                       "&hdrMode=1&clientHdrCapVersion=0&clientHdrCapSupportedFlagsInUint32=0&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1&clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0" :
-                                        "")+
                                    "&localAudioPlayMode="+QString::number(localAudio ? 1 : 0)+
                                    "&surroundAudioInfo="+QString::number(SURROUNDAUDIOINFO_FROM_AUDIO_CONFIGURATION(streamConfig->audioConfiguration))+
                                    plankOutputArguments,
@@ -404,9 +401,6 @@ NvHTTP::getAppList()
                 }
                 else if (XML_NAME_EQUALS(name, "ID")) {
                     apps.last().id = xmlReader.readElementText().toInt();
-                }
-                else if (XML_NAME_EQUALS(name, "IsHdrSupported")) {
-                    apps.last().hdrSupported = xmlReader.readElementText() == "1";
                 }
                 else if (XML_NAME_EQUALS(name, "IsAppCollectorGame")) {
                     apps.last().isAppCollectorGame = xmlReader.readElementText() == "1";

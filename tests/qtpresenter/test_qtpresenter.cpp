@@ -31,8 +31,6 @@ private slots:
         QtDecodedVideoRendererFactory factory({}, {}, [] { return QtDecodedVideoDelivery{}; });
         std::unique_ptr<IFFmpegRenderer> software(factory.createRenderer(nullptr));
         QVERIFY(software);
-        QVERIFY(software->needsTestFrame());
-        QVERIFY(software->ownsPresentationScheduling());
         DECODER_PARAMETERS params{};
         params.videoFormat = VIDEO_FORMAT_H264_HIGH10_444;
         params.enableIdentityGbr = true;

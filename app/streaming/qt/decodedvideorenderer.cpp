@@ -94,8 +94,6 @@ public:
 #endif
     }
 
-    bool needsTestFrame() override { return true; }
-    bool ownsPresentationScheduling() const override { return true; }
     int getDecoderColorspace() override { return m_Identity ? COLORSPACE_IDENTITY_GBR : COLORSPACE_REC_709; }
     int getDecoderColorRange() override { return COLOR_RANGE_FULL; }
 #ifdef Q_OS_MACOS

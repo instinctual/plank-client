@@ -307,7 +307,6 @@ private:
     void clConnectionStatusUpdate(int connectionStatus);
 
     static
-    void clSetHdrMode(bool enabled);
 
     static
     void clRawHidControl(const unsigned char* data, unsigned int length);

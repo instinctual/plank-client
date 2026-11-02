@@ -86,7 +86,7 @@ bool QtSoftwareVideoConverter::convert(const AVFrame* frame, AVPixelFormat expec
     const int maximum = (1 << depth) - 1;
     pl_shader_desc bindings[3]{};
     const char* names[] = {"plane0", "plane1", "plane2"};
-    QString body = QStringLiteral("vec3 samples = vec3(0.0);\n");
+    ShaderKey key {expectedFormat, frame->width, frame->height, limited, {}};
     if (source.num_planes != 3 || source.repr.bits.bit_shift) {
         error = QStringLiteral("Qt software video requires three unshifted planes");
         return false;
@@ -110,32 +110,43 @@ bool QtSoftwareVideoConverter::convert(const AVFrame* frame, AVPixelFormat expec
         bindings[p].binding.object = plane.texture;
         bindings[p].binding.address_mode = PL_TEX_ADDRESS_CLAMP;
         bindings[p].binding.sample_mode = PL_TEX_SAMPLE_LINEAR;
-        const int subX = p ? 1 << descriptor->log2_chroma_w : 1;
-        const int subY = p ? 1 << descriptor->log2_chroma_h : 1;
-        // Chroma siting is expressed in reference pixels. Using the padded
-        // plane extent (not frame.width) also handles odd frame dimensions.
-        body += QStringLiteral("vec2 uv%1 = (gl_FragCoord.xy - vec2(%2, %3)) / vec2(%4.0, %5.0);\n")
-                    .arg(p).arg(double(plane.shift_x), 0, 'f', 8).arg(double(plane.shift_y), 0, 'f', 8)
-                    .arg(texture.w * subX).arg(texture.h * subY);
-        if (plane.flipped) body += QStringLiteral("uv%1.y = 1.0 - uv%1.y;\n").arg(p);
-        body += QStringLiteral("samples[%1] = texture(%2, uv%3).r * (%4.0 / %5.0);\n")
-                    .arg(plane.component_mapping[0]).arg(names[p]).arg(p)
-                    .arg((1 << pf->component_depth[0]) - 1).arg(maximum);
+        key.planes[p] = {pf, texture.w, texture.h, plane.component_mapping[0],
+                         plane.shift_x, plane.shift_y, plane.flipped};
     }
-    if (rgb) body += QStringLiteral("color = vec4(samples, 1.0);\n");
-    else body += QStringLiteral(
-                "float y = (samples.x * %2.0 - %3.0) / %4.0;\n"
-                "float u = (samples.y * %2.0 - %1.0) / %5.0;\n"
-                "float v = (samples.z * %2.0 - %1.0) / %5.0;\n"
-                "color = vec4(y + 1.5748 * v, y - 0.1873242729 * u - 0.4681242729 * v, y + 1.8556 * u, 1.0);\n")
-                    .arg(1 << (depth - 1)).arg(maximum)
-                    .arg(limited ? 16 << (depth - 8) : 0)
-                    .arg(limited ? 219 << (depth - 8) : maximum)
-                    .arg(limited ? 224 << (depth - 8) : maximum);
-    const auto text = body.toUtf8();
+    if (!m_ShaderKey || !(key == *m_ShaderKey)) {
+        QString body = QStringLiteral("vec3 samples = vec3(0.0);\n");
+        for (int p = 0; p < 3; ++p) {
+            const auto& plane = source.planes[p];
+            const auto& texture = plane.texture->params;
+            const auto pf = texture.format;
+            const int subX = p ? 1 << descriptor->log2_chroma_w : 1;
+            const int subY = p ? 1 << descriptor->log2_chroma_h : 1;
+            // Chroma siting is expressed in reference pixels. Using the padded
+            // plane extent (not frame.width) also handles odd frame dimensions.
+            body += QStringLiteral("vec2 uv%1 = (gl_FragCoord.xy - vec2(%2, %3)) / vec2(%4.0, %5.0);\n")
+                        .arg(p).arg(double(plane.shift_x), 0, 'f', 8).arg(double(plane.shift_y), 0, 'f', 8)
+                        .arg(texture.w * subX).arg(texture.h * subY);
+            if (plane.flipped) body += QStringLiteral("uv%1.y = 1.0 - uv%1.y;\n").arg(p);
+            body += QStringLiteral("samples[%1] = texture(%2, uv%3).r * (%4.0 / %5.0);\n")
+                        .arg(plane.component_mapping[0]).arg(names[p]).arg(p)
+                        .arg((1 << pf->component_depth[0]) - 1).arg(maximum);
+        }
+        if (rgb) body += QStringLiteral("color = vec4(samples, 1.0);\n");
+        else body += QStringLiteral(
+                    "float y = (samples.x * %2.0 - %3.0) / %4.0;\n"
+                    "float u = (samples.y * %2.0 - %1.0) / %5.0;\n"
+                    "float v = (samples.z * %2.0 - %1.0) / %5.0;\n"
+                    "color = vec4(y + 1.5748 * v, y - 0.1873242729 * u - 0.4681242729 * v, y + 1.8556 * u, 1.0);\n")
+                        .arg(1 << (depth - 1)).arg(maximum)
+                        .arg(limited ? 16 << (depth - 8) : 0)
+                        .arg(limited ? 219 << (depth - 8) : maximum)
+                        .arg(limited ? 224 << (depth - 8) : maximum);
+        m_ShaderBody = body.toUtf8();
+        m_ShaderKey = key;
+    }
     pl_custom_shader custom{};
     custom.description = "PLANK exact planar to RGB10";
-    custom.body = text.constData();
+    custom.body = m_ShaderBody.constData();
     custom.output = PL_SHADER_SIG_COLOR;
     custom.descriptors = bindings;
     custom.num_descriptors = 3;

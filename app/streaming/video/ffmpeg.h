@@ -5,8 +5,7 @@
 #include <functional>
 #include <limits>
 #include <QQueue>
-#include <QSet>
-#include <QByteArray>
+#include <vector>
 
 #include "decoder.h"
 #include "ffmpeg-renderers/renderer.h"
@@ -24,14 +23,10 @@ public:
     virtual ~FFmpegVideoDecoder() override;
     virtual bool initialize(PDECODER_PARAMETERS params) override;
     virtual bool isHardwareAccelerated() override;
-    virtual bool isAlwaysFullScreen() override;
-    virtual bool isHdrSupported() override;
     virtual int getDecoderCapabilities() override;
     virtual int getDecoderColorspace() override;
     virtual int getDecoderColorRange() override;
-    virtual QSize getDecoderMaxResolution() override;
     virtual int submitDecodeUnit(PDECODE_UNIT du) override;
-    virtual void setHdrMode(bool enabled) override;
     virtual bool suspendForReconnect() override;
     virtual bool resumeAfterReconnect() override;
 
@@ -57,35 +52,13 @@ private:
 
     void addVideoStats(VIDEO_STATS& src, VIDEO_STATS& dst);
 
-    static
-    bool isDecoderMatchForParams(const AVCodec *decoder, PDECODER_PARAMETERS params);
-
-    static
-    bool isZeroCopyFormat(AVPixelFormat format);
-
-    static
-    int getAVCodecCapabilities(const AVCodec *codec);
-
-    bool tryInitializeHwAccelDecoder(PDECODER_PARAMETERS params,
-                                     QSet<const AVCodec*>& terminallyFailedHardwareDecoders);
-
-    bool tryInitializeNonHwAccelDecoder(PDECODER_PARAMETERS params,
-                                        bool requireZeroCopyFormat,
-                                        QSet<const AVCodec*>& terminallyFailedHardwareDecoders);
-
-    bool tryInitializeRendererForUnknownDecoder(const AVCodec* decoder,
-                                                PDECODER_PARAMETERS params,
-                                                bool tryHwAccel);
-
     bool tryInitializeRenderer(const AVCodec* decoder,
                                enum AVPixelFormat requiredFormat,
                                PDECODER_PARAMETERS params,
-                               const AVCodecHWConfig* hwConfig,
-                               IFFmpegRenderer::InitFailureReason* failureReason);
+                               const AVCodecHWConfig* hwConfig);
 
     void reset();
 
-    void writeBuffer(PLENTRY entry, int& offset);
 
     static
     enum AVPixelFormat ffGetFormat(AVCodecContext* context,
@@ -100,7 +73,7 @@ private:
     AVPacket* m_Pkt;
     AVCodecContext* m_VideoDecoderCtx;
     enum AVPixelFormat m_RequiredPixelFormat;
-    QByteArray m_DecodeBuffer;
+    std::vector<uint8_t> m_DecodeBuffer;
     const AVCodecHWConfig* m_HwDecodeCfg;
     IFFmpegRenderer* m_BackendRenderer;
     int m_ConsecutiveFailedDecodes;
@@ -120,7 +93,6 @@ private:
     DecoderCaptureSource m_CaptureSource;
     DecoderEncoderBackend m_EncoderBackend;
     bool m_IdentityGbrEnabled;
-    bool m_NeedsSpsFixup;
     bool m_TestOnly;
     std::thread m_DecoderThread;
     std::atomic_bool m_DecoderThreadShouldQuit{false};

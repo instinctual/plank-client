@@ -160,10 +160,12 @@ private slots:
         QVERIFY(converter.framePool().getBuffer(context.value, f, 0) == 0);
         Texture out{gpu(), createOutput(f->width, f->height)};
         QVERIFY(out.value);
-        for (int pass = 0; pass < 3; ++pass) {
+        for (int pass = 0; pass < 6; ++pass) {
+            const bool frameLimited = pass < 3 ? limited : !limited;
+            f->color_range = frameLimited ? AVCOL_RANGE_MPEG : AVCOL_RANGE_JPEG;
             const int max = (1 << depth) - 1, center = 1 << (depth - 1);
-            const int u = center + (pass == 1 ? max / 8 : 0);
-            const int v = center + (pass == 2 ? max / 8 : 0);
+            const int u = center + (pass % 3 == 1 ? max / 8 : 0);
+            const int v = center + (pass % 3 == 2 ? max / 8 : 0);
             for (int p = 0; p < 3; ++p) {
                 const int w = p ? f->width >> descriptor->log2_chroma_w : f->width;
                 const int h = p ? f->height >> descriptor->log2_chroma_h : f->height;
@@ -180,9 +182,9 @@ private slots:
             QCOMPARE(pixels.size(), size_t(f->width * f->height));
             for (int y = 0; y < f->height; ++y) for (int x = 0; x < f->width; ++x) {
                 const int shift = depth - 8;
-                const double yf = double(x - (limited ? 16 << shift : 0)) / (limited ? 219 << shift : max);
-                const double uf = double(u - center) / (limited ? 224 << shift : max);
-                const double vf = double(v - center) / (limited ? 224 << shift : max);
+                const double yf = double(x - (frameLimited ? 16 << shift : 0)) / (frameLimited ? 219 << shift : max);
+                const double uf = double(u - center) / (frameLimited ? 224 << shift : max);
+                const double vf = double(v - center) / (frameLimited ? 224 << shift : max);
                 const double rgb[3] = {yf + 1.5748 * vf, yf - 0.1873242729 * uf - 0.4681242729 * vf, yf + 1.8556 * uf};
                 for (int channel = 0; channel < 3; ++channel) {
                     const int expected = qRound(std::clamp(rgb[channel], 0.0, 1.0) * 1023.0);
@@ -191,6 +193,44 @@ private slots:
                     if (!pass && depth == 10 && !limited) QCOMPARE(actual, expected);
                     else QVERIFY2(std::abs(actual - expected) <= 1, qPrintable(QString("BT709 code %1: %2 != %3").arg(x).arg(actual).arg(expected)));
                 }
+            }
+        }
+    }
+    void cacheTracksFormatGeometryAndStride()
+    {
+        QtSoftwareVideoConverter converter(gpu(), m_Device);
+        for (const int depth : {8, 10, 8}) for (const int width : {23, 39}) {
+            Context context(AV_CODEC_ID_H264); Frame frame;
+            auto* f = frame.value;
+            context.value->pix_fmt = depth == 8 ? AV_PIX_FMT_GBRP : AV_PIX_FMT_GBRP10LE;
+            f->format = context.value->pix_fmt; f->width = width; f->height = 17;
+            f->colorspace = AVCOL_SPC_RGB; f->color_range = AVCOL_RANGE_JPEG;
+            QVERIFY(converter.framePool().getBuffer(context.value, f, 0) == 0);
+            const int max = (1 << depth) - 1;
+            for (int p = 0; p < 3; ++p) for (int y = 0; y < f->height; ++y)
+                for (int x = 0; x < f->width; ++x) {
+                    const int value = (x * 31 + y * 71 + p * 90) & max;
+                    auto* row = f->data[p] + y * f->linesize[p];
+                    if (depth == 8) row[x] = value;
+                    else reinterpret_cast<uint16_t*>(row)[x] = value;
+                }
+            Texture out{gpu(), createOutput(f->width, f->height)};
+            QVERIFY(out.value);
+            for (int pass = 0; pass < 3; ++pass) {
+                if (pass) for (int p = 0; p < 3; ++p) {
+                    f->data[p] += (f->height - 1) * f->linesize[p];
+                    f->linesize[p] = -f->linesize[p];
+                }
+                QString error;
+                QVERIFY2(converter.convert(f, context.value->pix_fmt, out.value, error), qPrintable(error));
+                const auto pixels = readback(gpu(), out.value);
+                QCOMPARE(pixels.size(), size_t(f->width * f->height));
+                for (int y = 0; y < f->height; ++y) for (int x = 0; x < f->width; ++x)
+                    for (int c = 0; c < 3; ++c) {
+                        const int input = sample(f, (c + 2) % 3, x, y, depth);
+                        const int actual = (pixels[y * f->width + x] >> (10 * c)) & 1023;
+                        QCOMPARE(qRound(actual * double(max) / 1023.0), input);
+                    }
             }
         }
     }

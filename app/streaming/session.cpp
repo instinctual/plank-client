@@ -64,12 +64,7 @@ CONNECTION_LISTENER_CALLBACKS Session::k_ConnCallbacks = {
     nullptr,
     Session::clConnectionTerminated,
     Session::clLogMessage,
-    nullptr,
     Session::clConnectionStatusUpdate,
-    Session::clSetHdrMode,
-    nullptr,
-    nullptr,
-    nullptr,
     Session::clRawHidControl,
     Session::clVideoBitrateApplied,
     Session::clCursorChunk,
@@ -165,7 +160,7 @@ void Session::clConnectionTerminated(int errorCode)
     case ML_ERROR_FRAME_CONVERSION:
         s_ActiveSession->m_UnexpectedTermination = true;
         emit s_ActiveSession->displayLaunchError(tr("The host PC reported a fatal video encoding error.") + "\n\n" +
-                                                 tr("Try disabling HDR mode, changing the streaming resolution, or changing your host PC's display resolution."));
+                                                 tr("Try changing the streaming resolution or the Host display resolution."));
         break;
 
     default:
@@ -215,19 +210,6 @@ void Session::clConnectionStatusUpdate(int connectionStatus)
             "Slow connection to PC\nReduce your bitrate" : "Poor connection to PC", true);
     } else if (connectionStatus == CONN_STATUS_OKAY) {
         s_ActiveSession->setPlankReconnectStatus("", false);
-    }
-}
-
-void Session::clSetHdrMode(bool enabled)
-{
-    // If we're in the process of recreating our decoder when we get
-    // this callback, we'll drop it. The main thread will make the
-    // callback when it finishes creating the new decoder.
-    if (std::unique_lock<std::mutex> lock(s_ActiveSession->m_DecoderLock, std::try_to_lock); lock) {
-        IVideoDecoder* decoder = s_ActiveSession->m_VideoDecoder;
-        if (decoder != nullptr) {
-            decoder->setHdrMode(enabled);
-        }
     }
 }
 
@@ -482,10 +464,6 @@ bool Session::populateDecoderProperties()
         else {
             m_StreamConfig.colorRange = decoder->getDecoderColorRange();
         }
-    }
-
-    if (decoder->isAlwaysFullScreen()) {
-        m_IsFullScreen = true;
     }
 
     delete decoder;
@@ -1246,32 +1224,6 @@ void Session::plankTransportDataReceiveLoop()
             return;
         }
         switch (event.type) {
-        case PLANK_TRANSPORT_EVENT_HDR_MODE: {
-            if (event.payload_size != PLANK_TRANSPORT_EVENT_HDR_MODE_SIZE ||
-                    event.payload[1] != 0) {
-                LiNotifyPlankHostTermination(-1);
-                return;
-            }
-            SS_HDR_METADATA metadata {};
-            size_t offset = 2;
-            for (int index = 0; index < 3; ++index) {
-                metadata.displayPrimaries[index].x =
-                        plank_transport_event_read_u16(event.payload + offset);
-                metadata.displayPrimaries[index].y =
-                        plank_transport_event_read_u16(event.payload + offset + 2);
-                offset += 4;
-            }
-            metadata.whitePoint.x = plank_transport_event_read_u16(event.payload + offset);
-            metadata.whitePoint.y = plank_transport_event_read_u16(event.payload + offset + 2);
-            offset += 4;
-            metadata.maxDisplayLuminance = plank_transport_event_read_u16(event.payload + offset);
-            metadata.minDisplayLuminance = plank_transport_event_read_u16(event.payload + offset + 2);
-            metadata.maxContentLightLevel = plank_transport_event_read_u16(event.payload + offset + 4);
-            metadata.maxFrameAverageLightLevel = plank_transport_event_read_u16(event.payload + offset + 6);
-            metadata.maxFullFrameLuminance = plank_transport_event_read_u16(event.payload + offset + 8);
-            LiNotifyPlankHdrMode(event.payload[0] != 0, &metadata);
-            break;
-        }
         case PLANK_TRANSPORT_EVENT_RAW_HID_WACOM:
             if (event.payload_size < sizeof(PLANK_RAW_HID_WIRE_HEADER) ||
                     event.payload_size > sizeof(PLANK_RAW_HID_WIRE_HEADER) +
