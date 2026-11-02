@@ -521,7 +521,6 @@ NvComputer::ReachabilityType NvComputer::getActiveAddressReachability(
                         return ReachabilityType::RI_ZEROTIER;
                     }
 
-#if QT_VERSION >= QT_VERSION_CHECK(5, 11, 0)
                     qInfo() << "Interface Type:" << nic.type();
                     qInfo() << "Interface MTU:" << nic.maximumTransmissionUnit();
 
@@ -535,7 +534,6 @@ NvComputer::ReachabilityType NvComputer::getActiveAddressReachability(
                         // Treat MTUs under 1500 as likely VPNs
                         return ReachabilityType::RI_VPN;
                     }
-#endif
 
                     if (nic.flags() & QNetworkInterface::IsPointToPoint) {
                         // Treat point-to-point links as likely VPNs.

@@ -64,18 +64,6 @@ HEADERS += clientidentity.h
 
 include(../globaldefs.pri)
 
-# Precompile QML files to avoid writing qmlcache on portable versions.
-# Since this binds the app against the Qt runtime version, we will only
-# do this for Windows and Mac (when disable-prebuilts is not defined),
-# since they always ship with the matching build of the Qt runtime.
-!disable-prebuilts {
-    win32|macx {
-        CONFIG(release, debug|release) {
-            CONFIG += qtquickcompiler
-        }
-    }
-}
-
 TEMPLATE = app
 
 # The following define makes your compiler emit warnings if you use
@@ -230,33 +218,7 @@ macx {
     OBJECTIVE_SOURCES += backend/macpermissions.mm
     HEADERS += backend/macpermissions.h
 }
-embedded {
-    message(Embedded build)
-
-    DEFINES += EMBEDDED_BUILD
-}
-glslow {
-    message(GL slow build)
-
-    DEFINES += GL_IS_SLOW
-}
-vkslow {
-    message(Vulkan slow build)
-
-    DEFINES += VULKAN_IS_SLOW
-}
-gpuslow {
-    message(GPU slow build)
-
-    DEFINES += GL_IS_SLOW VULKAN_IS_SLOW
-}
-wayland {
-    message(Wayland extensions enabled)
-
-    DEFINES += HAS_WAYLAND
-    HEADERS += \
-        streaming/plankcallbacktarget.h
-}
+HEADERS += streaming/plankcallbacktarget.h
 
 RESOURCES += \
     resources.qrc \
@@ -300,34 +262,20 @@ QML_IMPORT_PATH =
 # Additional import path used to resolve QML modules just for Qt Quick Designer
 QML_DESIGNER_IMPORT_PATH =
 
-win32:CONFIG(release, debug|release): LIBS += -L$$OUT_PWD/../moonlight-common-c/release/ -lmoonlight-common-c
-else:win32:CONFIG(debug, debug|release): LIBS += -L$$OUT_PWD/../moonlight-common-c/debug/ -lmoonlight-common-c
-else:unix: LIBS += -L$$OUT_PWD/../moonlight-common-c/ -lmoonlight-common-c
+LIBS += -L$$OUT_PWD/../moonlight-common-c/ -lmoonlight-common-c
 
 INCLUDEPATH += $$PWD/../moonlight-common-c/moonlight-common-c/src
 DEPENDPATH += $$PWD/../moonlight-common-c/moonlight-common-c/src
 
-win32:CONFIG(release, debug|release): LIBS += -L$$OUT_PWD/../qmdnsengine/release/ -lqmdnsengine
-else:win32:CONFIG(debug, debug|release): LIBS += -L$$OUT_PWD/../qmdnsengine/debug/ -lqmdnsengine
-else:unix: LIBS += -L$$OUT_PWD/../qmdnsengine/ -lqmdnsengine
+LIBS += -L$$OUT_PWD/../qmdnsengine/ -lqmdnsengine
 
 INCLUDEPATH += $$PWD/../qmdnsengine/qmdnsengine/src/include $$PWD/../qmdnsengine
 DEPENDPATH += $$PWD/../qmdnsengine/qmdnsengine/src/include $$PWD/../qmdnsengine
 
-win32:CONFIG(release, debug|release): LIBS += -L$$OUT_PWD/../h264bitstream/release/ -lh264bitstream
-else:win32:CONFIG(debug, debug|release): LIBS += -L$$OUT_PWD/../h264bitstream/debug/ -lh264bitstream
-else:unix: LIBS += -L$$OUT_PWD/../h264bitstream/ -lh264bitstream
+LIBS += -L$$OUT_PWD/../h264bitstream/ -lh264bitstream
 
 INCLUDEPATH += $$PWD/../h264bitstream
 DEPENDPATH += $$PWD/../h264bitstream
-
-!winrt {
-    win32:CONFIG(release, debug|release): LIBS += -L$$OUT_PWD/../AntiHooking/release/ -lAntiHooking
-    else:win32:CONFIG(debug, debug|release): LIBS += -L$$OUT_PWD/../AntiHooking/debug/ -lAntiHooking
-
-    INCLUDEPATH += $$PWD/../AntiHooking
-    DEPENDPATH += $$PWD/../AntiHooking
-}
 
 unix:!macx: {
     # The packaged Linux executable lives in /usr/bin while its qualified
@@ -359,15 +307,6 @@ unix:!macx: {
 
     INSTALLS += target desktop icons appstream
 }
-win32 {
-    RC_ICONS = moonlight.ico
-    QMAKE_TARGET_COMPANY = Instinctual
-    QMAKE_TARGET_DESCRIPTION = PLANK Client
-    QMAKE_TARGET_PRODUCT = PLANK
-
-    CONFIG -= embed_manifest_exe
-    QMAKE_LFLAGS += /MANIFEST:embed /MANIFESTINPUT:$${PWD}/plank-client.exe.manifest
-}
 macx {
     # One SDK27-built arm64 application for macOS15 and newer, not separate
     # reduced-capability and modern editions. New APIs need availability guards.
@@ -385,15 +324,6 @@ macx {
     APP_BUNDLE_RESOURCES.path = Contents/Resources
 
     QMAKE_BUNDLE_DATA += APP_BUNDLE_RESOURCES
-
-    !disable-prebuilts {
-        APP_BUNDLE_FRAMEWORKS.files = $$files(../libs/mac/Frameworks/*.framework, true) $$files(../libs/mac/lib/*.dylib, true)
-        APP_BUNDLE_FRAMEWORKS.path = Contents/Frameworks
-
-        QMAKE_BUNDLE_DATA += APP_BUNDLE_FRAMEWORKS
-
-        QMAKE_RPATHDIR += @executable_path/../Frameworks
-    }
 }
 
 isEmpty(PLANK_VERSION) {

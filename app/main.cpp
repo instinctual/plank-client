@@ -20,7 +20,6 @@
 #include <QCursor>
 #include <QDir>
 #include <QDateTime>
-#include <QTemporaryFile>
 #include <QThreadPool>
 #include <QRegularExpression>
 #include <QPointer>
@@ -51,13 +50,9 @@
 #endif
 
 #if defined(Q_OS_WIN32)
-#include "antihookingprotection.h"
-
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <dxgi1_6.h>
-#elif defined(Q_OS_LINUX)
-#include <openssl/ssl.h>
 #endif
 
 #include "cli/startstream.h"
@@ -460,74 +455,7 @@ int main(int argc, char *argv[])
     }
 #endif
 
-#if defined(Q_OS_WIN32)
-    // Force AntiHooking.dll to be statically imported and loaded
-    // by ntdll on Win32 platforms by calling a dummy function.
-    AntiHookingDummyImport();
-#elif defined(APP_IMAGE)
-    // Force libssl.so to be directly linked to our binary, so
-    // linuxdeployqt can find it and include it in our AppImage.
-    // QtNetwork will pull it in via dlopen().
-    SSL_free(nullptr);
-#endif
-
-    // We keep this at function scope to ensure it stays around while we're running,
-    // because the Qt QPA will need to read it. Since the temporary file is only
-    // created when open() is called, this doesn't do any harm for other platforms.
-    QTemporaryFile eglfsConfigFile;
-
-    // Avoid using High DPI on EGLFS. It breaks font rendering.
-    // https://bugreports.qt.io/browse/QTBUG-64377
-    //
-    // NB: We can't use QGuiApplication::platformName() here because it is only
-    // set once the QGuiApplication is created, which is too late to enable High DPI :(
-    if (WMUtils::isRunningWindowManager()) {
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-        // Enable High DPI support on Qt 5.x. It is always enabled on Qt 6.0
-        QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-#endif
-
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-        // Enable fractional High DPI scaling on Qt 5.14 and later
-        QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
-#endif
-    }
-    else {
-#ifndef STEAM_LINK
-        if (!qEnvironmentVariableIsSet("QT_QPA_PLATFORM")) {
-            qInfo() << "Unable to detect Wayland or X11, so EGLFS will be used by default. Set QT_QPA_PLATFORM to override this.";
-            qputenv("QT_QPA_PLATFORM", "eglfs");
-
-            if (!qEnvironmentVariableIsSet("QT_QPA_EGLFS_ALWAYS_SET_MODE")) {
-                qInfo() << "Setting display mode by default. Set QT_QPA_EGLFS_ALWAYS_SET_MODE=0 to override this.";
-
-                // The UI doesn't appear on RetroPie without this option.
-                qputenv("QT_QPA_EGLFS_ALWAYS_SET_MODE", "1");
-            }
-
-            if (!QFile("/dev/dri").exists()) {
-                qWarning() << "Unable to find a KMSDRM display device!";
-                qWarning() << "On the Raspberry Pi, you must enable the 'fake KMS' driver in raspi-config to use PLANK Client outside of the GUI environment.";
-            }
-            else if (!qEnvironmentVariableIsSet("QT_QPA_EGLFS_KMS_CONFIG")) {
-                // HACK: Remove this when Qt is fixed to properly check for display support before picking a card
-                QString cardOverride = WMUtils::getDrmCardOverride();
-                if (!cardOverride.isEmpty()) {
-                    if (eglfsConfigFile.open()) {
-                        qInfo() << "Overriding default Qt EGLFS card selection to" << cardOverride;
-                        QTextStream(&eglfsConfigFile) << "{ \"device\": \"" << cardOverride << "\" }";
-                        qputenv("QT_QPA_EGLFS_KMS_CONFIG", eglfsConfigFile.fileName().toUtf8());
-                        eglfsConfigFile.close();
-                    }
-                }
-            }
-        }
-
-        // EGLFS uses OpenGLES 2.0, so we will too. Some embedded platforms may not
-        // even have working OpenGL implementations, so GLES is the only option.
-        // See https://github.com/moonlight-stream/moonlight-qt/issues/868
-#endif
-    }
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 
     bool forceGles;
     if (!Utils::getEnvironmentVariableOverride("FORCE_QT_GLES", &forceGles)) {
@@ -566,26 +494,8 @@ int main(int argc, char *argv[])
     qputenv("QT_SSL_USE_TEMPORARY_KEYCHAIN", "1");
 #endif
 
-#if defined(Q_OS_WIN32) && QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    if (!qEnvironmentVariableIsSet("QT_OPENGL")) {
-        // On Windows, use ANGLE so we don't have to load OpenGL
-        // user-mode drivers into our app. OGL drivers (especially Intel)
-        // seem to crash Moonlight far more often than DirectX.
-        qputenv("QT_OPENGL", "angle");
-    }
-#endif
-
-#if !defined(Q_OS_WIN32) || QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    // Moonlight requires the non-threaded renderer because we depend
-    // on being able to control the render thread by blocking in the
-    // main thread (and pumping events from the main thread when needed).
-    // That doesn't work with the threaded renderer which causes all
-    // sorts of odd behavior depending on the platform.
-    //
-    // NB: Windows defaults to the "windows" non-threaded render loop on
-    // Qt 5 and the threaded render loop on Qt 6.
+    // The qualified Qt session frontend and launcher share the GUI-thread render loop.
     qputenv("QSG_RENDER_LOOP", "basic");
-#endif
 #ifdef Q_OS_LINUX
     QtSessionShell::configureWaylandExposure();
 #endif

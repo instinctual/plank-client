@@ -1,5 +1,4 @@
 #include <QtGlobal>
-#include <QDir>
 
 #include "utils.h"
 
@@ -12,11 +11,6 @@
 
 #ifdef HAS_WAYLAND
 #include <wayland-client.h>
-#endif
-
-#ifdef HAVE_DRM
-#include <xf86drm.h>
-#include <xf86drmMode.h>
 #endif
 
 #ifdef HAVE_EGL
@@ -196,68 +190,9 @@ bool WMUtils::isRunningDesktopEnvironment()
 #if defined(Q_OS_WIN) || defined(Q_OS_DARWIN)
     // Windows and macOS are always running a desktop environment
     return true;
-#elif defined(EMBEDDED_BUILD)
-    // Embedded systems don't run desktop environments
-    return false;
 #else
     // On non-embedded systems, assume we have a desktop environment
     // if we have a WM running.
     return isRunningWindowManager();
 #endif
-}
-
-bool WMUtils::isGpuSlow()
-{
-    bool ret;
-
-    if (!Utils::getEnvironmentVariableOverride("GL_IS_SLOW", &ret)) {
-#if defined(GL_IS_SLOW) || (!defined(Q_PROCESSOR_X86) && !defined(Q_OS_DARWIN) && !defined(Q_OS_WIN))
-        // We currently assume GPUs on non-x86 hardware are slow by default
-        ret = true;
-#else
-        ret = false;
-#endif
-    }
-
-    return ret;
-}
-
-QString WMUtils::getDrmCardOverride()
-{
-#ifdef HAVE_DRM
-    QDir dir("/dev/dri");
-    QStringList cardList = dir.entryList(QStringList("card*"), QDir::Files | QDir::System);
-    if (cardList.length() == 0) {
-        return QString();
-    }
-
-    bool needsOverride = false;
-    for (const QString& card : cardList) {
-        QFile cardFd(dir.filePath(card));
-        if (!cardFd.open(QFile::ReadOnly)) {
-            continue;
-        }
-
-        auto resources = drmModeGetResources(cardFd.handle());
-        if (resources == nullptr) {
-            // If we find a card that doesn't have a display before a card that
-            // has one, we'll need to override Qt's EGLFS config because they
-            // don't properly handle cards without displays.
-            needsOverride = true;
-        }
-        else {
-            // We found a card with a display
-            drmModeFreeResources(resources);
-            if (needsOverride) {
-                // Override the default card with this one
-                return dir.filePath(card);
-            }
-            else {
-                return QString();
-            }
-        }
-    }
-#endif
-
-    return QString();
 }

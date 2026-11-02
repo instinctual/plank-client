@@ -73,10 +73,6 @@ int Session::getAudioRendererCapabilities(int audioConfiguration)
     // All audio renderers support arbitrary audio duration
     caps |= CAPABILITY_SUPPORTS_ARBITRARY_AUDIO_DURATION;
 
-#ifdef STEAM_LINK
-    // Steam Link devices have slow Opus decoders
-    caps |= CAPABILITY_SLOW_OPUS_DECODER;
-#endif
 
     return caps;
 }

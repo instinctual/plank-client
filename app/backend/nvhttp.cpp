@@ -56,11 +56,7 @@ QSslConfiguration negotiatedPlankTls(QNetworkReply* reply)
 }
 }
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-#define XML_NAME_EQUALS(x, y) ((x) == (y))
-#else
 #define XML_NAME_EQUALS(x, y) ((x) == (u##y))
-#endif
 
 NvHTTP::NvHTTP(NvAddress address, QNetworkAccessManager* nam) :
     m_Nam(nam ? nam : new QNetworkAccessManager(this))
@@ -201,8 +197,6 @@ NvHTTP::startApp(QString verb,
                  int appId,
                  PSTREAM_CONFIGURATION streamConfig,
                  bool localAudio,
-                 int gamepadMask,
-                 bool persistGameControllersOnDisconnect,
                  QString captureDisplayMode,
                  QString topologyGeneration,
                  int plankProtocolVersion,
@@ -286,15 +280,11 @@ NvHTTP::startApp(QString verb,
                                    "&mode="+QString::number(streamConfig->width)+"x"+
                                    QString::number(streamConfig->height)+"x"+
                                    QString::number(streamConfig->fps)+
-                                   "&additionalStates=1"+
                                    ((streamConfig->supportedVideoFormats & VIDEO_FORMAT_MASK_10BIT) ?
                                        "&hdrMode=1&clientHdrCapVersion=0&clientHdrCapSupportedFlagsInUint32=0&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1&clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0" :
                                         "")+
                                    "&localAudioPlayMode="+QString::number(localAudio ? 1 : 0)+
                                    "&surroundAudioInfo="+QString::number(SURROUNDAUDIOINFO_FROM_AUDIO_CONFIGURATION(streamConfig->audioConfiguration))+
-                                   "&remoteControllersBitmap="+QString::number(gamepadMask)+
-                                   "&gcmap="+QString::number(gamepadMask)+
-                                   "&gcpersist="+QString::number(persistGameControllersOnDisconnect ? 1 : 0)+
                                    plankOutputArguments,
                                    LAUNCH_TIMEOUT_MS);
 
@@ -453,12 +443,6 @@ NvHTTP::verifyResponseStatus(QString xml)
                     // 401 is expected before PAM authorization establishes a bearer session.
                     qWarning() << "Request failed:" << statusCode << statusMessage;
                 }
-                if (statusCode == -1 && statusMessage == "Invalid") {
-                    // Special case handling an audio capture error which GFE doesn't
-                    // provide any useful status message for.
-                    statusCode = 418;
-                    statusMessage = tr("Missing audio capture device. Reinstalling GeForce Experience should resolve this error.");
-                }
                 throw GfeHttpResponseException(statusCode, statusMessage);
             }
         }
@@ -559,11 +543,7 @@ NvHTTP::openConnectionToString(QUrl baseUrl,
 
     QTextStream stream(reply);
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     stream.setEncoding(QStringConverter::Utf8);
-#else
-    stream.setCodec("UTF-8");
-#endif
 
     ret = stream.readAll();
     delete reply;
@@ -584,9 +564,7 @@ QJsonObject NvHTTP::postPlankJson(QString command, const QJsonObject& body)
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setSslConfiguration(plankSslConfiguration());
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
-#endif
 
     if (m_IdentityKey.size() != 32)
         throw QtNetworkReplyException(QNetworkReply::SslHandshakeFailedError, "Host identity is not established.");
@@ -752,14 +730,9 @@ MacMediaFeatures::Agreement NvHTTP::negotiateMacMedia(const QString& encodingMod
                 "Host and Client do not share the required desktop media features. Update one of them to a compatible version.");
         }
     } catch (const GfeHttpResponseException& error) {
-        // Only a positively identified older Host missing this route gets an
-        // adapter. TLS/auth/malformed replies/timeouts never trigger downgrade.
         if (error.getStatusCode() != 404) throw;
-        const auto information = requestPinnedMacJson(QStringLiteral("/serverinfo"), {}, certificateSha256);
-        const int schema = MacMediaFeatures::legacySchema(information.value("host_version").toString());
-        selected = MacMediaFeatures::legacy(schema, encodingMode);
-        if (!selected.launchSchema) throw GfeHttpResponseException(426,
-            "This Host has no supported media negotiation protocol. Update the Host or use a compatible Client.");
+        throw GfeHttpResponseException(426,
+            "This Host has no supported media negotiation protocol. Update the Host.");
     }
     m_MacMediaAgreement = selected; m_MacMediaCertificate = certificateSha256;
     qInfo() << "Mac media agreement: launch=" << selected.launchSchema
@@ -967,17 +940,13 @@ NvHTTP::openConnection(QUrl baseUrl,
         }
     }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    // Disable HTTP/2 (GFE 3.22 doesn't like it) and Qt 6 enables it by default
+    // The PLANK control endpoint uses HTTP/1.1.
     request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
-#endif
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 3, 0)
     // Use fine-grained idle timeouts to avoid calling QNetworkAccessManager::clearAccessCache(),
-    // which tears down the NAM's global thread each time. We must not keep persistent connections
-    // or GFE will puke.
+    // which tears down the NAM's global thread each time. Keep the existing
+    // per-request control connection policy.
     request.setAttribute(QNetworkRequest::ConnectionCacheExpiryTimeoutSecondsAttribute, 0);
-#endif
 
     const auto mode = !m_SessionToken.isEmpty() || (m_RequestGate && trustMode == HostTlsGuard::Mode::Enroll) ?
         HostTlsGuard::Mode::RequireKnown : trustMode;
@@ -1006,10 +975,6 @@ NvHTTP::openConnection(QUrl baseUrl,
         reply->abort();
     }
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 3, 0)
-    // If we couldn't use fine-grained connection idle timeouts, kill them all now
-    m_Nam->clearAccessCache();
-#endif
     checkTlsGuard(guard);
 
     // Handle error

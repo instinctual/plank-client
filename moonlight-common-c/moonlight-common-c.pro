@@ -29,28 +29,7 @@ unix:contains(CONFIG, plank-transport) {
     DEFINES += PLANK_TRANSPORT=1
 }
 
-win32 {
-    contains(QT_ARCH, i386) {
-        INCLUDEPATH += $$PWD/../libs/windows/include/x86
-    }
-    contains(QT_ARCH, x86_64) {
-        INCLUDEPATH += $$PWD/../libs/windows/include/x64
-    }
-    contains(QT_ARCH, arm64) {
-        INCLUDEPATH += $$PWD/../libs/windows/include/arm64
-    }
-
-    INCLUDEPATH += $$PWD/../libs/windows/include
-    DEFINES += HAS_QOS_FLOWID=1 HAS_PQOS_FLOWID=1
-}
-macx:!disable-prebuilts {
-    INCLUDEPATH += $$PWD/../libs/mac/include
-}
-unix:if(!macx|disable-prebuilts) {
-    CONFIG += link_pkgconfig
-    PKGCONFIG += openssl
-    DEFINES += HAVE_CLOCK_GETTIME=1
-}
+unix: DEFINES += HAVE_CLOCK_GETTIME=1
 
 COMMON_C_DIR = $$PWD/moonlight-common-c
 SOURCES += \
@@ -62,15 +41,12 @@ SOURCES += \
     $$COMMON_C_DIR/src/LinkedBlockingQueue.c \
     $$COMMON_C_DIR/src/Misc.c \
     $$COMMON_C_DIR/src/Platform.c \
-    $$COMMON_C_DIR/src/PlatformCrypto.c \
-    $$COMMON_C_DIR/src/PlatformSockets.c \
     $$COMMON_C_DIR/src/VideoFrameAssembler.c \
     $$COMMON_C_DIR/src/VideoStream.c
 HEADERS += \
     $$COMMON_C_DIR/src/Limelight.h
 INCLUDEPATH += \
     $$COMMON_C_DIR/src
-DEFINES += HAS_SOCKLEN_T
 
 CONFIG(debug, debug|release) {
     # Enable asserts on debug builds

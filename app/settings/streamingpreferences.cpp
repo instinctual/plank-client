@@ -139,13 +139,6 @@ bool StreamingPreferences::retranslate()
 {
     static QTranslator* translator = nullptr;
 
-#if QT_VERSION < QT_VERSION_CHECK(5, 10, 0)
-    if (m_QmlEngine != nullptr) {
-        // Dynamic retranslation is not supported until Qt 5.10
-        return false;
-    }
-#endif
-
     QTranslator* newTranslator = new QTranslator();
     QString languageSuffix = getSuffixFromLanguage(language);
 
@@ -170,14 +163,10 @@ bool StreamingPreferences::retranslate()
     }
 
     if (m_QmlEngine != nullptr) {
-#if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
         // This is a dynamic retranslation from the settings page.
         // We have to kick the QML engine into reloading our text.
         m_QmlEngine->retranslate();
-#else
-        // Unreachable below Qt 5.10 due to the check above
-        Q_ASSERT(false);
-#endif
+
     }
     else {
         // This is a translation from a non-QML context, which means

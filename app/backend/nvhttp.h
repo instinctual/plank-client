@@ -215,8 +215,6 @@ public:
              int appId,
              PSTREAM_CONFIGURATION streamConfig,
              bool localAudio,
-             int gamepadMask,
-             bool persistGameControllersOnDisconnect,
              QString captureDisplayMode,
              QString topologyGeneration,
              int plankProtocolVersion,
