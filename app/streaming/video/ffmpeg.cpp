@@ -3,6 +3,7 @@
 #include "../monotonicclock.h"
 #include <Limelight.h>
 #include "ffmpeg.h"
+#include "decodepump.h"
 #include "applevideoprofile.h"
 #include "applevideo-test-frame.h"
 #include "streaming/session.h"
@@ -44,8 +45,6 @@ static const QMap<QString, int> k_NonHwaccelCodecInfo = {
     {"hevc_nvmpi", 0},
     {"hevc_v4l2m2m", 0},
     {"hevc_omx", 0},
-
-    // AV1
 };
 
 static const AVPixelFormat* getSupportedPixelFormats(const AVCodec* decoder)
@@ -97,8 +96,7 @@ bool FFmpegVideoDecoder::suspendForReconnect()
 
     if (m_BackendRenderer != nullptr) m_BackendRenderer->discardPendingFrames();
     avcodec_flush_buffers(m_VideoDecoderCtx);
-    m_FramesIn = 0;
-    m_FramesOut = 0;
+    m_AwaitingKeyframe = true;
     m_LastFrameNumber = 0;
     m_ConsecutiveFailedDecodes = 0;
     m_FrameInfoQueue.clear();
@@ -143,9 +141,6 @@ int FFmpegVideoDecoder::getDecoderCapabilities()
 
             // Enable HEVC RFI when using the FFmpeg software decoder
             capabilities |= CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC;
-
-            // Enable AV1 RFI when using the libdav1d software decoder
-            capabilities |= CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
         }
         else if (m_HwDecodeCfg == nullptr) {
             // Non-hwaccel hardware decoders advertise capabilities by codec name.
@@ -226,8 +221,7 @@ FFmpegVideoDecoder::FFmpegVideoDecoder(bool testOnly)
       m_HwDecodeCfg(nullptr),
       m_BackendRenderer(nullptr),
       m_ConsecutiveFailedDecodes(0),
-      m_FramesIn(0),
-      m_FramesOut(0),
+      m_AwaitingKeyframe(true),
       m_LastFrameNumber(0),
       m_StreamFps(0),
       m_VideoFormat(0),
@@ -273,7 +267,7 @@ void FFmpegVideoDecoder::reset()
         m_DecoderThreadShouldQuit.store(false);
     }
 
-    m_FramesIn = m_FramesOut = 0;
+    m_AwaitingKeyframe = true;
     m_FrameInfoQueue.clear();
 
     m_FrameFlowTrace.flush();
@@ -401,14 +395,6 @@ bool FFmpegVideoDecoder::completeInitialization(const AVCodec* decoder, enum AVP
                 m_Pkt->size = sizeof(PlankDecoderTestFrames::k_HEVCMain10TestFrame);
             }
             break;
-        case VIDEO_FORMAT_AV1_MAIN8:
-            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_AV1Main8TestFrame;
-            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_AV1Main8TestFrame);
-            break;
-        case VIDEO_FORMAT_AV1_MAIN10:
-            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_AV1Main10TestFrame;
-            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_AV1Main10TestFrame);
-            break;
         case VIDEO_FORMAT_H264_HIGH8_444:
             m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_h264High_444TestFrame;
             m_Pkt->size = sizeof(PlankDecoderTestFrames::k_h264High_444TestFrame);
@@ -440,14 +426,6 @@ bool FFmpegVideoDecoder::completeInitialization(const AVCodec* decoder, enum AVP
                 m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_HEVCRExt10_444TestFrame;
                 m_Pkt->size = sizeof(PlankDecoderTestFrames::k_HEVCRExt10_444TestFrame);
             }
-            break;
-        case VIDEO_FORMAT_AV1_HIGH8_444:
-            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_AV1High8_444TestFrame;
-            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_AV1High8_444TestFrame);
-            break;
-        case VIDEO_FORMAT_AV1_HIGH10_444:
-            m_Pkt->data = (uint8_t*)PlankDecoderTestFrames::k_AV1High10_444TestFrame;
-            m_Pkt->size = sizeof(PlankDecoderTestFrames::k_AV1High10_444TestFrame);
             break;
         default:
             qCritical("No test frame for format: %x",
@@ -483,11 +461,7 @@ bool FFmpegVideoDecoder::completeInitialization(const AVCodec* decoder, enum AVP
 #else
             err = avcodec_receive_frame(m_VideoDecoderCtx, frame);
 #endif
-            if (err == AVERROR(EAGAIN)) {
-                // Wait a little while to let the hardware work
-                QThread::msleep(100);
-            }
-            else {
+            if (err != AVERROR(EAGAIN)) {
                 // Done!
                 break;
             }
@@ -714,22 +688,6 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
 
     case VIDEO_FORMAT_H265_REXT10_444:
         codecString = "HEVC 10-bit 4:4:4";
-        break;
-
-    case VIDEO_FORMAT_AV1_MAIN8:
-        codecString = "AV1";
-        break;
-
-    case VIDEO_FORMAT_AV1_HIGH8_444:
-        codecString = "AV1 4:4:4";
-        break;
-
-    case VIDEO_FORMAT_AV1_MAIN10:
-        codecString = "AV1 10-bit";
-        break;
-
-    case VIDEO_FORMAT_AV1_HIGH10_444:
-        codecString = "AV1 10-bit 4:4:4";
         break;
 
     default:
@@ -1022,7 +980,7 @@ int FFmpegVideoDecoder::getAVCodecCapabilities(const AVCodec *codec)
 
 bool FFmpegVideoDecoder::isDecoderMatchForParams(const AVCodec *decoder, PDECODER_PARAMETERS params)
 {
-    Q_ASSERT(params->videoFormat & (VIDEO_FORMAT_MASK_H264 | VIDEO_FORMAT_MASK_H265 | VIDEO_FORMAT_MASK_AV1));
+    Q_ASSERT(params->videoFormat & (VIDEO_FORMAT_MASK_H264 | VIDEO_FORMAT_MASK_H265));
 
 #if defined(HAVE_MMAL) && !defined(ALLOW_EGL_WITH_MMAL)
     // Only enable V4L2M2M by default on non-MMAL (RPi) builds. The performance
@@ -1036,8 +994,7 @@ bool FFmpegVideoDecoder::isDecoderMatchForParams(const AVCodec *decoder, PDECODE
 #endif
 
     return ((params->videoFormat & VIDEO_FORMAT_MASK_H264) && decoder->id == AV_CODEC_ID_H264) ||
-           ((params->videoFormat & VIDEO_FORMAT_MASK_H265) && decoder->id == AV_CODEC_ID_HEVC) ||
-           ((params->videoFormat & VIDEO_FORMAT_MASK_AV1)  && decoder->id == AV_CODEC_ID_AV1);
+           ((params->videoFormat & VIDEO_FORMAT_MASK_H265) && decoder->id == AV_CODEC_ID_HEVC);
 }
 
 bool FFmpegVideoDecoder::tryInitializeHwAccelDecoder(PDECODER_PARAMETERS params, QSet<const AVCodec*>& terminallyFailedHardwareDecoders)
@@ -1266,167 +1223,123 @@ void FFmpegVideoDecoder::writeBuffer(PLENTRY entry, int& offset)
 void FFmpegVideoDecoder::decoderThreadProc()
 {
     while (!m_DecoderThreadShouldQuit.load()) {
-        if (m_FramesIn == m_FramesOut) {
-            VIDEO_FRAME_HANDLE handle;
-            PDECODE_UNIT du;
+        VIDEO_FRAME_HANDLE handle;
+        PDECODE_UNIT du;
+        // The codec is drained before waiting. Stop/reconnect wakes this wait.
+        if (!LiWaitForNextVideoFrame(&handle, &du)) continue;
+        if (m_DecoderThreadShouldQuit.load()) {
+            LiCompleteVideoFrame(handle, DR_OK);
+            break;
+        }
+        LiCompleteVideoFrame(handle, submitDecodeUnit(du));
+    }
+}
 
-            // Waiting for input. All output frames have been received.
-            // Block until we receive a new frame from the host.
-            if (!LiWaitForNextVideoFrame(&handle, &du)) {
-                // This might be a signal from the main thread to exit
-                continue;
-            }
+int FFmpegVideoDecoder::drainDecodedFrames()
+{
+    AVFrame* frame = av_frame_alloc();
+    if (!frame) return AVERROR(ENOMEM);
+    int count = 0;
+    int result = 0;
+    while (!m_DecoderThreadShouldQuit.load()) {
+        result = avcodec_receive_frame(m_VideoDecoderCtx, frame);
+        if (result < 0) break;
+        if (m_CaptureSource == DecoderCaptureSource::ScreenCaptureKit &&
+                !plankAppleVideoFrameMatches(frame, m_VideoDecoderCtx->profile,
+                                             m_VideoFormat == VIDEO_FORMAT_H265_REXT10_444)) {
+            qCritical("Mac stream changed its negotiated profile/chroma/color format; disconnecting");
+            m_DecoderThreadShouldQuit.store(true);
+            Session::requestSessionQuit();
+            result = AVERROR_INVALIDDATA;
+            break;
+        }
+        if (m_FrameInfoQueue.isEmpty()) {
+            // Never attribute an unaccounted output to a later input packet.
+            result = AVERROR_INVALIDDATA;
+            break;
+        }
+        presentDecodedFrame(frame);
+        av_frame_unref(frame);
+        count++;
+    }
+    av_frame_free(&frame);
+    if (m_DecoderThreadShouldQuit.load()) return AVERROR_EXIT;
+    return result == AVERROR(EAGAIN) ? count : result;
+}
 
-            LiCompleteVideoFrame(handle, submitDecodeUnit(du));
+void FFmpegVideoDecoder::presentDecodedFrame(AVFrame* frame)
+{
+    // Attach HDR metadata to the frame if it's not already present. We will defer to
+    // any metadata contained in the bitstream itself since that is guaranteed to be
+    // correctly synchronized to each frame, unlike our async HDR metadata message.
+    SS_HDR_METADATA hdrMetadata;
+    if (LiGetHdrMetadata(&hdrMetadata)) {
+        if (av_frame_get_side_data(frame, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA) == nullptr) {
+            auto mdm = av_mastering_display_metadata_create_side_data(frame);
+
+            mdm->display_primaries[0][0] = av_make_q(hdrMetadata.displayPrimaries[0].x, 50000);
+            mdm->display_primaries[0][1] = av_make_q(hdrMetadata.displayPrimaries[0].y, 50000);
+            mdm->display_primaries[1][0] = av_make_q(hdrMetadata.displayPrimaries[1].x, 50000);
+            mdm->display_primaries[1][1] = av_make_q(hdrMetadata.displayPrimaries[1].y, 50000);
+            mdm->display_primaries[2][0] = av_make_q(hdrMetadata.displayPrimaries[2].x, 50000);
+            mdm->display_primaries[2][1] = av_make_q(hdrMetadata.displayPrimaries[2].y, 50000);
+
+            mdm->white_point[0] = av_make_q(hdrMetadata.whitePoint.x, 50000);
+            mdm->white_point[1] = av_make_q(hdrMetadata.whitePoint.y, 50000);
+
+            mdm->min_luminance = av_make_q(hdrMetadata.minDisplayLuminance, 10000);
+            mdm->max_luminance = av_make_q(hdrMetadata.maxDisplayLuminance, 1);
+
+            mdm->has_luminance = hdrMetadata.maxDisplayLuminance != 0 ? 1 : 0;
+            mdm->has_primaries = hdrMetadata.displayPrimaries[0].x != 0 ? 1 : 0;
         }
 
-        if (m_FramesIn != m_FramesOut) {
-            Q_ASSERT(m_FramesIn > m_FramesOut);
+        if ((hdrMetadata.maxContentLightLevel != 0 || hdrMetadata.maxFrameAverageLightLevel != 0) &&
+                av_frame_get_side_data(frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL) == nullptr) {
+            auto clm = av_content_light_metadata_create_side_data(frame);
 
-            // We have output frames to receive. Let's poll until we get one,
-            // and submit new input data if/when we get it.
-            AVFrame* frame = av_frame_alloc();
-            if (!frame) {
-                // Failed to allocate a frame but we did submit,
-                // so we can return DR_OK
-                qWarning("Failed to allocate frame");
-                continue;
-            }
-
-            int err;
-            do {
-                err = avcodec_receive_frame(m_VideoDecoderCtx, frame);
-                if (err == 0) {
-                    if (m_CaptureSource == DecoderCaptureSource::ScreenCaptureKit &&
-                            !plankAppleVideoFrameMatches(frame, m_VideoDecoderCtx->profile, m_VideoFormat == VIDEO_FORMAT_H265_REXT10_444)) {
-                        qCritical("Mac stream changed its negotiated profile/chroma/color format; disconnecting");
-                        m_DecoderThreadShouldQuit.store(true);
-                        Session::requestSessionQuit();
-                        av_frame_free(&frame);
-                        return;
-                    }
-                    Q_ASSERT(m_FrameInfoQueue.size() == m_FramesIn - m_FramesOut);
-                    m_FramesOut++;
-
-                    // Attach HDR metadata to the frame if it's not already present. We will defer to
-                    // any metadata contained in the bitstream itself since that is guaranteed to be
-                    // correctly synchronized to each frame, unlike our async HDR metadata message.
-                    SS_HDR_METADATA hdrMetadata;
-                    if (LiGetHdrMetadata(&hdrMetadata)) {
-                        if (av_frame_get_side_data(frame, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA) == nullptr) {
-                            auto mdm = av_mastering_display_metadata_create_side_data(frame);
-
-                            mdm->display_primaries[0][0] = av_make_q(hdrMetadata.displayPrimaries[0].x, 50000);
-                            mdm->display_primaries[0][1] = av_make_q(hdrMetadata.displayPrimaries[0].y, 50000);
-                            mdm->display_primaries[1][0] = av_make_q(hdrMetadata.displayPrimaries[1].x, 50000);
-                            mdm->display_primaries[1][1] = av_make_q(hdrMetadata.displayPrimaries[1].y, 50000);
-                            mdm->display_primaries[2][0] = av_make_q(hdrMetadata.displayPrimaries[2].x, 50000);
-                            mdm->display_primaries[2][1] = av_make_q(hdrMetadata.displayPrimaries[2].y, 50000);
-
-                            mdm->white_point[0] = av_make_q(hdrMetadata.whitePoint.x, 50000);
-                            mdm->white_point[1] = av_make_q(hdrMetadata.whitePoint.y, 50000);
-
-                            mdm->min_luminance = av_make_q(hdrMetadata.minDisplayLuminance, 10000);
-                            mdm->max_luminance = av_make_q(hdrMetadata.maxDisplayLuminance, 1);
-
-                            mdm->has_luminance = hdrMetadata.maxDisplayLuminance != 0 ? 1 : 0;
-                            mdm->has_primaries = hdrMetadata.displayPrimaries[0].x != 0 ? 1 : 0;
-                        }
-
-                        if ((hdrMetadata.maxContentLightLevel != 0 || hdrMetadata.maxFrameAverageLightLevel != 0) &&
-                                av_frame_get_side_data(frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL) == nullptr) {
-                            auto clm = av_content_light_metadata_create_side_data(frame);
-
-                            clm->MaxCLL = hdrMetadata.maxContentLightLevel;
-                            clm->MaxFALL = hdrMetadata.maxFrameAverageLightLevel;
-                        }
-                    }
-
-                    // Reset failed decodes count if we reached this far
-                    m_ConsecutiveFailedDecodes = 0;
-
-                    // Restore default log level after a successful decode
-                    av_log_set_level(AV_LOG_INFO);
-
-                    // Capture a frame timestamp to measuring pacing delay
-                    frame->pkt_dts = PlankClock::milliseconds();
-
-                    if (!m_FrameInfoQueue.isEmpty()) {
-                        // Data buffers in the DU are not valid here!
-                        DECODE_UNIT du = m_FrameInfoQueue.dequeue();
-
-                        // Count time in avcodec_send_packet() and avcodec_receive_frame()
-                        // as time spent decoding. Also count time spent in the decode unit
-                        // queue because that's directly caused by decoder latency.
-                        const uint32_t decodeLatencyMs = static_cast<uint32_t>(
-                            (LiGetMicroseconds() - du.enqueueTimeUs) / 1000);
-                        m_ActiveWndVideoStats.totalDecodeTime += decodeLatencyMs;
-                        m_DecodeLatencyHistogram[std::min<uint32_t>(
-                            decodeLatencyMs,
-                            m_DecodeLatencyHistogram.size() - 1)]++;
-                        m_MaxDecodeLatencyMs = std::max(m_MaxDecodeLatencyMs, decodeLatencyMs);
-
-                        // Store the presentation time
-                        frame->pts = du.presentationTimeUs / 1000;
-                        m_FrameFlowTrace.record(ClientFrameFlowTrace::Decode,
-                                               du.presentationTimeUs, du.frameNumber,
-                                               du.frameType == FRAME_TYPE_IDR, du.fullLength,
-                                               m_FrameInfoQueue.count(),
-                                               uint64_t(decodeLatencyMs) * 1000000);
-                    }
-
-                    m_ActiveWndVideoStats.decodedFrames++;
-
-                    // The Qt presenter owns the bounded render queue.
-                    m_BackendRenderer->renderFrame(frame);
-                    av_frame_free(&frame);
-                }
-                else if (err == AVERROR(EAGAIN)) {
-                    VIDEO_FRAME_HANDLE handle;
-                    PDECODE_UNIT du;
-
-                    // No output data, so let's try to submit more input data,
-                    // while we're waiting for this to frame to come back.
-                    if (LiPollNextVideoFrame(&handle, &du)) {
-                        // FIXME: Handle EAGAIN on avcodec_send_packet() properly?
-                        LiCompleteVideoFrame(handle, submitDecodeUnit(du));
-                    }
-                    else {
-                        // No output data or input data. Let's wait a little bit.
-                        QThread::msleep(2);
-                    }
-                }
-                else {
-                    char errorstring[512];
-
-                    // FIXME: Should we pop an entry off m_FrameInfoQueue here?
-
-                    av_strerror(err, errorstring, sizeof(errorstring));
-                    qWarning("avcodec_receive_frame() failed: %s (frame %d)",
-                                errorstring,
-                                !m_FrameInfoQueue.isEmpty() ? m_FrameInfoQueue.head().frameNumber : -1);
-
-                    if (++m_ConsecutiveFailedDecodes == FAILED_DECODES_RESET_THRESHOLD) {
-                        qCritical("Resetting decoder due to consistent failure");
-
-                        Session::requestDecoderReset();
-
-                        // Don't consume any additional data
-                        m_DecoderThreadShouldQuit.store(true);
-                    }
-
-                    // Just in case the error resulted in the loss of the frame,
-                    // request an IDR frame to reset our decoder state.
-                    LiRequestIdrFrame();
-                }
-            } while (err == AVERROR(EAGAIN) && !m_DecoderThreadShouldQuit.load());
-
-            if (err != 0) {
-                // Free the frame if we failed to submit it
-                av_frame_free(&frame);
-            }
+            clm->MaxCLL = hdrMetadata.maxContentLightLevel;
+            clm->MaxFALL = hdrMetadata.maxFrameAverageLightLevel;
         }
     }
+
+    // Reset failed decodes count if we reached this far
+    m_ConsecutiveFailedDecodes = 0;
+
+    // Restore default log level after a successful decode
+    av_log_set_level(AV_LOG_INFO);
+
+    // Capture a frame timestamp to measuring pacing delay
+    frame->pkt_dts = PlankClock::milliseconds();
+
+    if (!m_FrameInfoQueue.isEmpty()) {
+        // Data buffers in the DU are not valid here!
+        DECODE_UNIT du = m_FrameInfoQueue.dequeue();
+
+        // Count time in avcodec_send_packet() and avcodec_receive_frame()
+        // as time spent decoding. Also count time spent in the decode unit
+        // queue because that's directly caused by decoder latency.
+        const uint32_t decodeLatencyMs = static_cast<uint32_t>(
+            (LiGetMicroseconds() - du.enqueueTimeUs) / 1000);
+        m_ActiveWndVideoStats.totalDecodeTime += decodeLatencyMs;
+        m_DecodeLatencyHistogram[std::min<uint32_t>(
+            decodeLatencyMs,
+            m_DecodeLatencyHistogram.size() - 1)]++;
+        m_MaxDecodeLatencyMs = std::max(m_MaxDecodeLatencyMs, decodeLatencyMs);
+
+        // Store the presentation time
+        frame->pts = du.presentationTimeUs / 1000;
+        m_FrameFlowTrace.record(ClientFrameFlowTrace::Decode,
+                               du.presentationTimeUs, du.frameNumber,
+                               du.frameType == FRAME_TYPE_IDR, du.fullLength,
+                               m_FrameInfoQueue.count(),
+                               uint64_t(decodeLatencyMs) * 1000000);
+    }
+
+    m_ActiveWndVideoStats.decodedFrames++;
+
+    // The Qt presenter owns the bounded render queue.
+    m_BackendRenderer->renderFrame(frame);
 }
 
 int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
@@ -1437,7 +1350,7 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
     Q_ASSERT(!m_TestOnly);
 
     // If this is the first frame, reject anything that's not an IDR frame
-    if (m_FramesIn == 0 && du->frameType != FRAME_TYPE_IDR) {
+    if (m_AwaitingKeyframe && du->frameType != FRAME_TYPE_IDR) {
         return DR_NEED_IDR;
     }
 
@@ -1538,36 +1451,34 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
     m_ActiveWndVideoStats.totalReassemblyTime += static_cast<uint32_t>(
         (du->enqueueTimeUs - du->receiveTimeUs) / 1000);
 
-    err = avcodec_send_packet(m_VideoDecoderCtx, m_Pkt);
-    av_packet_unref(m_Pkt); // The codec retains its own reference when needed.
+    err = plankSendAndDrain(AVERROR(EAGAIN), AVERROR_INVALIDDATA,
+        [this] { return avcodec_send_packet(m_VideoDecoderCtx, m_Pkt); },
+        [this] { return drainDecodedFrames(); },
+        [this, du] {
+            DECODE_UNIT metadata = *du;
+            metadata.bufferList = nullptr;
+            metadata.frameBuffer = nullptr;
+            m_FrameInfoQueue.enqueue(metadata);
+            m_AwaitingKeyframe = false;
+        });
+    av_packet_unref(m_Pkt);
     if (err < 0) {
+        if (m_DecoderThreadShouldQuit.load()) return DR_OK;
         char errorstring[512];
         av_strerror(err, errorstring, sizeof(errorstring));
-        qWarning("avcodec_send_packet() failed: %s (frame %d)",
-                    errorstring,
-                    du->frameNumber);
-
-        // If we've failed a bunch of decodes in a row, the decoder/renderer is
-        // clearly unhealthy, so let's generate a synthetic reset event to trigger
-        // the event loop to destroy and recreate the decoder.
+        qWarning("Video decode failed: %s (frame %d)", errorstring, du->frameNumber);
+        // A codec error can discard an unknown number of delayed outputs.
+        // Flush both sides together so old metadata cannot label a new frame.
+        avcodec_flush_buffers(m_VideoDecoderCtx);
+        m_FrameInfoQueue.clear();
+        m_AwaitingKeyframe = true;
         if (++m_ConsecutiveFailedDecodes == FAILED_DECODES_RESET_THRESHOLD) {
             qCritical("Resetting decoder due to consistent failure");
-
             Session::requestDecoderReset();
-
-            // Don't consume any additional data
             m_DecoderThreadShouldQuit.store(true);
         }
-
         return DR_NEED_IDR;
     }
-
-    DECODE_UNIT metadata = *du;
-    metadata.bufferList = nullptr;
-    metadata.frameBuffer = nullptr;
-    m_FrameInfoQueue.enqueue(metadata);
-
-    m_FramesIn++;
     return DR_OK;
 }
 

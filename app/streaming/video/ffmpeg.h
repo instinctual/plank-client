@@ -92,6 +92,8 @@ private:
                                    const enum AVPixelFormat* pixFmts);
 
     void decoderThreadProc();
+    int drainDecodedFrames();
+    void presentDecodedFrame(AVFrame* frame);
 
     bool startDecoderThread();
 
@@ -110,8 +112,7 @@ private:
     std::array<uint32_t, 1001> m_DecodeLatencyHistogram {};
     uint32_t m_MaxDecodeLatencyMs = 0;
 
-    int m_FramesIn;
-    int m_FramesOut;
+    bool m_AwaitingKeyframe;
 
     int m_LastFrameNumber;
     int m_StreamFps;

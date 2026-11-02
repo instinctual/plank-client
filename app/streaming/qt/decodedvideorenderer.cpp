@@ -103,8 +103,7 @@ public:
     {
         // Same decoder capabilities as the existing VideoToolbox/Metal path;
         // changing the window owner must not change loss recovery negotiation.
-        return CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC |
-               CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1;
+        return CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC;
     }
 #endif
 

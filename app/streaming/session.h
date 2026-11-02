@@ -99,10 +99,6 @@ public:
             {SCM_HEVC_MAIN10, VIDEO_FORMAT_H265_MAIN10},
             {SCM_HEVC_REXT8_444, VIDEO_FORMAT_H265_REXT8_444},
             {SCM_HEVC_REXT10_444, VIDEO_FORMAT_H265_REXT10_444},
-            {SCM_AV1_MAIN8, VIDEO_FORMAT_AV1_MAIN8},
-            {SCM_AV1_MAIN10, VIDEO_FORMAT_AV1_MAIN10},
-            {SCM_AV1_HIGH8_444, VIDEO_FORMAT_AV1_HIGH8_444},
-            {SCM_AV1_HIGH10_444, VIDEO_FORMAT_AV1_HIGH10_444},
         };
 
         for (QMap<int, int>::const_iterator it = mapping.cbegin(); it != mapping.cend(); ++it) {

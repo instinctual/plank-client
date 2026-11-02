@@ -1,5 +1,7 @@
 #pragma once
 
+#include "pollingthread.h"
+
 #include "nvcomputer.h"
 #include "authenticationtakeover.h"
 #include "settings/streamingpreferences.h"
@@ -150,7 +152,7 @@ public:
         // interrupt() should have taken care of this
         Q_ASSERT(m_ActiveThread == nullptr);
 
-        for (QThread* thread : std::as_const(m_InactiveList)) {
+        for (PollingThread* thread : std::as_const(m_InactiveList)) {
             thread->wait();
             delete thread;
         }
@@ -163,7 +165,7 @@ public:
         return m_ActiveThread != nullptr;
     }
 
-    void setActiveThread(QThread* thread)
+    void setActiveThread(PollingThread* thread)
     {
         cleanInactiveList();
 
@@ -177,7 +179,7 @@ public:
 
         if (m_ActiveThread != nullptr) {
             // Interrupt the active thread
-            m_ActiveThread->requestInterruption();
+            m_ActiveThread->stop();
 
             // Place it on the inactive list awaiting death
             m_InactiveList.append(m_ActiveThread);
@@ -189,13 +191,13 @@ public:
 private:
     void cleanInactiveList()
     {
-        QMutableListIterator<QThread*> i(m_InactiveList);
+        QMutableListIterator<PollingThread*> i(m_InactiveList);
 
         // Reap any threads that have finished
         while (i.hasNext()) {
             i.next();
 
-            QThread* thread = i.value();
+            PollingThread* thread = i.value();
             if (thread->isFinished()) {
                 delete thread;
                 i.remove();
@@ -203,8 +205,8 @@ private:
         }
     }
 
-    QThread* m_ActiveThread;
-    QList<QThread*> m_InactiveList;
+    PollingThread* m_ActiveThread;
+    QList<PollingThread*> m_InactiveList;
 };
 
 class ComputerManager : public QObject

@@ -93,7 +93,7 @@ bool parseProfileBitrates(const QVariantList& values,
 }
 }
 
-class PcMonitorThread : public QThread
+class PcMonitorThread : public PollingThread
 {
     Q_OBJECT
 
@@ -212,13 +212,13 @@ private:
 
         // Always fetch the applist the first time
         int pollsSinceLastAppListFetch = POLLS_PER_APPLIST_FETCH;
-        while (!isInterruptionRequested()) {
+        while (!stopping()) {
             bool stateChanged = false;
             bool online = false;
             bool wasOnline = m_Computer->state == NvComputer::CS_ONLINE;
             for (int i = 0; i < (wasOnline ? TRIES_BEFORE_OFFLINING : 1) && !online; i++) {
                 for (auto& address : m_Computer->uniqueAddresses()) {
-                    if (isInterruptionRequested()) {
+                    if (stopping()) {
                         return;
                     }
 
@@ -232,7 +232,7 @@ private:
                 }
             }
 
-            if (isInterruptionRequested()) {
+            if (stopping()) {
                 return;
             }
 
@@ -267,12 +267,7 @@ private:
                 emit computerStateChanged(m_Computer);
             }
 
-            // Wait a bit to poll again, but do it in 100 ms chunks
-            // so we can be interrupted reasonably quickly.
-            // FIXME: QWaitCondition would be better.
-            for (int i = 0; i < 30 && !isInterruptionRequested(); i++) {
-                QThread::msleep(100);
-            }
+            waitForNextPoll(3000);
         }
     }
 

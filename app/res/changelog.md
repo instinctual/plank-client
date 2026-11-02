@@ -1,3 +1,16 @@
+## 1.3.06 — Transport and decoder simplification candidate
+
+### Client
+- Handle decoder backpressure without discarding the waiting frame.
+- Retire stale frame metadata together with decoder recovery.
+- Reduce idle bookmark polling and bound queued video memory.
+- Remove unused AV1 decoder paths and duplicate build entries.
+
+### Host
+- Remove the retired transport prototype and an extra encoded-video copy.
+- Bound queued video memory while preserving existing frame-size support.
+- Run focused Linux input, crypto and UTF-8 logging checks without rebuilding the entire Host.
+
 ## 1.3.05 — Desktop simplification candidate
 
 ### Client
