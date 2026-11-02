@@ -1,4 +1,4 @@
-## 1.3.12 — Native input and media cleanup candidate
+## 1.3.13 — Native input and media cleanup candidate
 
 ### Client
 - Send input through the native transport without rebuilding legacy packets.
