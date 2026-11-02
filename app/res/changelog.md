@@ -1,3 +1,15 @@
+## 1.3.12 — Native input and media cleanup candidate
+
+### Client
+- Send input through the native transport without rebuilding legacy packets.
+- Preserve the Host's H.264 parameter sets and avoid copying owned keyframes.
+- Reuse unchanged Ubuntu color-conversion descriptions between frames.
+- Remove unused decoder, HDR and controller paths while keeping exact-format checks.
+
+### Host
+- Inject native input directly while preserving tablet identity and release ordering.
+- Remove unused KMS capture and encoding fallbacks; retain NvFBC, Native X11, x264 and direct NVENC.
+
 ## 1.3.06 — Transport and decoder simplification candidate
 
 ### Client
