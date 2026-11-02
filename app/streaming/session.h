@@ -307,8 +307,6 @@ private:
     void clConnectionStatusUpdate(int connectionStatus);
 
     static
-
-    static
     void clRawHidControl(const unsigned char* data, unsigned int length);
 
     static
