@@ -1,6 +1,7 @@
 #pragma once
 
 #include "outputtopology.h"
+#include "../plankprofiles.h"
 #include <QJsonArray>
 #include <QStringList>
 
@@ -20,8 +21,8 @@ inline bool cameraSupported()
 }
 inline bool encodingSupported(const QString& mode)
 {
-    return mode == QLatin1String("hevc-10-420-videotoolbox") ||
-           mode == QLatin1String("hevc-10-444-videotoolbox");
+    const auto* profile = plank_encoding_profile_named(mode.toUtf8().constData());
+    return profile && profile->encoder == PLANK_ENCODER_APPLE;
 }
 inline QJsonObject profile(const QString& name, const QString& mode)
 {

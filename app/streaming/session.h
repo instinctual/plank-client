@@ -1,4 +1,5 @@
 #pragma once
+#include "sessionlifecycle.h"
 
 #include <QtGlobal>
 
@@ -149,7 +150,6 @@ public:
     // Worker-to-UI requests are queued to the Qt session owner.
     static void requestSessionQuit();
     static void requestDecoderReset();
-    bool usesQtPresentation() const { return m_RendererFactory != nullptr; }
 
     void updateRenderedStats(float fps, float videoMbps)
     {
@@ -384,18 +384,14 @@ private:
     bool m_AudioDisabled;
     bool m_AudioMuted;
     bool m_UnexpectedTermination;
-    std::atomic_bool m_ReconnectRequested;
     std::atomic<quint64> m_DesktopHandoffNoticeDeadline {0};
     std::atomic_bool m_ReconnectGreeterConfirmed {false};
     std::atomic<quint64> m_LastPlankVideoReceived {0};
     QString m_PlankWorkerInstance;
     QString m_PlankHostCertificateSha256;
-    std::atomic_bool m_Reconnecting;
-    std::atomic_bool m_ReconnectCancelled;
     PlankReconnectPolicy m_ReconnectPolicy;
-    std::atomic_bool m_CanReconnect;
-    std::atomic_bool m_ConnectionStartCancelled;
-    std::atomic_bool m_WaitingForSessionCleanup;
+    PlankSessionLifecycle m_Lifecycle;
+    std::atomic_bool m_CanReconnect; // Credential capability, not lifecycle state.
     std::atomic_bool m_WaitingForActiveSessionTakeoverDecision {false};
     std::atomic_int m_ActiveSessionTakeoverDecision {0};
     QString m_PlankUsername;

@@ -36,7 +36,7 @@ QtSessionRuntime::QtSessionRuntime(Session* session) : QObject(session), m_Sessi
 #ifdef Q_OS_MACOS
     connect(qGuiApp, &QGuiApplication::applicationStateChanged, this, [this] { updateFocus(); });
     m_Input->setNativeFocus([this] {
-        if (m_Stop.load()) return false;
+        if (m_Session->m_Lifecycle.stopping()) return false;
         for (const auto& shell : m_Windows)
             if (!shell->surface().displayMenuOpen() && shell->ownsKeyboard()) return true;
         return false;
@@ -63,7 +63,7 @@ QtSessionRuntime::QtSessionRuntime(Session* session) : QObject(session), m_Sessi
         if (m_Launcher) { m_Launcher->show(); m_Launcher->raise(); m_Launcher->requestActivate(); }
     });
     connect(session, &Session::connectionStarted, this, [this] {
-        if (m_Stop.load()) return;
+        if (m_Session->m_Lifecycle.stopping()) return;
         showPresentationWindows();
         updateGeometry();
     });
@@ -202,7 +202,7 @@ void QtSessionRuntime::start(QWindow* launcher)
         });
 #endif
         shell->prepareForSession(desktop, m_Fullscreen && (primary || m_SpanDisplays));
-        if (m_Stop.load()) return;
+        if (m_Session->m_Lifecycle.stopping()) return;
         auto& surface = shell->surface();
         surface.setDisplayMode(canSpan, m_SpanDisplays);
         surface.setLiveSession(true);
@@ -261,7 +261,7 @@ void QtSessionRuntime::start(QWindow* launcher)
         connect(&surface, &QtSessionWindow::displayMenuChanged, this, &QtSessionRuntime::updateFocus);
         connect(&surface, &QtSessionWindow::minimizeRequested, this, &QtSessionRuntime::minimize);
         connect(&surface, &QtSessionWindow::inputRecaptureRequested, this, [this] {
-            if (!m_Streaming || m_Stop.load() || m_ReconnectNoticeDeadline) return;
+            if (!m_Session->m_Lifecycle.streaming() || m_Session->m_Lifecycle.stopping() || m_ReconnectNoticeDeadline) return;
             m_InputGrabbed = true;
             setInputEnabled(true);
         });
@@ -272,7 +272,7 @@ void QtSessionRuntime::start(QWindow* launcher)
     }
     connect(m_Presenter.get(), &QtVideoPresenter::deviceReady, this, [this](bool available, const QString& reason) {
         m_StartupDeadline.stop();
-        if (m_Stop.load()) return;
+        if (m_Session->m_Lifecycle.stopping()) return;
         if (!available) {
             emit m_Session->displayLaunchError(tr("No exact-format Qt video device is available: %1").arg(reason));
             stop(); return;
@@ -318,9 +318,10 @@ bool QtSessionRuntime::eventFilter(QObject* object, QEvent* event)
 
 void QtSessionRuntime::request(Command command)
 {
-    if (m_Stop.load()) return;
+    if (m_Session->m_Lifecycle.stopping()) return;
+    if (command == Command::ResetDecoder && !m_Session->m_Lifecycle.streaming()) return;
     if (command == Command::Reconnect) {
-        m_Streaming = false;
+        if (m_Session->m_Lifecycle.state() != PlankSessionLifecycle::State::RecoveryQueued) return;
         setInputEnabled(false);
         beginRecovery();
     }
@@ -333,10 +334,10 @@ void QtSessionRuntime::request(Command command)
 
 void QtSessionRuntime::stop()
 {
-    if (m_Stop.exchange(true)) return;
+    if (m_Closing) return;
+    m_Closing = true;
     m_Session->m_ReconnectPolicy.allowUntil(0);
     m_Session->cancelConnectionStart();
-    m_Session->m_ReconnectCancelled.store(true);
     m_Session->m_CanReconnect.store(false);
     m_StartupDeadline.stop();
     m_Tick.stop();
@@ -346,6 +347,10 @@ void QtSessionRuntime::stop()
 #endif
     for (auto& shell : m_Windows) shell->hide();
     if (m_Presenter) m_Presenter->stop(); // also wakes test-frame qualification
+    {
+        std::lock_guard<std::mutex> lock(m_CommandMutex);
+        m_Command = Command::Stop;
+    }
     m_CommandChanged.notify_all();
     if (!m_Worker) QTimer::singleShot(0, this, &QtSessionRuntime::finishWorker);
 }
@@ -358,20 +363,18 @@ bool QtSessionRuntime::resetDecoder()
         delete s.m_VideoDecoder;
         s.m_VideoDecoder = nullptr;
     }
-    if (m_Stop.load()) return false;
+    if (m_Session->m_Lifecycle.stopping()) return false;
     IVideoDecoder* decoder = nullptr;
     const bool ready = Session::chooseDecoder(DecoderSelectionMode::PreferExactHardwareThenSoftware,
         s.m_ActiveVideoFormat, s.m_ActiveVideoWidth, s.m_ActiveVideoHeight,
         s.m_ActiveVideoFrameRate, true, false, decoder, s.isIdentityGbrEnabledForFormat(s.m_ActiveVideoFormat),
         s.decoderCaptureSource(), s.decoderEncoderBackend(), m_Factory.get());
-    if (!ready || m_Stop.load()) { delete decoder; return false; }
+    if (!ready || m_Session->m_Lifecycle.stopping()) { delete decoder; return false; }
     {
         std::lock_guard<std::mutex> decoderLock(s.m_DecoderLock);
         s.m_VideoDecoder = decoder;
     }
     LiRequestIdrFrame();
-    const QSize size(s.m_ActiveVideoWidth, s.m_ActiveVideoHeight);
-    QMetaObject::invokeMethod(this, [this, size] { setStreaming(size); }, Qt::QueuedConnection);
     return true;
 }
 
@@ -379,55 +382,59 @@ void QtSessionRuntime::workerMain()
 {
     auto& s = *m_Session;
     for (;;) {
-        if (m_Stop.load()) return;
+        if (m_Session->m_Lifecycle.stopping()) return;
         if (Session::s_ActiveSessionSemaphore.tryAcquire(1, 50)) break;
     }
     m_OwnsSession = true;
     Session::s_ActiveSession = &s;
     s.m_QtInputCallbacks.publish(m_Input.get());
-    bool ready = !m_Stop.load() && s.initialize(m_Factory.get()) && !m_Stop.load();
+    bool ready = !m_Session->m_Lifecycle.stopping() && s.initialize(m_Factory.get()) && !m_Session->m_Lifecycle.stopping();
     if (ready) {
         m_Input->setStreamSize(QSize(s.m_StreamConfig.width, s.m_StreamConfig.height));
-        ready = s.startConnectionAsync() && !m_Stop.load();
+        ready = s.startConnectionAsync() && !m_Session->m_Lifecycle.stopping();
     }
     if (ready) {
         m_Input->startTablets(LiGetHostFeatureFlags());
-        ready = resetDecoder();
+        ready = resetDecoder() && s.m_Lifecycle.started();
     }
-    if (!ready && !m_Stop.load()) emit s.displayLaunchError(tr("The Qt session could not start with the selected video format."));
+    const auto publishStreaming = [this, &s] {
+        const QSize size(s.m_ActiveVideoWidth, s.m_ActiveVideoHeight);
+        QMetaObject::invokeMethod(this, [this, size] { setStreaming(size); }, Qt::QueuedConnection);
+    };
+    if (ready) publishStreaming();
+    if (!ready && !m_Session->m_Lifecycle.stopping()) emit s.displayLaunchError(tr("The Qt session could not start with the selected video format."));
     quint64 nextProbe = 0;
-    while (ready && !m_Stop.load()) {
+    while (ready && !m_Session->m_Lifecycle.stopping()) {
         Command command;
         {
             std::unique_lock<std::mutex> lock(m_CommandMutex);
-            m_CommandChanged.wait_for(lock, std::chrono::milliseconds(100), [this] { return m_Stop.load() || m_Command != Command::None; });
+            m_CommandChanged.wait_for(lock, std::chrono::milliseconds(100), [this] { return m_Session->m_Lifecycle.stopping() || m_Command != Command::None; });
             command = m_Command;
             m_Command = Command::None;
         }
-        if (m_Stop.load()) break;
+        if (m_Session->m_Lifecycle.stopping()) break;
         if (command == Command::Reconnect) {
             m_Input->beginReconnect();
             Session::PlankReconnectState state;
-            if (!s.beginPlankReconnect(state) || m_Stop.load()) break;
+            if (!s.beginPlankReconnect(state) || m_Session->m_Lifecycle.stopping()) break;
             m_Input->resetCursorEpoch();
             s.m_StreamConfig.bitrate = m_RecoveryBitrate.load();
-            const bool connected = s.runPlankReconnect() && !m_Stop.load();
+            const bool connected = s.runPlankReconnect() && !m_Session->m_Lifecycle.stopping();
             // Use the established recovery state machine. It requests a
             // decoder reset only if format/size changed; otherwise retain it.
             bool needsReset = false;
-            ready = s.finishPlankReconnect(connected, state, &needsReset) && !m_Stop.load();
+            ready = s.finishPlankReconnect(connected, state, &needsReset) && !m_Session->m_Lifecycle.stopping();
             if (ready) m_Input->finishReconnect();
             if (ready && needsReset) ready = resetDecoder();
-            if (ready) {
-                const QSize size(s.m_ActiveVideoWidth, s.m_ActiveVideoHeight);
-                QMetaObject::invokeMethod(this, [this, size] { setStreaming(size); }, Qt::QueuedConnection);
-            }
-        } else if (command == Command::ResetDecoder) {
+            if (ready) ready = s.m_Lifecycle.recovered();
+            if (ready) publishStreaming();
+        } else if (command == Command::ResetDecoder && s.m_Lifecycle.streaming()) {
             ready = resetDecoder();
+            if (ready) publishStreaming();
         }
-        if (!ready || m_Stop.load()) break;
+        if (!ready || m_Session->m_Lifecycle.stopping()) break;
         const auto now = PlankClock::milliseconds();
-        if (now >= nextProbe && !s.m_ReconnectRequested.load() && s.m_CanReconnect.load() &&
+        if (now >= nextProbe && !s.m_Lifecycle.recoveryPending() && s.m_CanReconnect.load() &&
                 PlankHostRecovery::videoSilent(now, s.m_LastPlankVideoReceived.load()) && !s.m_PlankWorkerInstance.isEmpty()) {
             nextProbe = now + PlankHostRecovery::ProbeIntervalMs;
             try {
@@ -441,8 +448,8 @@ void QtSessionRuntime::workerMain()
     // All shared media state is retired on this worker, before releasing the
     // active-session token or allowing another session to start.
     s.m_CanReconnect.store(false);
-    s.m_ReconnectCancelled.store(true);
-    QMetaObject::invokeMethod(this, [this] { m_Streaming = false; setInputEnabled(false); }, Qt::QueuedConnection);
+    s.m_Lifecycle.stop();
+    QMetaObject::invokeMethod(this, [this] { setInputEnabled(false); }, Qt::QueuedConnection);
     s.m_QtInputCallbacks.clear();
     m_Input->shutdown();
     s.stopPlankTransportMediaReceivers();
@@ -477,7 +484,7 @@ void QtSessionRuntime::finishWorker()
     }
 #endif
     m_Finished = true;
-    m_Stop.store(true);
+    m_Session->m_Lifecycle.finished();
     m_StartupDeadline.stop(); m_Tick.stop();
     setInputEnabled(false);
 #ifdef Q_OS_LINUX
@@ -505,12 +512,11 @@ void QtSessionRuntime::finishWorker()
 
 void QtSessionRuntime::setStreaming(QSize size)
 {
-    if (m_Stop.load()) return;
+    if (!m_Session->m_Lifecycle.streaming() || m_Closing) return;
     m_StreamSize = size;
     if (!m_DisplayNotice.isEmpty() && !m_DisplayNoticeDeadline)
         m_DisplayNoticeDeadline = PlankClock::milliseconds() + 12000;
     m_Input->setStreamSize(size);
-    m_Streaming = true;
     m_ReconnectNoticeDeadline = 0;
     updateGeometry();
     setStatus(m_Presenter->hasPresentedLiveFrame() ? QString() : tr("Connecting to workstation…"));
@@ -601,13 +607,13 @@ void QtSessionRuntime::updateFocus()
     for (const auto& shell : m_Windows)
         active |= !shell->surface().displayMenuOpen() &&
                   (focused == shell.get() || focused == &shell->surface());
-    m_Input->setFocused(active && !m_Stop.load());
+    m_Input->setFocused(active && !m_Session->m_Lifecycle.stopping());
 #ifdef Q_OS_MACOS
-    m_Session->m_QtClipboardFocused.store(active && m_Streaming && !m_Stop.load());
+    m_Session->m_QtClipboardFocused.store(active && m_Session->m_Lifecycle.streaming() && !m_Session->m_Lifecycle.stopping());
 #endif
     const auto policy = m_CapturePolicy;
     const bool fullscreen = !m_Windows.empty() && m_Windows.front()->windowState() == Qt::WindowFullScreen;
-    const bool captureAllowed = m_Streaming && m_InputGrabbed && !m_Stop.load() &&
+    const bool captureAllowed = m_Session->m_Lifecycle.streaming() && m_InputGrabbed && !m_Session->m_Lifecycle.stopping() &&
         (policy == StreamingPreferences::CSK_ALWAYS || (policy == StreamingPreferences::CSK_FULLSCREEN && fullscreen));
 #ifdef Q_OS_MACOS
     // Keep policy separate from cached Qt focus. The native tap and Quit
@@ -622,7 +628,7 @@ void QtSessionRuntime::updateFocus()
     for (auto& shell : m_Windows)
         if (focused == shell.get() || focused == &shell->surface()) focusedShell = shell.get();
     m_WindowGuard->setWindows(focusedShell, focusedShell ? &focusedShell->surface() : nullptr);
-    m_WindowGuard->setPolicy(grab, active && m_Streaming && m_InputGrabbed && m_ConfinePointer &&
+    m_WindowGuard->setPolicy(grab, active && m_Session->m_Lifecycle.streaming() && m_InputGrabbed && m_ConfinePointer &&
         fullscreen && QGuiApplication::screens().size() == 1);
     // The Wayland shortcut inhibitor is attached separately to Qt's surface.
     // XCB implements this public Qt API directly.
@@ -652,7 +658,7 @@ void QtSessionRuntime::showPresentationWindows()
 
 void QtSessionRuntime::selectFullscreenDisplays(bool span, QtPlatformSessionShell* source)
 {
-    if (m_Stop.load() || m_Windows.empty() || !source || !source->screen()) return;
+    if (m_Session->m_Lifecycle.stopping() || m_Windows.empty() || !source || !source->screen()) return;
     const bool canSpan = m_Windows.size() == 2 && ClientDisplays::canSpan(ClientDisplays::snapshot());
     if (span && !canSpan) return;
     // Presentation-only override. Keep the authentication/Host-layout snapshot
@@ -693,7 +699,7 @@ void QtSessionRuntime::handleShortcut(int key)
     auto& surface = m_Windows.front()->surface();
     switch (key) {
     case Qt::Key_Q: stop(); break;
-    case Qt::Key_Z: m_InputGrabbed = !m_InputGrabbed; setInputEnabled(m_Streaming && m_InputGrabbed); break;
+    case Qt::Key_Z: m_InputGrabbed = !m_InputGrabbed; setInputEnabled(m_Session->m_Lifecycle.streaming() && m_InputGrabbed); break;
     case Qt::Key_X: surface.toggleFullscreen(); break;
     case Qt::Key_S:
     {
@@ -714,7 +720,7 @@ void QtSessionRuntime::handleShortcut(int key)
 
 void QtSessionRuntime::tick()
 {
-    if (m_Stop.load()) return;
+    if (m_Session->m_Lifecycle.stopping()) return;
 #ifdef Q_OS_MACOS
     if (m_Session->m_ClipboardSync) {
         m_Session->m_ClipboardSync->applyPendingHostTextOnMainThread();
@@ -733,10 +739,10 @@ void QtSessionRuntime::tick()
             for (auto& shell : m_Windows) shell->surface().setWaiting(true);
         }
     }
-    if (m_Streaming) {
+    if (m_Session->m_Lifecycle.streaming()) {
         // A healthy Host may send no new frames while its desktop is idle.
         // Only transport failure or a confirmed worker replacement enters
-        // recovery; request(Reconnect) then clears m_Streaming so its status
+        // recovery; the lifecycle then leaves Streaming so its status
         // and timeout notice remain owned by that recovery path.
         setStatus(m_Presenter->hasPresentedLiveFrame() ? QString() : tr("Connecting to workstation…"));
     }
@@ -749,7 +755,7 @@ void QtSessionRuntime::tick()
     }
     const auto flags = LI_FF_DYNAMIC_VIDEO_BITRATE | LI_FF_ENCODER_TARGET_ACK;
     const bool rateSupported = (LiGetHostFeatureFlags() & flags) == flags;
-    if (m_Streaming && rateSupported && m_TargetBitrate != applied && now >= m_BitrateChanged + 250 &&
+    if (m_Session->m_Lifecycle.streaming() && rateSupported && m_TargetBitrate != applied && now >= m_BitrateChanged + 250 &&
         now >= m_BitrateSent + (m_LastSentBitrate == m_TargetBitrate ? 1000 : 250)) {
         if (LiSetVideoBitrate(m_TargetBitrate) == 0) { m_LastSentBitrate = m_TargetBitrate; m_BitrateSent = now; }
     }
@@ -757,7 +763,7 @@ void QtSessionRuntime::tick()
         {QStringLiteral("videoMbps"), m_Session->m_CurrentVideoMbps.load()},
         {QStringLiteral("loss"), m_Session->currentVideoFecLoss().before},
         {QStringLiteral("rtt"), m_Session->currentNetworkRttMs()},
-        {QStringLiteral("bitrateEnabled"), rateSupported && m_Streaming},
+        {QStringLiteral("bitrateEnabled"), rateSupported && m_Session->m_Lifecycle.streaming()},
         {QStringLiteral("bitrateConfirmed"), requested == m_TargetBitrate && applied == m_TargetBitrate},
         {QStringLiteral("peakKbps"), m_Session->m_ConfirmedBitratePeakKbps.load()}};
     {

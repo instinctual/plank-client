@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../plankprofiles.h"
 #include <QObject>
 #include <QRect>
 #include <QQmlEngine>
@@ -27,73 +28,54 @@ public:
 
     enum PlankVideoProfile
     {
-        PLANK_PROFILE_H264_10BIT_444,
-        PLANK_PROFILE_H264_8BIT_422,
-        PLANK_PROFILE_H264_8BIT_444,
-        PLANK_PROFILE_H264_10BIT_422,
-        PLANK_PROFILE_NVENC_H264_8BIT_444,
-        PLANK_PROFILE_NVENC_HEVC_8BIT_444,
-        PLANK_PROFILE_NVENC_HEVC_10BIT_444,
-        PLANK_PROFILE_APPLE_HEVC_10BIT_420,
-        PLANK_PROFILE_APPLE_HEVC_10BIT_444,
-        PLANK_PROFILE_COUNT,
+        PLANK_PROFILE_H264_10BIT_444 = PLANK_ENCODING_H264_10_444,
+        PLANK_PROFILE_H264_8BIT_422 = PLANK_ENCODING_H264_8_422,
+        PLANK_PROFILE_H264_8BIT_444 = PLANK_ENCODING_H264_8_444,
+        PLANK_PROFILE_H264_10BIT_422 = PLANK_ENCODING_H264_10_422,
+        PLANK_PROFILE_NVENC_H264_8BIT_444 = PLANK_ENCODING_NVENC_H264_8_444,
+        PLANK_PROFILE_NVENC_HEVC_8BIT_444 = PLANK_ENCODING_NVENC_HEVC_8_444,
+        PLANK_PROFILE_NVENC_HEVC_10BIT_444 = PLANK_ENCODING_NVENC_HEVC_10_444,
+        PLANK_PROFILE_APPLE_HEVC_10BIT_420 = PLANK_ENCODING_APPLE_HEVC_10_420,
+        PLANK_PROFILE_APPLE_HEVC_10BIT_444 = PLANK_ENCODING_APPLE_HEVC_10_444,
+        PLANK_PROFILE_COUNT = PLANK_ENCODING_COUNT,
     };
     Q_ENUM(PlankVideoProfile)
 
     enum PlankCaptureSource
     {
-        PLANK_CAPTURE_NVFBC_8BIT,
-        PLANK_CAPTURE_X11_NATIVE10,
-        PLANK_CAPTURE_SCREENCAPTUREKIT,
+        PLANK_CAPTURE_NVFBC_8BIT = PLANK_SOURCE_NVFBC,
+        PLANK_CAPTURE_X11_NATIVE10 = PLANK_SOURCE_X11,
+        PLANK_CAPTURE_SCREENCAPTUREKIT = PLANK_SOURCE_SCK,
     };
     Q_ENUM(PlankCaptureSource)
 
     static bool isPlankAppleProfile(int profile)
     {
-        return profile == PLANK_PROFILE_APPLE_HEVC_10BIT_420 ||
-               profile == PLANK_PROFILE_APPLE_HEVC_10BIT_444;
+        const auto* item = plank_encoding_profile(profile);
+        return item && item->encoder == PLANK_ENCODER_APPLE;
     }
 
     static QString plankAppleEncodingMode(int profile)
     {
-        if (profile == PLANK_PROFILE_APPLE_HEVC_10BIT_420) return QStringLiteral("hevc-10-420-videotoolbox");
-        if (profile == PLANK_PROFILE_APPLE_HEVC_10BIT_444) return QStringLiteral("hevc-10-444-videotoolbox");
-        return {};
+        const auto* item = plank_encoding_profile(profile);
+        return isPlankAppleProfile(profile) ? QString::fromLatin1(item->mode) : QString();
     }
 
     static bool isPlankVideoProfileValid(int profile)
     {
-        return profile >= PLANK_PROFILE_H264_10BIT_444 &&
-               profile < PLANK_PROFILE_COUNT;
+        return plank_encoding_profile(profile) != nullptr;
     }
 
     static bool isPlankProfileValidForCaptureSource(
             int profile, int captureSource)
     {
-        if (!isPlankVideoProfileValid(profile) ||
-                captureSource < PLANK_CAPTURE_NVFBC_8BIT ||
-                captureSource > PLANK_CAPTURE_SCREENCAPTUREKIT) {
-            return false;
-        }
-
-        if (captureSource == PLANK_CAPTURE_SCREENCAPTUREKIT ||
-                isPlankAppleProfile(profile)) {
-            return captureSource == PLANK_CAPTURE_SCREENCAPTUREKIT &&
-                   isPlankAppleProfile(profile);
-        }
-
-        if (captureSource == PLANK_CAPTURE_X11_NATIVE10) {
-            return profile == PLANK_PROFILE_H264_10BIT_444 ||
-                   profile == PLANK_PROFILE_NVENC_HEVC_10BIT_444;
-        }
-
-        return true;
+        return plank_encoding_supports_capture(plank_encoding_profile(profile), captureSource);
     }
 
     static bool isPlankNvencProfile(int profile)
     {
-        return profile >= PLANK_PROFILE_NVENC_H264_8BIT_444 &&
-               profile <= PLANK_PROFILE_NVENC_HEVC_10BIT_444;
+        const auto* item = plank_encoding_profile(profile);
+        return item && item->encoder == PLANK_ENCODER_NVENC;
     }
 
     static bool isPlankH264NvencProfile(int profile)
@@ -114,11 +96,7 @@ public:
             return false;
         }
 
-        if (isPlankAppleProfile(profile)) {
-            return width <= 5120 && height <= 2160 && width % 2 == 0 && height % 2 == 0;
-        }
-        return !isPlankH264NvencProfile(profile) ||
-               (width <= 4096 && height <= 2160);
+        return plank_encoding_explicit_dimensions(plank_encoding_profile(profile), width, height);
     }
 
     static constexpr int PlankBitrateMinimumKbps = 10000;
@@ -129,11 +107,8 @@ public:
 
     static int plankDefaultBitrateForProfile(int profile)
     {
-        return profile == PLANK_PROFILE_NVENC_HEVC_8BIT_444 ||
-               profile == PLANK_PROFILE_NVENC_HEVC_10BIT_444 ||
-               isPlankAppleProfile(profile) ?
-                   PlankHevcDefaultBitrateKbps :
-                   PlankH264DefaultBitrateKbps;
+        const auto* item = plank_encoding_profile(profile);
+        return item ? item->default_bitrate_kbps : PlankH264DefaultBitrateKbps;
     }
 
     static int clampPlankBitrate(int bitrateKbps)

@@ -82,15 +82,14 @@ QSemaphore Session::s_ActiveSessionSemaphore(1);
 
 void Session::clStageStarting(int stage)
 {
-    // We know this is called on the same thread as LiStartConnection()
-    // which happens to be the main thread, so it's cool to interact
-    // with the GUI in these callbacks.
+    // LiStartConnection runs on the serialized session worker. Qt delivers
+    // these signals to the GUI thread; callbacks never manipulate windows.
     emit s_ActiveSession->stageStarting(QString::fromLocal8Bit(LiGetStageName(stage)));
 }
 
 void Session::clStageFailed(int stage, int errorCode)
 {
-    if (s_ActiveSession->m_Reconnecting.load()) {
+    if (s_ActiveSession->m_Lifecycle.recovering()) {
         qWarning("PLANK reconnect stage failed: %s (%d)",
                     LiGetStageName(stage), errorCode);
         return;
@@ -112,7 +111,7 @@ void Session::clConnectionTerminated(int errorCode)
     if (static_cast<std::uint32_t>(errorCode) ==
             PLANK_TRANSPORT_TERMINATION_SESSION_TAKEN_OVER) {
         s_ActiveSession->m_CanReconnect.store(false);
-        s_ActiveSession->m_ReconnectCancelled.store(true);
+        s_ActiveSession->m_Lifecycle.stop();
         s_ActiveSession->m_UnexpectedTermination = false;
         emit s_ActiveSession->displayLaunchError(
                     tr("This PLANK session was transferred to another client."));
@@ -123,8 +122,7 @@ void Session::clConnectionTerminated(int errorCode)
 
     if (s_ActiveSession->m_Computer->plankAuthentication &&
             s_ActiveSession->m_CanReconnect.load() &&
-            !s_ActiveSession->m_Reconnecting.load() &&
-            !s_ActiveSession->m_ReconnectRequested.exchange(true)) {
+            s_ActiveSession->m_Lifecycle.requestRecovery()) {
         qWarning("PLANK transport ended (%d); starting responsive reconnect",
                     errorCode);
         emit s_ActiveSession->qtReconnectRequested();
@@ -134,7 +132,7 @@ void Session::clConnectionTerminated(int errorCode)
     // The early worker probe and transport termination can arrive together.
     // A queued reconnect is already owned by the Qt session worker, just like a
     // running one; duplicate callbacks must not enqueue a fatal quit.
-    if (s_ActiveSession->m_ReconnectRequested.load() || s_ActiveSession->m_Reconnecting.load()) {
+    if (s_ActiveSession->m_Lifecycle.recoveryPending()) {
         qWarning("PLANK reconnect attempt ended: %d", errorCode);
         return;
     }
@@ -189,7 +187,10 @@ void Session::clConnectionTerminated(int errorCode)
 
 void Session::requestSessionQuit()
 {
-    if (s_ActiveSession) emit s_ActiveSession->qtQuitRequested();
+    if (s_ActiveSession) {
+        s_ActiveSession->m_Lifecycle.stop();
+        emit s_ActiveSession->qtQuitRequested();
+    }
 }
 
 void Session::requestDecoderReset()
@@ -208,7 +209,7 @@ void Session::clLogMessage(const char* format, ...)
 
 void Session::clConnectionStatusUpdate(int connectionStatus)
 {
-    if (s_ActiveSession->m_Reconnecting.load() || !s_ActiveSession->m_Preferences->connectionWarnings) return;
+    if (s_ActiveSession->m_Lifecycle.recovering() || !s_ActiveSession->m_Preferences->connectionWarnings) return;
     if (connectionStatus == CONN_STATUS_POOR) {
         s_ActiveSession->setPlankReconnectStatus(s_ActiveSession->m_StreamConfig.bitrate > 5000 ?
             "Slow connection to PC\nReduce your bitrate" : "Poor connection to PC", true);
@@ -515,12 +516,7 @@ Session::Session(NvComputer* computer, NvApp& app,
       m_VideoDecoder(nullptr),
       m_AudioMuted(false),
       m_UnexpectedTermination(true), // Failure prior to streaming is unexpected
-      m_ReconnectRequested(false),
-      m_Reconnecting(false),
-      m_ReconnectCancelled(false),
       m_CanReconnect(false),
-      m_ConnectionStartCancelled(false),
-      m_WaitingForSessionCleanup(false),
       m_AsyncConnectionSuccess(false),
       m_OpusDecoder(nullptr),
       m_AudioRenderer(nullptr),
@@ -636,7 +632,7 @@ bool Session::startPlankTransportDataPlane(quint16 port,
     if (result == PLANK_TRANSPORT_OK) {
         const auto deadline = PlankClock::milliseconds() + 12000;
         do {
-            if (m_ConnectionStartCancelled.load()) { result = PLANK_TRANSPORT_ERROR_INVALID_STATE; break; }
+            if (m_Lifecycle.stopping()) { result = PLANK_TRANSPORT_ERROR_INVALID_STATE; break; }
             result = plank_transport_native_endpoint_wait_ready(endpoint, 100);
         } while (result == PLANK_TRANSPORT_TIMEOUT && PlankClock::milliseconds() < deadline);
     }
@@ -787,7 +783,7 @@ bool Session::negotiatePlankTransportSession(quint16 sessionPort, QString& error
     const auto deadline = PlankClock::milliseconds() + 12000;
     int receiveResult;
     do {
-        if (m_ConnectionStartCancelled.load()) { receiveResult = PLANK_TRANSPORT_ERROR_INVALID_STATE; break; }
+        if (m_Lifecycle.stopping()) { receiveResult = PLANK_TRANSPORT_ERROR_INVALID_STATE; break; }
         receiveResult = plank_transport_native_data_receive(
                     m_PlankTransportEndpoint, packet.data(), packet.size(), &packetSize, 100);
     } while (receiveResult == PLANK_TRANSPORT_TIMEOUT && PlankClock::milliseconds() < deadline);
@@ -1009,7 +1005,9 @@ void Session::plankTransportVideoReceiveLoop()
     ClientFrameFlowTrace frameFlow("receive");
     constexpr size_t InitialFrameCapacity = 1024 * 1024;
     constexpr size_t MaximumFrameCapacity = 64 * 1024 * 1024;
-    std::vector<unsigned char> frame(InitialFrameCapacity);
+    using VideoBuffer = std::unique_ptr<PLANK_VIDEO_BUFFER, decltype(&LiReleaseVideoBuffer)>;
+    size_t capacity = InitialFrameCapacity;
+    VideoBuffer frame(LiAllocateVideoBuffer(int(capacity)), LiReleaseVideoBuffer);
     VideoPacketLossInterval packetLossInterval;
     quint64 nextPacketLossSample = PlankClock::milliseconds();
 
@@ -1046,20 +1044,26 @@ void Session::plankTransportVideoReceiveLoop()
     };
 
     while (!m_PlankTransportReceiversStopping.load()) {
+        if (!frame) {
+            qCritical("Unable to allocate encoded video buffer");
+            Session::requestSessionQuit();
+            return;
+        }
         sampleTransportTelemetry();
         PlankTransportNativeVideoFrameInfo info {};
         info.struct_size = sizeof(info);
         size_t frameSize = 0;
         const int result = plank_transport_native_video_receive(
-                    m_PlankTransportEndpoint, &info, frame.data(), frame.size(),
+                    m_PlankTransportEndpoint, &info, LiVideoBufferData(frame.get()), capacity,
                     &frameSize, 50);
         if (result == PLANK_TRANSPORT_TIMEOUT) {
             continue;
         }
         if (result == PLANK_TRANSPORT_ERROR_BUFFER_TOO_SMALL &&
-                frameSize > frame.size() &&
+                frameSize > capacity &&
                 frameSize <= MaximumFrameCapacity) {
-            frame.resize(frameSize);
+            capacity = frameSize;
+            frame.reset(LiAllocateVideoBuffer(int(capacity)));
             continue;
         }
         if (result != PLANK_TRANSPORT_OK) {
@@ -1085,9 +1089,12 @@ void Session::plankTransportVideoReceiveLoop()
                 (info.flags & PLANK_TRANSPORT_NATIVE_VIDEO_FLAG_KEY) != 0 ?
                     PLANK_VIDEO_FRAME_FLAG_KEY : 0;
         const int submitResult = LiSubmitPlankVideoFrame(
-                    frame.data(), static_cast<int>(frameSize),
+                    frame.get(), static_cast<int>(frameSize),
                     static_cast<uint32_t>(info.frame_number), flags,
                     info.pts, info.host_processing_latency);
+        // The assembler/decoder retain this frame. Never overwrite their bytes.
+        capacity = std::max(InitialFrameCapacity, frameSize);
+        frame.reset(LiAllocateVideoBuffer(int(capacity)));
         if (submitResult < 0) {
             qWarning() << "Native KyProto video frame submission failed:"
                        << submitResult << "frame" << info.frame_number;
@@ -1500,38 +1507,12 @@ bool Session::initialize(IFFmpegRendererFactory* presenter)
 
     // PLANK advertises exactly the selected profile. Do not silently
     // substitute another bit depth or chroma format when probing fails.
-    int selectedVideoFormat = VIDEO_FORMAT_H264_HIGH10_444;
-    switch (m_PlankVideoProfile) {
-    case StreamingPreferences::PLANK_PROFILE_H264_8BIT_422:
-        selectedVideoFormat = VIDEO_FORMAT_H264_HIGH8_422;
-        break;
-    case StreamingPreferences::PLANK_PROFILE_H264_8BIT_444:
-        selectedVideoFormat = VIDEO_FORMAT_H264_HIGH8_444;
-        break;
-    case StreamingPreferences::PLANK_PROFILE_H264_10BIT_422:
-        selectedVideoFormat = VIDEO_FORMAT_H264_HIGH10_422;
-        break;
-    case StreamingPreferences::PLANK_PROFILE_H264_10BIT_444:
-        break;
-    case StreamingPreferences::PLANK_PROFILE_NVENC_H264_8BIT_444:
-        selectedVideoFormat = VIDEO_FORMAT_H264_HIGH8_444;
-        break;
-    case StreamingPreferences::PLANK_PROFILE_NVENC_HEVC_8BIT_444:
-        selectedVideoFormat = VIDEO_FORMAT_H265_REXT8_444;
-        break;
-    case StreamingPreferences::PLANK_PROFILE_NVENC_HEVC_10BIT_444:
-        selectedVideoFormat = VIDEO_FORMAT_H265_REXT10_444;
-        break;
-    case StreamingPreferences::PLANK_PROFILE_APPLE_HEVC_10BIT_420:
-        selectedVideoFormat = VIDEO_FORMAT_H265_MAIN10;
-        break;
-    case StreamingPreferences::PLANK_PROFILE_APPLE_HEVC_10BIT_444:
-        selectedVideoFormat = VIDEO_FORMAT_H265_REXT10_444;
-        break;
-    default:
+    const auto* selectedProfile = plank_encoding_profile(m_PlankVideoProfile);
+    if (!selectedProfile) {
         emit displayLaunchError(tr("The bookmark contains an invalid encoding profile."));
         return false;
     }
+    const int selectedVideoFormat = selectedProfile->video_format;
     if (!(selectedVideoFormat & VIDEO_FORMAT_MASK_YUV444) ||
             isIdentityGbrEnabledForFormat(selectedVideoFormat) ||
             StreamingPreferences::isPlankAppleProfile(m_PlankVideoProfile)) {
@@ -1569,7 +1550,7 @@ void Session::emitLaunchWarning(QString text)
     // This wait is a little longer than the actual toast timeout (3 seconds)
     // to allow it to transition off the screen before continuing.
     const quint64 start = PlankClock::milliseconds();
-    while (!m_ConnectionStartCancelled.load() && PlankClock::milliseconds() < start + 3500) {
+    while (!m_Lifecycle.stopping() && PlankClock::milliseconds() < start + 3500) {
         QThread::msleep(5);
 
     }
@@ -1877,7 +1858,7 @@ bool Session::startConnectionAsync(bool reconnecting,
     // have time to read any messages present on the segue
     if (!reconnecting && !takeOverActiveSession) {
         for (int elapsed = 0; elapsed < 1500; elapsed += 50) {
-            if (m_ConnectionStartCancelled.load()) return false;
+            if (m_Lifecycle.stopping()) return false;
             QThread::msleep(50);
         }
     }
@@ -1931,50 +1912,15 @@ bool Session::startConnectionAsync(bool reconnecting,
     try {
         std::unique_ptr<NvHTTP> http = std::make_unique<NvHTTP>(m_Computer);
         if (reconnecting) http->setRequestGate([this](bool auth) { return waitForPlankReconnectRequest(auth); });
-        const QString captureSource =
-                m_PlankCaptureSource == StreamingPreferences::PLANK_CAPTURE_SCREENCAPTUREKIT ?
-                    QStringLiteral("screencapturekit") :
-                m_PlankCaptureSource == StreamingPreferences::PLANK_CAPTURE_X11_NATIVE10 ?
-                    QStringLiteral("x11-native10") : QStringLiteral("nvfbc");
-        const QString encoderBackend =
-                StreamingPreferences::isPlankAppleProfile(m_PlankVideoProfile) ?
-                    QStringLiteral("videotoolbox") :
-                StreamingPreferences::isPlankNvencProfile(
-                    m_PlankVideoProfile) ?
-                    QStringLiteral("nvenc-direct") : QStringLiteral("software-cuda");
-        QString encodingMode;
-        switch (m_PlankVideoProfile) {
-        case StreamingPreferences::PLANK_PROFILE_H264_8BIT_422:
-            encodingMode = QStringLiteral("h264-8-422-software");
-            break;
-        case StreamingPreferences::PLANK_PROFILE_H264_8BIT_444:
-            encodingMode = QStringLiteral("h264-8-444-software");
-            break;
-        case StreamingPreferences::PLANK_PROFILE_H264_10BIT_422:
-            encodingMode = QStringLiteral("h264-10-422-software");
-            break;
-        case StreamingPreferences::PLANK_PROFILE_NVENC_H264_8BIT_444:
-            encodingMode = QStringLiteral("h264-8-444-nvenc");
-            break;
-        case StreamingPreferences::PLANK_PROFILE_NVENC_HEVC_8BIT_444:
-            encodingMode = QStringLiteral("hevc-8-444-nvenc");
-            break;
-        case StreamingPreferences::PLANK_PROFILE_NVENC_HEVC_10BIT_444:
-            encodingMode = QStringLiteral("hevc-10-444-nvenc");
-            break;
-        case StreamingPreferences::PLANK_PROFILE_H264_10BIT_444:
-            encodingMode = QStringLiteral("h264-10-444-software");
-            break;
-        case StreamingPreferences::PLANK_PROFILE_APPLE_HEVC_10BIT_420:
-            encodingMode = QStringLiteral("hevc-10-420-videotoolbox");
-            break;
-        case StreamingPreferences::PLANK_PROFILE_APPLE_HEVC_10BIT_444:
-            encodingMode = QStringLiteral("hevc-10-444-videotoolbox");
-            break;
-        default:
+        const auto* profile = plank_encoding_profile(m_PlankVideoProfile);
+        const char* capture = plank_capture_name(m_PlankCaptureSource);
+        if (!capture || !plank_encoding_supports_capture(profile, m_PlankCaptureSource)) {
             emit displayLaunchError(tr("The bookmark contains an invalid encoding profile."));
             return false;
         }
+        const QString captureSource = QString::fromLatin1(capture);
+        const QString encoderBackend = QString::fromLatin1(profile->backend);
+        const QString encodingMode = QString::fromLatin1(profile->mode);
         const auto startApp = [&]() {
             if (macCapture) {
                 QString pin;
@@ -2059,7 +2005,7 @@ bool Session::startConnectionAsync(bool reconnecting,
                         m_PlankPassword.isEmpty()) {
                     throw;
                 }
-                m_WaitingForSessionCleanup.store(true);
+
                 emit sessionCleanupWaitChanged(
                             true,
                             tr("Applying workstation display layout..."));
@@ -2073,10 +2019,10 @@ bool Session::startConnectionAsync(bool reconnecting,
                     for (int delayMs = 0;
                          delayMs < RetryIntervalMs;
                          delayMs += CancellationPollMs) {
-                        if (m_ConnectionStartCancelled.load()) break;
+                        if (m_Lifecycle.stopping()) break;
                         QThread::msleep(CancellationPollMs);
                     }
-                    if (m_ConnectionStartCancelled.load()) break;
+                    if (m_Lifecycle.stopping()) break;
 
                     if (authenticationRefreshRequired) {
                         try {
@@ -2102,7 +2048,7 @@ bool Session::startConnectionAsync(bool reconnecting,
                             qInfo() << "PLANK authenticated to the replacement display worker";
                         } catch (const GfeHttpResponseException& retryError) {
                             if (reconnecting && PlankReconnectPolicy::terminalStatus(retryError.getStatusCode(), true))
-                                m_ReconnectCancelled.store(true);
+                                m_Lifecycle.stop();
                             throw;
                         } catch (const QtNetworkReplyException& retryError) {
                             if (retryError.getError() == QNetworkReply::SslHandshakeFailedError) throw;
@@ -2122,7 +2068,7 @@ bool Session::startConnectionAsync(bool reconnecting,
                             m_ComputerManager->clientSideAttributeUpdated(m_Computer);
                         }
                         if (!configurePlankLaunchGeometry()) {
-                            m_WaitingForSessionCleanup.store(false);
+
                             emit sessionCleanupWaitChanged(false, QString());
                             return false;
                         }
@@ -2137,7 +2083,7 @@ bool Session::startConnectionAsync(bool reconnecting,
                         started = true;
                     } catch (const GfeHttpResponseException& retryError) {
                         if (retryError.getStatusCode() == 423) {
-                            m_WaitingForSessionCleanup.store(false);
+
                             emit sessionCleanupWaitChanged(false, QString());
                             throw;
                         }
@@ -2149,7 +2095,7 @@ bool Session::startConnectionAsync(bool reconnecting,
                         if (retryError.getStatusCode() != 409 &&
                                 retryError.getStatusCode() != 425 &&
                                 retryError.getStatusCode() != 503) {
-                            m_WaitingForSessionCleanup.store(false);
+
                             emit sessionCleanupWaitChanged(false, QString());
                             throw;
                         }
@@ -2162,9 +2108,8 @@ bool Session::startConnectionAsync(bool reconnecting,
                     }
                 }
 
-                m_WaitingForSessionCleanup.store(false);
                 emit sessionCleanupWaitChanged(false, QString());
-                if (!started && m_ConnectionStartCancelled.load()) {
+                if (!started && m_Lifecycle.stopping()) {
                     qInfo() << "PLANK connection cancelled during display transition";
                     return false;
                 }
@@ -2180,7 +2125,7 @@ bool Session::startConnectionAsync(bool reconnecting,
             else if (activeSessionConflict) {
                 if (reconnecting) {
                     m_CanReconnect.store(false);
-                    m_ReconnectCancelled.store(true);
+                    m_Lifecycle.stop();
                     emit displayLaunchError(
                                 tr("This PLANK session was transferred to another client."));
                     qInfo() << "PLANK reconnect stopped because another client owns the active session";
@@ -2200,21 +2145,20 @@ bool Session::startConnectionAsync(bool reconnecting,
                 emit activeSessionTakeoverRequested(
                             tr("This workstation already has an active PLANK session. Disconnect the existing client and continue?"));
                 while (m_ActiveSessionTakeoverDecision.load() == 0 &&
-                       !m_ConnectionStartCancelled.load()) {
+                       !m_Lifecycle.stopping()) {
                     QThread::msleep(DecisionPollMs);
                 }
                 m_WaitingForActiveSessionTakeoverDecision.store(false);
                 if (m_ActiveSessionTakeoverDecision.exchange(0) != 1 ||
-                        m_ConnectionStartCancelled.load()) {
+                        m_Lifecycle.stopping()) {
                     qInfo() << "PLANK active-session takeover was cancelled";
                     return false;
                 }
 
-                m_WaitingForSessionCleanup.store(true);
                 emit sessionCleanupWaitChanged(
                             true, tr("Transferring workstation session..."));
                 const bool transferred = startConnectionAsync(false, true);
-                m_WaitingForSessionCleanup.store(false);
+
                 emit sessionCleanupWaitChanged(false, QString());
                 return transferred;
             }
@@ -2292,10 +2236,10 @@ bool Session::startConnectionAsync(bool reconnecting,
     } catch (const GfeHttpResponseException& e) {
         if (reconnecting && PlankReconnectPolicy::terminalStatus(e.getStatusCode(), false)) {
             // Operator consent cannot recover through automatic reauthentication.
-            m_ReconnectCancelled.store(true);
+            m_Lifecycle.stop();
             emit displayLaunchError(e.toQString());
         }
-        m_WaitingForSessionCleanup.store(false);
+
         emit sessionCleanupWaitChanged(false, QString());
         if (reconnecting && e.getStatusCode() == 401) {
             QWriteLocker lock(&m_Computer->lock);
@@ -2311,10 +2255,10 @@ bool Session::startConnectionAsync(bool reconnecting,
         return false;
     } catch (const QtNetworkReplyException& e) {
         if (reconnecting && e.getError() == QNetworkReply::SslHandshakeFailedError) {
-            m_ReconnectCancelled.store(true);
+            m_Lifecycle.stop();
             emit displayLaunchError(e.toQString());
         }
-        m_WaitingForSessionCleanup.store(false);
+
         emit sessionCleanupWaitChanged(false, QString());
         if (!reconnecting) {
             emit displayLaunchError(e.toQString());
@@ -2419,7 +2363,7 @@ bool Session::startConnectionAsync(bool reconnecting,
 
 void Session::cancelConnectionStart()
 {
-    m_ConnectionStartCancelled.store(true);
+    m_Lifecycle.stop();
     m_ActiveSessionTakeoverDecision.store(-1);
 }
 
@@ -2446,7 +2390,7 @@ bool Session::beginPlankReconnect(
         return false;
     }
 
-    m_Reconnecting.store(true);
+    if (!m_Lifecycle.beginRecovery()) return false;
     m_ReconnectGreeterConfirmed.store(false);
     const bool openingDesktop = m_DesktopHandoffNoticeDeadline.exchange(0) > PlankClock::milliseconds();
     setPlankReconnectStatus(
@@ -2485,11 +2429,10 @@ bool Session::beginPlankReconnect(
 bool Session::waitForPlankReconnectRequest(bool restartAuthenticationAfterWait)
 {
     bool waited = false;
-    while (!m_ReconnectCancelled.load() && !m_ConnectionStartCancelled.load()) {
+    while (!m_Lifecycle.stopping()) {
         if (m_ReconnectPolicy.allowsRequest(PlankClock::milliseconds())) {
-            // A password conversation may have expired while Ask was open.
-            // Restart it after explicit consent, rather than submitting a stale
-            // challenge response and treating its rejection as a bad password.
+            // If a request was deferred, restart its password conversation so
+            // an expired challenge cannot masquerade as a bad password.
             return !(waited && restartAuthenticationAfterWait);
         }
         waited = true;
@@ -2579,20 +2522,20 @@ bool Session::runPlankReconnect()
             }
 
             if (waitForPlankReconnectRequest() && startConnectionAsync(true) &&
-                    !m_ReconnectCancelled.load() && m_ReconnectPolicy.allowsRequest(PlankClock::milliseconds())) {
+                    !m_Lifecycle.stopping() && m_ReconnectPolicy.allowsRequest(PlankClock::milliseconds())) {
                 qInfo("PLANK reconnect transport completed on attempt %d",
                             attempt);
                 return true;
             }
         } catch (const MacSessionActiveException&) {
             m_CanReconnect.store(false);
-            m_ReconnectCancelled.store(true);
+            m_Lifecycle.stop();
             emit displayLaunchError(tr("Another client has an active PLANK session. Connect again to request takeover."));
         } catch (const GfeHttpResponseException& error) {
             qWarning() << "PLANK reconnect attempt" << attempt
                        << "failed:" << error.toQString();
             if (PlankReconnectPolicy::terminalStatus(error.getStatusCode(), authenticating)) {
-                m_ReconnectCancelled.store(true);
+                m_Lifecycle.stop();
                 emit displayLaunchError(error.toQString());
             }
             if (error.getStatusCode() == 401) {
@@ -2603,7 +2546,7 @@ bool Session::runPlankReconnect()
             }
         } catch (const QtNetworkReplyException& error) {
             if (error.getError() == QNetworkReply::SslHandshakeFailedError) {
-                m_ReconnectCancelled.store(true);
+                m_Lifecycle.stop();
                 emit displayLaunchError(error.toQString());
             }
             qWarning() << "PLANK reconnect attempt" << attempt
@@ -2611,18 +2554,17 @@ bool Session::runPlankReconnect()
         }
 
 #ifdef PLANK_TRANSPORT
-        // If setup finished after the Ask deadline, discard that transport
-        // before pausing. Do not keep a hidden connection alive (or accept a
-        // dead one) while the operator is away from the unanswered prompt.
+        // A timeout or cancellation may race successful setup. Retire that
+        // transport before another attempt; never leave a hidden connection.
         stopPlankTransportMediaReceivers();
 #endif
         LiStopConnection();
         stopPlankTransportDataPlane();
-        if (!m_ReconnectCancelled.load()) {
+        if (!m_Lifecycle.stopping()) {
             constexpr int RetryDelayMs = 1000;
             constexpr int CancellationPollMs = 50;
             for (int elapsedMs = 0;
-                 elapsedMs < RetryDelayMs && !m_ReconnectCancelled.load();
+                 elapsedMs < RetryDelayMs && !m_Lifecycle.stopping();
                  elapsedMs += CancellationPollMs) {
                 QThread::msleep(CancellationPollMs);
             }
@@ -2637,6 +2579,7 @@ bool Session::finishPlankReconnect(
         const PlankReconnectState& state, bool* decoderNeedsReset)
 {
     bool resumedRenderer = false;
+    success = success && !m_Lifecycle.stopping();
     if (success) {
         const bool streamConfigurationUnchanged =
                 state.videoFormat == m_ActiveVideoFormat &&
@@ -2655,11 +2598,9 @@ bool Session::finishPlankReconnect(
         m_UnexpectedTermination = true;
     }
 
-    m_Reconnecting.store(false);
     m_ReconnectGreeterConfirmed.store(false);
     m_DesktopHandoffNoticeDeadline.store(0);
     setPlankReconnectStatus("", false);
-    m_ReconnectRequested = false;
 
     if (!success) {
         return false;
@@ -2692,7 +2633,6 @@ void Session::exec(QWindow* qtWindow)
                                        this, [this] {
         m_ApplicationExitRequested.store(true);
         cancelConnectionStart();
-        m_ReconnectCancelled.store(true);
         m_CanReconnect.store(false);
     });
     // sessionFinished precedes asynchronous transport cleanup. Only this

@@ -60,7 +60,7 @@ contains(CONFIG, plank-qt-session) {
     HEADERS += streaming/qt/sessioninput.h streaming/qt/remotekeymap.h streaming/qt/linuxkeymap.h streaming/qt/mackeymap.h
     HEADERS += streaming/qt/sessionruntime.h streaming/qt/decodedvideorenderer.h streaming/qt/decodedvideodelivery.h
 }
-HEADERS += clientidentity.h
+HEADERS += clientidentity.h plankprofiles.h streaming/sessionlifecycle.h
 
 include(../globaldefs.pri)
 

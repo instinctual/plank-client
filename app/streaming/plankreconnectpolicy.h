@@ -6,7 +6,6 @@
 
 // The frontend chooses bounded or continuous recovery. Individual operations
 // retain their HTTP timeout, cancellation and terminal authentication checks.
-// The ordinary frontend's Ask policy still pauses requests at its deadline.
 class PlankReconnectPolicy
 {
 public:

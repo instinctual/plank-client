@@ -75,9 +75,8 @@ private:
     std::mutex m_CommandMutex;
     std::condition_variable m_CommandChanged;
     Command m_Command = Command::None;
-    std::atomic_bool m_Stop{false};
+    bool m_Closing = false; // GUI teardown is idempotent; cancellation lives in Session.
     bool m_OwnsSession = false; // worker-owned until joined
-    bool m_Streaming = false;
     bool m_Started = false;
     bool m_Finished = false;
     bool m_ExitApplication = false;

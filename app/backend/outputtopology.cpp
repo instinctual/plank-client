@@ -1,4 +1,5 @@
 #include "outputtopology.h"
+#include "../plankprofiles.h"
 
 #include <algorithm>
 #include <tuple>
@@ -26,13 +27,13 @@ bool NvOutputTopology::supportsDescription(int version, int featureFlags)
 namespace {
 QJsonObject applePreviewProfile(const QString& mode)
 {
-    const bool fullChroma = mode == QLatin1String("hevc-10-444-videotoolbox");
-    if (!fullChroma && mode != QLatin1String("hevc-10-420-videotoolbox")) return {};
-    return {{"capture_source", "screencapturekit"}, {"encoder_backend", "videotoolbox"},
-            {"encoding_mode", mode}, {"codec", "hevc"},
-            {"profile", fullChroma ? "rext" : "main10"}, {"bit_depth", 10}, {"chroma", fullChroma ? "4:4:4" : "4:2:0"},
-            {"range", "full"}, {"matrix", "bt709"}, {"primaries", "bt709"},
-            {"transfer", "srgb"}, {"rgb_identity", false}};
+    const auto* profile = plank_encoding_profile_named(mode.toUtf8().constData());
+    if (!profile || profile->encoder != PLANK_ENCODER_APPLE) return {};
+    return {{"capture_source", "screencapturekit"}, {"encoder_backend", profile->backend},
+            {"encoding_mode", profile->mode}, {"codec", profile->codec},
+            {"profile", profile->profile}, {"bit_depth", profile->bit_depth}, {"chroma", profile->chroma},
+            {"range", "full"}, {"matrix", profile->matrix}, {"primaries", "bt709"},
+            {"transfer", "srgb"}, {"rgb_identity", bool(profile->rgb_identity)}};
 }
 
 bool parseFixedCapture(const QJsonObject& object, NvOutputTopology& result)
@@ -469,8 +470,7 @@ QJsonObject NvOutputTopology::macDisplayRequest(const QString& mode, const QStri
 {
     const QSize size = macDisplayModeSize(mode);
     if (!size.isValid() || (scale != 1 && scale != 2) ||
-            (encodingMode != QLatin1String("hevc-10-420-videotoolbox") &&
-             encodingMode != QLatin1String("hevc-10-444-videotoolbox"))) return {};
+            applePreviewProfile(encodingMode).isEmpty()) return {};
     return {{"schema_version", 3}, {"width", size.width()}, {"height", size.height()},
             {"scale", scale}, {"encoding_mode", encodingMode}};
 }

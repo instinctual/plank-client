@@ -1498,23 +1498,35 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
     m_ActiveWndVideoStats.receivedVideoBytes += static_cast<uint64_t>(du->fullLength);
     m_ActiveWndVideoStats.totalFrames++;
 
-    int requiredBufferSize = du->fullLength;
-    if (du->frameType == FRAME_TYPE_IDR) {
-        // Add some extra space in case we need to do an SPS fixup
-        requiredBufferSize += MAX_SPS_EXTRA_SIZE;
+    av_packet_unref(m_Pkt);
+    const auto* contiguous = LiVideoFrameData(du);
+    if (contiguous && (!m_NeedsSpsFixup || du->frameType != FRAME_TYPE_IDR)) {
+        static_assert(PLANK_VIDEO_BUFFER_PADDING >= AV_INPUT_BUFFER_PADDING_SIZE);
+        LiRetainVideoBuffer(du->frameBuffer);
+        m_Pkt->buf = av_buffer_create(const_cast<uint8_t*>(contiguous),
+            du->fullLength + AV_INPUT_BUFFER_PADDING_SIZE,
+            [](void* owner, uint8_t*) { LiReleaseVideoBuffer(static_cast<PLANK_VIDEO_BUFFER*>(owner)); },
+            du->frameBuffer, AV_BUFFER_FLAG_READONLY);
+        if (!m_Pkt->buf) {
+            LiReleaseVideoBuffer(du->frameBuffer);
+            return DR_NEED_IDR;
+        }
+        m_Pkt->data = m_Pkt->buf->data;
+        m_Pkt->size = du->fullLength;
+    } else {
+        // SPS rewriting or removed noncontiguous prefix NALs need assembly.
+        // Keep this exception explicit; ordinary frames share the receive bytes.
+        const int extra = du->frameType == FRAME_TYPE_IDR ? MAX_SPS_EXTRA_SIZE : 0;
+        m_DecodeBuffer.resize(du->fullLength + extra + AV_INPUT_BUFFER_PADDING_SIZE);
+        int offset = 0;
+        while (entry != nullptr) {
+            writeBuffer(entry, offset);
+            entry = entry->next;
+        }
+        memset(m_DecodeBuffer.data() + offset, 0, AV_INPUT_BUFFER_PADDING_SIZE);
+        m_Pkt->data = reinterpret_cast<uint8_t*>(m_DecodeBuffer.data());
+        m_Pkt->size = offset;
     }
-
-    // Ensure the decoder buffer is large enough
-    m_DecodeBuffer.reserve(requiredBufferSize + AV_INPUT_BUFFER_PADDING_SIZE);
-
-    int offset = 0;
-    while (entry != nullptr) {
-        writeBuffer(entry, offset);
-        entry = entry->next;
-    }
-
-    m_Pkt->data = reinterpret_cast<uint8_t*>(m_DecodeBuffer.data());
-    m_Pkt->size = offset;
 
     if (du->frameType == FRAME_TYPE_IDR) {
         m_Pkt->flags = AV_PKT_FLAG_KEY;
@@ -1527,6 +1539,7 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
         (du->enqueueTimeUs - du->receiveTimeUs) / 1000);
 
     err = avcodec_send_packet(m_VideoDecoderCtx, m_Pkt);
+    av_packet_unref(m_Pkt); // The codec retains its own reference when needed.
     if (err < 0) {
         char errorstring[512];
         av_strerror(err, errorstring, sizeof(errorstring));
@@ -1549,7 +1562,10 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
         return DR_NEED_IDR;
     }
 
-    m_FrameInfoQueue.enqueue(*du);
+    DECODE_UNIT metadata = *du;
+    metadata.bufferList = nullptr;
+    metadata.frameBuffer = nullptr;
+    m_FrameInfoQueue.enqueue(metadata);
 
     m_FramesIn++;
     return DR_OK;
