@@ -267,8 +267,7 @@ void Session::updateVideoFecLoss(VideoFecLossPercent loss)
     };
 }
 
-bool Session::chooseDecoder(DecoderSelectionMode selectionMode,
-                            int videoFormat, int width, int height,
+bool Session::chooseDecoder(int videoFormat, int width, int height,
                             int frameRate, bool enableVsync, bool testOnly,
                             IVideoDecoder*& chosenDecoder, bool enableIdentityGbr,
                             DecoderCaptureSource captureSource,
@@ -289,7 +288,6 @@ bool Session::chooseDecoder(DecoderSelectionMode selectionMode,
     params.enableVsync = enableVsync;
     params.enableIdentityGbr = enableIdentityGbr;
     params.testOnly = testOnly;
-    params.selectionMode = selectionMode;
     params.captureSource = captureSource;
     params.encoderBackend = encoderBackend;
     params.rendererFactory = presenter;
@@ -316,6 +314,14 @@ bool Session::chooseDecoder(DecoderSelectionMode selectionMode,
 
     // If we reach this, we didn't initialize any decoders successfully
     return false;
+}
+
+QString Session::decoderFailureMessage(int videoFormat)
+{
+    if (videoFormat & VIDEO_FORMAT_MASK_H265) {
+        return tr("The selected HEVC profile requires hardware decoding, but this Client could not initialize it at the requested resolution, bit depth and color format. Check the Client graphics driver or choose a supported H.264 profile if the Host offers one.");
+    }
+    return tr("This Client cannot decode and present the selected PLANK encoding profile.");
 }
 
 bool Session::isIdentityGbrEnabledForFormat(int videoFormat) const
@@ -382,8 +388,7 @@ Session::getDecoderAvailability(int videoFormat, int width, int height, int fram
 {
     IVideoDecoder* decoder;
 
-    if (!chooseDecoder(DecoderSelectionMode::PreferExactHardwareThenSoftware,
-                       videoFormat, width, height, frameRate,
+    if (!chooseDecoder(videoFormat, width, height, frameRate,
                        false, true, decoder, enableIdentityGbr,
                        decoderCaptureSource(), decoderEncoderBackend(), m_RendererFactory)) {
         return DecoderAvailability::None;
@@ -418,14 +423,14 @@ bool Session::populateDecoderProperties()
 {
     IVideoDecoder* decoder;
 
-    if (!chooseDecoder(DecoderSelectionMode::PreferExactHardwareThenSoftware,
-                       m_SupportedVideoFormats.first(),
+    if (!chooseDecoder(m_SupportedVideoFormats.first(),
                        m_StreamConfig.width,
                        m_StreamConfig.height,
                        m_StreamConfig.fps,
                        false, true, decoder,
                        isIdentityGbrEnabledForFormat(m_SupportedVideoFormats.first()),
                        decoderCaptureSource(), decoderEncoderBackend(), m_RendererFactory)) {
+        emit displayLaunchError(decoderFailureMessage(m_SupportedVideoFormats.first()));
         return false;
     }
 
@@ -1517,10 +1522,9 @@ bool Session::validateLaunch()
         return false;
     }
 
-    // Internal exact-profile decoder selection may legitimately choose
-    // software when no hardware path reproduces the selected profile. That is
-    // an expected capability result, so do not interrupt each connection with
-    // a warning.
+    // Probe the exact selected profile. H.264 may use software; HEVC must pass
+    // hardware decoding and presentation. Never silently substitute a profile.
+    const int selectedVideoFormat = m_SupportedVideoFormats.front();
     while (!m_SupportedVideoFormats.isEmpty()) {
         const auto availability = getDecoderAvailability(
                     m_SupportedVideoFormats.front(),
@@ -1536,7 +1540,7 @@ bool Session::validateLaunch()
         }
     }
     if (m_SupportedVideoFormats.isEmpty()) {
-        emit displayLaunchError(tr("This client cannot decode the selected PLANK encoding profile."));
+        emit displayLaunchError(decoderFailureMessage(selectedVideoFormat));
         return false;
     }
 

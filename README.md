@@ -50,7 +50,7 @@ for the supported scope and remaining hardware tests.
   remembered per encoding profile.
 - **Precise video:** H.264 and HEVC decoding for the selected Host profile,
   including supported 8/10-bit and 4:4:4 paths. Exact-format hardware decoding is
-  tried first; software decoding preserves the same format when needed.
+  required for HEVC; H.264 can use software decoding for the same format.
 - **Presentation:** windowed/fullscreen operation, native-pixel and scaled
   presentation, and supported multi-display layouts. macOS uses native Metal
   presentation; Linux has profile-specific GPU presentation paths.

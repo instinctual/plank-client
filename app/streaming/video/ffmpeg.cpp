@@ -869,9 +869,12 @@ bool FFmpegVideoDecoder::initialize(PDECODER_PARAMETERS params)
     for (int i = 0; const auto* hardware = avcodec_get_hw_config(decoder, i); ++i) {
         if (tryInitializeRenderer(decoder, AV_PIX_FMT_NONE, params, hardware)) return true;
     }
-    if (params->selectionMode != DecoderSelectionMode::ExactHardwareOnly &&
+    if (plankSoftwareDecodingAllowed(params->videoFormat) &&
             tryInitializeRenderer(decoder, AV_PIX_FMT_NONE, params, nullptr)) return true;
 
+    if (!plankSoftwareDecodingAllowed(params->videoFormat)) {
+        qCritical("The selected HEVC profile requires exact-format hardware decoding; software fallback is disabled");
+    }
     qCritical("Unable to find working decoder for format: %x", params->videoFormat);
     return false;
 }

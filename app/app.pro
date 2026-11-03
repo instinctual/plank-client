@@ -163,6 +163,7 @@ HEADERS += \
     streaming/audio/renderers/renderer.h \
     gui/computermodel.h \
     streaming/video/decoder.h \
+    streaming/video/decoderpolicy.h \
     streaming/bandwidth.h \
     path.h \
     backend/systemproperties.h

@@ -1,3 +1,13 @@
+## 1.3.15 — Video decoding and recovery candidate
+
+### Client
+- Restore hardware decoding for HEVC RGB identity streams.
+- Require hardware decoding for HEVC and explain when it is unavailable.
+- Keep software decoding for supported H.264 profiles.
+
+### Host
+- Preserve Linux NVENC refresh requests so decoder recovery can resume playback.
+
 ## 1.3.14 — Multiple bookmarks per Host candidate
 
 ### Client

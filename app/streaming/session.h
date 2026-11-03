@@ -276,8 +276,7 @@ private:
                                                bool enableIdentityGbr = false);
 
     static
-    bool chooseDecoder(DecoderSelectionMode selectionMode,
-                       int videoFormat, int width, int height,
+    bool chooseDecoder(int videoFormat, int width, int height,
                        int frameRate, bool enableVsync, bool testOnly,
                        IVideoDecoder*& chosenDecoder,
                        bool enableIdentityGbr = false,
@@ -286,6 +285,8 @@ private:
                        DecoderEncoderBackend encoderBackend =
                            DecoderEncoderBackend::SoftwareCuda,
                        IFFmpegRendererFactory* presenter = nullptr);
+
+    static QString decoderFailureMessage(int videoFormat);
 
     bool isIdentityGbrEnabledForFormat(int videoFormat) const;
     DecoderCaptureSource decoderCaptureSource() const;

@@ -9,12 +9,6 @@ class IFFmpegRendererFactory;
 
 #define MAX_SLICES 4
 
-enum class DecoderSelectionMode
-{
-    PreferExactHardwareThenSoftware,
-    ExactHardwareOnly,
-};
-
 enum class DecoderCaptureSource
 {
     Nvfbc8Bit,
@@ -58,7 +52,6 @@ typedef struct _VIDEO_STATS {
 } VIDEO_STATS, *PVIDEO_STATS;
 
 typedef struct _DECODER_PARAMETERS {
-    DecoderSelectionMode selectionMode;
     DecoderCaptureSource captureSource;
     DecoderEncoderBackend encoderBackend;
 

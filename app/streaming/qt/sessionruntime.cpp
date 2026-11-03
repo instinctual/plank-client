@@ -365,11 +365,15 @@ bool QtSessionRuntime::resetDecoder()
     }
     if (m_Session->m_Lifecycle.stopping()) return false;
     IVideoDecoder* decoder = nullptr;
-    const bool ready = Session::chooseDecoder(DecoderSelectionMode::PreferExactHardwareThenSoftware,
-        s.m_ActiveVideoFormat, s.m_ActiveVideoWidth, s.m_ActiveVideoHeight,
+    const bool ready = Session::chooseDecoder(s.m_ActiveVideoFormat, s.m_ActiveVideoWidth, s.m_ActiveVideoHeight,
         s.m_ActiveVideoFrameRate, true, false, decoder, s.isIdentityGbrEnabledForFormat(s.m_ActiveVideoFormat),
         s.decoderCaptureSource(), s.decoderEncoderBackend(), m_Factory.get());
-    if (!ready || m_Session->m_Lifecycle.stopping()) { delete decoder; return false; }
+    if (!ready || m_Session->m_Lifecycle.stopping()) {
+        delete decoder;
+        if (!m_Session->m_Lifecycle.stopping())
+            emit s.displayLaunchError(Session::decoderFailureMessage(s.m_ActiveVideoFormat));
+        return false;
+    }
     {
         std::lock_guard<std::mutex> decoderLock(s.m_DecoderLock);
         s.m_VideoDecoder = decoder;
@@ -402,7 +406,8 @@ void QtSessionRuntime::workerMain()
         QMetaObject::invokeMethod(this, [this, size] { setStreaming(size); }, Qt::QueuedConnection);
     };
     if (ready) publishStreaming();
-    if (!ready && !m_Session->m_Lifecycle.stopping()) emit s.displayLaunchError(tr("The Qt session could not start with the selected video format."));
+    // Initialization, connection and decoder failure sites report their own
+    // actionable error. Do not replace it with a second generic format error.
     quint64 nextProbe = 0;
     while (ready && !m_Session->m_Lifecycle.stopping()) {
         Command command;

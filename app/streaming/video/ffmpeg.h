@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "decoder.h"
+#include "decoderpolicy.h"
 #include "ffmpeg-renderers/renderer.h"
 #include "../clientframeflowtrace.h"
 #include <thread>

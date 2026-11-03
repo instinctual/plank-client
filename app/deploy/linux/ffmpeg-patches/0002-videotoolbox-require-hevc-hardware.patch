@@ -1,0 +1,20 @@
+From: PLANK Engineering <engineering@instinctual.la>
+Subject: [PATCH] avcodec/videotoolbox: require hardware for HEVC
+
+PLANK HEVC sessions require hardware decoding. Merely enabling acceleration
+allows VideoToolbox to return a software decoder that still uses CVPixelBuffers.
+Keep ProRes behavior unchanged; H.264 already requires hardware in this backend
+and may fall back to the independent FFmpeg software decoder in the Client.
+
+--- a/libavcodec/videotoolbox.c
++++ b/libavcodec/videotoolbox.c
+@@ -845,8 +845,7 @@ static CFDictionaryRef videotoolbox_decoder_config_create(CMVideoCodecType codec_type,
+                                                                    &kCFTypeDictionaryValueCallBacks);
+ 
+     CFDictionarySetValue(config_info,
+-                        avctx->codec_id == AV_CODEC_ID_HEVC
+-                        || avctx->codec_id == AV_CODEC_ID_PRORES
++                        avctx->codec_id == AV_CODEC_ID_PRORES
+                         || avctx->codec_id == AV_CODEC_ID_PRORES_RAW
+                             ?
+                             kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder :
