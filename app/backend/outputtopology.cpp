@@ -456,6 +456,15 @@ int NvOutputTopology::hostPlatform(int version, int flags)
     return flags == FixedCaptureFlags ? 2 : 1;
 }
 
+int NvOutputTopology::hostDisplayPolicy(int version, const QString& policy)
+{
+    if (version == 1) {
+        if (policy == QLatin1String("virtual")) return 0;
+        if (policy == QLatin1String("physical")) return 1;
+    }
+    return -1;
+}
+
 QSize NvOutputTopology::macDisplayModeSize(const QString& mode)
 {
     const auto parts = mode.split(QLatin1Char('x'));

@@ -538,7 +538,7 @@ CenteredGridView {
             editClientDisplays.selection = computerModel.plankClientDisplays(pcIndex)
             hostDisplayPolicy = computerModel.plankHostDisplayPolicy(pcIndex)
             editCaptureSource.selectCaptureSource(originalCaptureSource)
-            editHostLayout.currentIndex = hostLayoutIndex
+            editHostLayout.selectLayout(hostLayoutIndex)
             editVirtualMode1.currentIndex = virtualMode1Index
             editVirtualMode2.currentIndex = virtualMode2Index
             for (var i = 0; i < editEncodingProfile.model.count; i++) {
@@ -575,7 +575,7 @@ CenteredGridView {
                                                     editAddressText.text.trim(),
                                                     editNicknameText.text.trim(),
                                                     editScalingChoice.currentIndex,
-                                                    editHostLayout.currentIndex,
+                                                    editHostLayout.layoutChoice,
                                                     editVirtualMode1.currentIndex,
                                                     editVirtualMode2.currentIndex,
                                                     editEncodingProfile.model.get(
@@ -619,7 +619,7 @@ CenteredGridView {
                 hostAddress: editAddressText.text
                 probingEnabled: editBookmarkDialog.visible
                 onCaptureSourceChanged: {
-                    editHostLayout.currentIndex = 0
+                    editHostLayout.selectLayout(0)
                     editEncodingProfile.currentIndex = captureSource === 0 ? 3 : 0
                     Qt.callLater(editBookmarkDialog.applyProfileBitrate)
                 }
@@ -725,34 +725,24 @@ CenteredGridView {
                 text: qsTr("Host display layout")
                 font.bold: true
             }
-            PlankComboBox {
+            PlankHostLayoutBox {
                 id: editHostLayout
                 Layout.fillWidth: true
-                model: editCaptureSource.captureSource === 2 ? [qsTr("Match client display(s)"), qsTr("One Mac virtual display")] : [
-                    qsTr("Match client displays"),
-                    qsTr("Match Host"),
-                    qsTr("One virtual display"),
-                    qsTr("Two virtual displays (horizontal)")
-                ]
-            }
-
-            Label {
-                Layout.fillWidth: true
-                visible: editCaptureSource.captureSource !== 2 && editBookmarkDialog.hostDisplayPolicy === 0
-                text: qsTr("Match Host requires physical displays attached to the workstation.")
-                wrapMode: Text.Wrap
-                opacity: 0.72
+                captureSource: editCaptureSource.captureSource
+                hostDisplayPolicy: editCaptureSource.hostDisplayPolicy >= 0 ? editCaptureSource.hostDisplayPolicy :
+                    editAddressText.text.trim() === editBookmarkDialog.originalAddress.trim() ?
+                        editBookmarkDialog.hostDisplayPolicy : -1
             }
 
             Label {
                 text: editCaptureSource.captureSource === 2 ? qsTr("Mac desktop resolution") : qsTr("Virtual display 1 resolution")
                 font.bold: true
-                opacity: (editCaptureSource.captureSource === 2 ? editHostLayout.currentIndex === 1 : editHostLayout.currentIndex >= 2) ? 1.0 : 0.5
+                opacity: (editCaptureSource.captureSource === 2 ? editHostLayout.layoutChoice === 1 : editHostLayout.layoutChoice >= 2) ? 1.0 : 0.5
             }
             PlankComboBox {
                 id: editVirtualMode1
                 Layout.fillWidth: true
-                enabled: (editCaptureSource.captureSource === 2 ? editHostLayout.currentIndex === 1 : editHostLayout.currentIndex >= 2)
+                enabled: (editCaptureSource.captureSource === 2 ? editHostLayout.layoutChoice === 1 : editHostLayout.layoutChoice >= 2)
                 model: editBookmarkDialog.virtualModeChoices
                 delegate: ItemDelegate {
                     width: editVirtualMode1.width
@@ -766,13 +756,13 @@ CenteredGridView {
                 visible: editCaptureSource.captureSource !== 2
                 text: qsTr("Virtual display 2 resolution")
                 font.bold: true
-                opacity: editHostLayout.currentIndex === 3 ? 1.0 : 0.5
+                opacity: editHostLayout.layoutChoice === 3 ? 1.0 : 0.5
             }
             PlankComboBox {
                 id: editVirtualMode2
                 visible: editCaptureSource.captureSource !== 2
                 Layout.fillWidth: true
-                enabled: editHostLayout.currentIndex === 3
+                enabled: editHostLayout.layoutChoice === 3
                 model: editBookmarkDialog.virtualModeChoices
                 delegate: ItemDelegate {
                     width: editVirtualMode2.width

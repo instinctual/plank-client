@@ -266,7 +266,7 @@ public:
     void clientSideAttributeUpdated(NvComputer* computer);
 
 signals:
-    void hostPlatformDetected(int requestId, QString address, int platform);
+    void hostPlatformDetected(int requestId, QString address, int platform, int displayPolicy);
     void computerStateChanged(NvComputer* computer);
 
     void authenticationCompleted(NvComputer* computer, QString error);

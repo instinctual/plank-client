@@ -230,9 +230,9 @@ int ComputerModel::plankHostDisplayPolicy(int computerIndex) const
     Q_ASSERT(computerIndex >= 0 && computerIndex < m_Computers.count());
     NvComputer* computer = m_Computers[computerIndex];
     QReadLocker lock(&computer->lock);
-    if (computer->state != NvComputer::CS_ONLINE ||
-            computer->authorizationState != NvComputer::AS_AUTHORIZED ||
-            !computer->outputTopology.displayPolicyKnown()) {
+    // The last authenticated topology is also useful while editing offline.
+    // This is a UI hint; launch always validates the fresh authenticated policy.
+    if (!computer->outputTopology.displayPolicyKnown()) {
         return -1;
     }
     return computer->outputTopology.allowedLayoutKinds.contains(

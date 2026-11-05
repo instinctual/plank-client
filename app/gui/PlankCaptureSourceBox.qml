@@ -10,6 +10,7 @@ PlankComboBox {
     property string hostAddress: ""
     property bool probingEnabled: false
     property int hostPlatform: 0
+    property int hostDisplayPolicy: -1
     property int captureSource: StreamingPreferences.PLANK_CAPTURE_NVFBC_8BIT
     property int requestId: 0
     property bool rebuilding: false
@@ -40,6 +41,7 @@ PlankComboBox {
     function scheduleProbe() {
         requestId = 0
         hostPlatform = 0
+        hostDisplayPolicy = -1
         rebuild()
         probeTimer.stop()
         if (probingEnabled && hostAddress.trim() !== "") probeTimer.restart()
@@ -62,10 +64,11 @@ PlankComboBox {
     }
     Connections {
         target: ComputerManager
-        function onHostPlatformDetected(id, address, platform) {
+        function onHostPlatformDetected(id, address, platform, displayPolicy) {
             if (!control.probingEnabled || id !== control.requestId || address !== control.hostAddress.trim()) return
             control.requestId = 0
             control.hostPlatform = platform
+            control.hostDisplayPolicy = displayPolicy
             control.rebuild()
         }
     }

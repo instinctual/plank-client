@@ -16,6 +16,7 @@ private slots:
     void rejectsConfiguredModeMismatch();
     void acceptsTallCinemaModes();
     void enforcesHostDisplayPolicy();
+    void readsDisplayPolicyHints();
     void validatesRequestedLayoutGeometry();
     void matchesOneClientDisplay();
     void matchesPrimaryInDesktopOrder();
@@ -444,6 +445,20 @@ void TestOutputTopology::enforcesHostDisplayPolicy()
     QVERIFY(topology.allowsBookmarkHostLayout(QStringLiteral("match-client")));
     QVERIFY(topology.allowsBookmarkHostLayout(QStringLiteral("single")));
     QVERIFY(topology.allowsBookmarkHostLayout(QStringLiteral("dual-horizontal")));
+}
+
+void TestOutputTopology::readsDisplayPolicyHints()
+{
+    QFile file(QString::fromUtf8(qgetenv("PLANK_REPO_ROOT")) +
+               "/tests/protocol/host-display-policy-v1.json");
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const auto document = QJsonDocument::fromJson(file.readAll()).object();
+    for (const auto& value : document.value("cases").toArray()) {
+        const auto item = value.toObject();
+        QCOMPARE(NvOutputTopology::hostDisplayPolicy(
+                     item.value("version").toInt(), item.value("policy").toString()),
+                 item.value("expected").toInt());
+    }
 }
 
 void TestOutputTopology::validatesRequestedLayoutGeometry()

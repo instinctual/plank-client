@@ -453,7 +453,7 @@ ApplicationWindow {
             addressText.clear()
             nicknameText.clear()
             nicknameText.manuallyEdited = false
-            addHostLayout.currentIndex = 0
+            addHostLayout.selectLayout(0)
             addVirtualMode1.currentIndex = 9
             addVirtualMode2.currentIndex = 1
             addScalingChoice.currentIndex = 0
@@ -467,7 +467,7 @@ ApplicationWindow {
             if (addressText.text && nicknameText.text) {
                 ComputerManager.addNewHostManually(addressText.text.trim(),
                                                    nicknameText.text.trim(),
-                                                   addHostLayout.currentIndex,
+                                                   addHostLayout.layoutChoice,
                                                    addVirtualMode1.currentIndex,
                                                    addVirtualMode2.currentIndex,
                                                    addScalingChoice.currentIndex,
@@ -539,7 +539,7 @@ ApplicationWindow {
                 hostAddress: addressText.text
                 probingEnabled: addPcDialog.visible
                 onCaptureSourceChanged: {
-                    addHostLayout.currentIndex = 0
+                    addHostLayout.selectLayout(0)
                     addEncodingProfile.currentIndex = captureSource === 0 ? 6 : 0
                     Qt.callLater(addPcDialog.applyProfileBitrate)
                 }
@@ -648,27 +648,23 @@ ApplicationWindow {
                 font.bold: true
             }
 
-            PlankComboBox {
+            PlankHostLayoutBox {
                 id: addHostLayout
                 Layout.fillWidth: true
-                model: addCaptureSource.captureSource === 2 ? [qsTr("Match client display(s)"), qsTr("One Mac virtual display")] : [
-                    qsTr("Match client displays"),
-                    qsTr("Match Host"),
-                    qsTr("One virtual display"),
-                    qsTr("Two virtual displays (horizontal)")
-                ]
+                captureSource: addCaptureSource.captureSource
+                hostDisplayPolicy: addCaptureSource.hostDisplayPolicy
             }
 
             Label {
                 text: addCaptureSource.captureSource === 2 ? qsTr("Mac desktop resolution") : qsTr("Virtual display 1 resolution")
                 font.bold: true
-                opacity: (addCaptureSource.captureSource === 2 ? addHostLayout.currentIndex === 1 : addHostLayout.currentIndex >= 2) ? 1.0 : 0.5
+                opacity: (addCaptureSource.captureSource === 2 ? addHostLayout.layoutChoice === 1 : addHostLayout.layoutChoice >= 2) ? 1.0 : 0.5
             }
 
             PlankComboBox {
                 id: addVirtualMode1
                 Layout.fillWidth: true
-                enabled: (addCaptureSource.captureSource === 2 ? addHostLayout.currentIndex === 1 : addHostLayout.currentIndex >= 2)
+                enabled: (addCaptureSource.captureSource === 2 ? addHostLayout.layoutChoice === 1 : addHostLayout.layoutChoice >= 2)
                 currentIndex: 9
                 model: addPcDialog.virtualModeChoices
                 delegate: ItemDelegate {
@@ -683,14 +679,14 @@ ApplicationWindow {
                 visible: addCaptureSource.captureSource !== 2
                 text: qsTr("Virtual display 2 resolution")
                 font.bold: true
-                opacity: addHostLayout.currentIndex === 3 ? 1.0 : 0.5
+                opacity: addHostLayout.layoutChoice === 3 ? 1.0 : 0.5
             }
 
             PlankComboBox {
                 id: addVirtualMode2
                 visible: addCaptureSource.captureSource !== 2
                 Layout.fillWidth: true
-                enabled: addHostLayout.currentIndex === 3
+                enabled: addHostLayout.layoutChoice === 3
                 currentIndex: 1
                 model: addPcDialog.virtualModeChoices
                 delegate: ItemDelegate {

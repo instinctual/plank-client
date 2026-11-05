@@ -1,3 +1,15 @@
+## 1.4.00 — Headless bookmarks and recovery
+
+### Client
+- Hide Match Host for workstations configured for virtual displays.
+- Keep one- and two-display settings intact when bookmark choices change.
+- Continue reconnecting while the previous Host session finishes closing.
+
+### Host
+- Report the configured display policy before login so new bookmarks show suitable choices.
+- Give video bursts more sending headroom during brief acknowledgment delays.
+- Keep reliable-data queue pressure from unnecessarily ending a session.
+
 ## 1.3.15 — Video decoding and recovery candidate
 
 ### Client

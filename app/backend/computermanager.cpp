@@ -998,6 +998,7 @@ public:
     explicit HostPlatformProbe(NvAddress address) : m_Address(std::move(address)) {}
     void run() override {
         int platform = 0;
+        int displayPolicy = -1;
         try {
             NvHTTP http(m_Address);
             const QString info = http.getServerInfo(NvHTTP::NVLL_NONE, true);
@@ -1006,14 +1007,17 @@ public:
                 platform = NvOutputTopology::hostPlatform(
                     NvHTTP::getXmlString(info, "PlankTopologyVersion").toInt(),
                     NvHTTP::getXmlString(info, "PlankFeatureFlags").toInt());
+                displayPolicy = NvOutputTopology::hostDisplayPolicy(
+                    NvHTTP::getXmlString(info, "PlankDisplayPolicyVersion").toInt(),
+                    NvHTTP::getXmlString(info, "PlankDisplayPolicy"));
             }
         } catch (const GfeHttpResponseException&) {
         } catch (const QtNetworkReplyException&) {
         }
-        emit completed(platform);
+        emit completed(platform, displayPolicy);
     }
 signals:
-    void completed(int platform);
+    void completed(int platform, int displayPolicy);
 private:
     NvAddress m_Address;
 };
@@ -1030,9 +1034,9 @@ int ComputerManager::probeHostPlatform(QString address)
     if (m_HostPlatformProbeSequence == std::numeric_limits<int>::max()) m_HostPlatformProbeSequence = 0;
     const int requestId = ++m_HostPlatformProbeSequence;
     auto* task = new HostPlatformProbe(parsed);
-    connect(task, &HostPlatformProbe::completed, this, [this, requestId, address](int platform) {
+    connect(task, &HostPlatformProbe::completed, this, [this, requestId, address](int platform, int displayPolicy) {
         m_HostPlatformProbePending = false;
-        emit hostPlatformDetected(requestId, address, platform);
+        emit hostPlatformDetected(requestId, address, platform, displayPolicy);
     }, Qt::QueuedConnection);
     QThreadPool::globalInstance()->start(task);
     return requestId;
