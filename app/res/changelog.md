@@ -1,3 +1,9 @@
+## 1.4.01 — Video recovery
+
+### Client
+- Recover from stale queued video when stream configuration updates arrive late.
+- Keep packet-loss statistics accurate when stale video is discarded.
+
 ## 1.4.00 — Headless bookmarks and recovery
 
 ### Client
