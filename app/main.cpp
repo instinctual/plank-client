@@ -705,7 +705,8 @@ int main(int argc, char *argv[])
                                  internetConnectivity, &InternetConnectivity::networkChanged);
             }
         }
-        QTimer::singleShot(0, internetConnectivity, &InternetConnectivity::start);
+        // The main window's Internet indicator owns visibility-based probing.
+        // Session windows and an active application alone must not restart it.
     }
     engine.rootContext()->setContextProperty(
                 "runConfigChecks",

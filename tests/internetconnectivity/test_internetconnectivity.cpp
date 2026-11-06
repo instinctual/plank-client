@@ -23,6 +23,12 @@ static Monitor::PingCommand stub(int code, int delayMs = 0, const QString& error
             {QStringLiteral("--ping-stub"), QString::number(code), QString::number(delayMs), error, output}, 1};
 }
 
+static void showSummary(Monitor& monitor)
+{
+    monitor.setSummaryVisible(true);
+    monitor.setWindowVisible(true);
+}
+
 static QQuickItem* findVisualItem(QQuickItem* parent, const QString& name)
 {
     // Repeater delegates have visual parents distinct from QObject ownership.
@@ -89,9 +95,9 @@ void ConnectivityTest::invalidPolicy()
     int attempts = 0;
     Monitor monitor(PlankClientPolicy(file.fileName()).internetCheck(), nullptr,
                     [&attempts](const QString&, int) { ++attempts; return stub(0); });
-    monitor.start();
+    monitor.setWindowVisible(true);
     monitor.checkNow();
-    monitor.refreshSummary();
+    showSummary(monitor);
     QCOMPARE(monitor.state(), Monitor::Unavailable);
     QVERIFY(!monitor.summaryError().isEmpty());
     QVERIFY(!monitor.summaryRunning());
@@ -104,11 +110,11 @@ void ConnectivityTest::disabledMakesNoProbes()
     settings.enabled = false;
     int attempts = 0;
     Monitor monitor(settings, nullptr, [&attempts](const QString&, int) { ++attempts; return stub(0); });
-    monitor.start();
+    monitor.setWindowVisible(true);
     monitor.checkNow();
     monitor.networkChanged();
     monitor.refreshIfStale();
-    monitor.refreshSummary();
+    showSummary(monitor);
     QTest::qWait(300);
     QCOMPARE(monitor.state(), Monitor::Disabled);
     QCOMPARE(attempts, 0);
@@ -127,7 +133,7 @@ void ConnectivityTest::orderedFallbackAndPeriodicRestart()
         return stub(host == "1.1.1.1" ? 0 : 1);
     });
     QCOMPARE(monitor.state(), Monitor::Checking);
-    monitor.start();
+    monitor.setWindowVisible(true);
     QTRY_COMPARE(monitor.state(), Monitor::Reachable);
     QCOMPARE(attempted, QStringList({"8.8.8.8", "1.1.1.1"}));
     QSignalSpy updates(&monitor, &Monitor::stateChanged);
@@ -148,7 +154,7 @@ void ConnectivityTest::noResponseRecoversWithoutInteraction()
         ++attempts;
         return stub(online ? 0 : 1);
     });
-    monitor.start();
+    monitor.setWindowVisible(true);
     QTRY_COMPARE(monitor.state(), Monitor::NoResponse);
     QCOMPARE(attempts, 3);
     online = true;
@@ -166,7 +172,7 @@ void ConnectivityTest::deadlineDoesNotBlockUiOrLeaveChildren()
     Monitor monitor(settings, nullptr, [](const QString&, int) { return stub(0, 60000); });
     QElapsedTimer elapsed;
     elapsed.start();
-    monitor.start();
+    monitor.setWindowVisible(true);
     bool responsiveWhilePending = false;
     QTimer::singleShot(0, &monitor, [&] { responsiveWhilePending = monitor.state() == Monitor::Checking; });
     QTRY_COMPARE_WITH_TIMEOUT(monitor.state(), Monitor::NoResponse, 2500);
@@ -182,7 +188,7 @@ void ConnectivityTest::unavailableIsNotAnInternetOutage()
     Monitor monitor(settings, nullptr, [](const QString&, int) {
         return Monitor::PingCommand{QStringLiteral("/no-such-plank-test-ping"), {}, 1};
     });
-    monitor.start();
+    monitor.setWindowVisible(true);
     QTRY_COMPARE(monitor.state(), Monitor::Unavailable);
     QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
 }
@@ -194,7 +200,7 @@ void ConnectivityTest::probeErrorCanFallBack()
     Monitor monitor(settings, nullptr, [&attempts](const QString&, int) {
         return stub(++attempts == 1 ? 64 : 0);
     });
-    monitor.start();
+    monitor.setWindowVisible(true);
     QTRY_COMPARE(monitor.state(), Monitor::Reachable);
     QCOMPARE(attempts, 2);
 }
@@ -215,7 +221,7 @@ void ConnectivityTest::networkErrorIsNotUtilityFailure()
     Settings settings;
     settings.hosts = {"192.0.2.1"};
     Monitor monitor(settings, nullptr, [error](const QString&, int) { return stub(64, 0, error); });
-    monitor.start();
+    monitor.setWindowVisible(true);
     QTRY_COMPARE(int(monitor.state()), expectedState);
 }
 
@@ -229,7 +235,7 @@ void ConnectivityTest::restartAndStopDiscardCancelledResults()
         return ++attempts == 1 ? stub(0, 500) : stub(1);
     });
     QSignalSpy updates(&monitor, &Monitor::stateChanged);
-    monitor.start();
+    monitor.setWindowVisible(true);
     QTest::qWait(50);
     monitor.checkNow();
     monitor.checkNow(); // Coalesces while cancellation is still in progress.
@@ -245,7 +251,7 @@ void ConnectivityTest::restartAndStopDiscardCancelledResults()
 
     Monitor stopped(settings, nullptr, [](const QString&, int) { return stub(0, 60000); });
     QSignalSpy stoppedUpdates(&stopped, &Monitor::stateChanged);
-    stopped.start();
+    stopped.setWindowVisible(true);
     QTest::qWait(50);
     stopped.stop();
     QTRY_VERIFY(stopped.findChildren<QProcess*>().isEmpty());
@@ -260,12 +266,13 @@ void ConnectivityTest::systemPingLoopback()
     // Use the actual OS utility as an ordinary runner account. No public
     // Internet dependency and no elevated process or new PLANK capability.
     Monitor monitor(settings);
-    monitor.start();
+    monitor.setWindowVisible(true);
     QTRY_COMPARE_WITH_TIMEOUT(monitor.state(), Monitor::Reachable, 4000);
     // Exercise varying real timings: macOS's unused single-sample standard
     // deviation can be NaN, even though the RTT is valid.
     for (int attempt = 0; attempt < 16; ++attempt) {
-        monitor.refreshSummary();
+        showSummary(monitor);
+        monitor.checkNow();
         QTRY_VERIFY_WITH_TIMEOUT(!monitor.summaryRunning(), 4000);
         QCOMPARE(monitor.summaryResults().size(), 1);
         const auto row = monitor.summaryResults().first().toMap();
@@ -287,7 +294,7 @@ void ConnectivityTest::summaryChecksEveryTargetConcurrently()
         return stub(64, 50, "ping: socket: Operation not permitted");
     });
     QSignalSpy backgroundUpdates(&monitor, &Monitor::stateChanged);
-    monitor.refreshSummary();
+    showSummary(monitor);
     QCOMPARE(attempted, settings.hosts); // All targets start before any result.
     QVERIFY(monitor.summaryRunning());
     QVERIFY(monitor.summaryCheckedAt().isEmpty());
@@ -302,8 +309,8 @@ void ConnectivityTest::summaryChecksEveryTargetConcurrently()
     QCOMPARE(rows[1].toMap().value("roundTripMs").toDouble(), -1.0);
     QCOMPARE(rows[2].toMap().value("state").toInt(), int(Monitor::Unavailable));
     QVERIFY(!monitor.summaryCheckedAt().isEmpty());
-    QCOMPARE(backgroundUpdates.size(), 0); // This never replaces the periodic result.
-    QCOMPARE(monitor.state(), Monitor::Checking);
+    QCOMPARE(backgroundUpdates.size(), 1); // Live results also serve the main indicator.
+    QCOMPARE(monitor.state(), Monitor::Reachable);
     QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
 }
 
@@ -329,7 +336,7 @@ void ConnectivityTest::summaryRoundTripFormats()
     Settings settings;
     settings.hosts = {"192.0.2.1"};
     Monitor monitor(settings, nullptr, [output](const QString&, int) { return stub(0, 80, {}, output); });
-    monitor.refreshSummary();
+    showSummary(monitor);
     QTRY_VERIFY(!monitor.summaryRunning());
     const auto row = monitor.summaryResults().first().toMap();
     QCOMPARE(row.value("state").toInt(), int(Monitor::Reachable));
@@ -346,7 +353,7 @@ void ConnectivityTest::summaryFailuresAndDeadlines()
         if (address.endsWith(".2")) return Monitor::PingCommand{"/no-such-plank-test-ping", {}, 1};
         return stub(64, 0, "ping: sendto: No route to host");
     });
-    monitor.refreshSummary();
+    showSummary(monitor);
     // Require an event-loop turn while the probe is pending. QTRY's wait
     // coalesces timer deliveries, so counting 10 ms ticks is not reliable.
     // A synchronous wait would finish the summary before this can run.
@@ -371,13 +378,13 @@ void ConnectivityTest::summaryCancellationAndReopen()
         ++attempts;
         return stub(0, slow ? 60000 : 10, {}, "rtt min/avg/max/mdev = 9/9/9/0 ms\n");
     });
-    monitor.refreshSummary();
+    showSummary(monitor);
     QCOMPARE(attempts, 2);
     // Close/reopen/refresh immediately, including processes still starting.
-    monitor.cancelSummary();
+    monitor.setSummaryVisible(false);
     slow = false;
-    monitor.refreshSummary();
-    monitor.refreshSummary();
+    showSummary(monitor);
+    monitor.checkNow();
     QTRY_VERIFY(!monitor.summaryRunning());
     QCOMPARE(attempts, 4);
     for (const auto& row : monitor.summaryResults()) {
@@ -386,14 +393,101 @@ void ConnectivityTest::summaryCancellationAndReopen()
     }
     QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
     slow = true;
-    monitor.refreshSummary();
+    const QString checked = monitor.summaryCheckedAt();
+    monitor.checkNow();
     monitor.stop();
     QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
     QVERIFY(!monitor.summaryRunning());
-    QVERIFY(monitor.summaryCheckedAt().isEmpty());
+    QCOMPARE(monitor.summaryCheckedAt(), checked);
     for (const auto& row : monitor.summaryResults())
-        QCOMPARE(row.toMap().value("state").toInt(), int(Monitor::Checking));
+        QCOMPARE(row.toMap().value("state").toInt(), int(Monitor::Reachable));
     QCOMPARE(attempts, 6);
+}
+
+void ConnectivityTest::hiddenWindowStopsAndResumes()
+{
+    Settings settings;
+    settings.hosts = {"192.0.2.1", "192.0.2.2"};
+    settings.intervalMs = 1100;
+    settings.timeoutMs = 2500;
+    int attempts = 0;
+    bool slow = false;
+    Monitor monitor(settings, nullptr, [&](const QString&, int) {
+        ++attempts;
+        return stub(0, slow ? 60000 : 10, {}, "rtt min/avg/max/mdev = 9/9/9/0 ms\n");
+    });
+    monitor.networkChanged();
+    monitor.refreshIfStale();
+    monitor.checkNow();
+    QTest::qWait(300);
+    QCOMPARE(attempts, 0);
+    monitor.setWindowVisible(true);
+    QTRY_COMPARE(monitor.state(), Monitor::Reachable);
+    QCOMPARE(attempts, 1);
+    monitor.setWindowVisible(false);
+    monitor.networkChanged();
+    monitor.checkNow();
+    QTest::qWait(1300);
+    QCOMPARE(attempts, 1); // The prior periodic timer cannot restart hidden work.
+
+    slow = true;
+    monitor.setSummaryVisible(true);
+    QCOMPARE(attempts, 1); // A dialog flag cannot override a hidden main window.
+    monitor.setWindowVisible(true);
+    QCOMPARE(attempts, 3);
+    QVERIFY(monitor.summaryRunning());
+    monitor.setWindowVisible(false);
+    monitor.networkChanged();
+    QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
+    QTest::qWait(1100);
+    QCOMPARE(attempts, 3);
+    slow = false;
+    monitor.setWindowVisible(true);
+    QTRY_VERIFY(!monitor.summaryCheckedAt().isEmpty());
+    QCOMPARE(attempts, 5);
+    monitor.setSummaryVisible(false);
+    QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
+    QCOMPARE(attempts, 6); // Closing live mode resumes the ordered background check.
+    QTRY_COMPARE_WITH_TIMEOUT(attempts, 7, 2500);
+    monitor.stop();
+    QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
+}
+
+void ConnectivityTest::liveSummaryPreservesResultsAndDoesNotOverlap()
+{
+    Settings settings;
+    settings.hosts = {"192.0.2.1", "192.0.2.2"};
+    settings.timeoutMs = 2500;
+    int attempts = 0;
+    bool overlap = false, retainedResults = false;
+    Monitor* observer = nullptr;
+    Monitor monitor(settings, nullptr, [&](const QString&, int) {
+        for (auto* process : observer->findChildren<QProcess*>())
+            overlap |= process->state() != QProcess::NotRunning;
+        const bool first = attempts < 2;
+        if (attempts == 2) {
+            const auto rows = observer->summaryResults();
+            retainedResults = rows.size() == 2;
+            for (const auto& row : rows)
+                retainedResults &= row.toMap().value("state").toInt() == Monitor::Reachable &&
+                    row.toMap().value("roundTripMs").toDouble() == 12;
+        }
+        ++attempts;
+        return stub(0, first ? 1500 : 200, {}, first ?
+            "rtt min/avg/max/mdev = 12/12/12/0 ms\n" : "rtt min/avg/max/mdev = 30/30/30/0 ms\n");
+    });
+    observer = &monitor;
+    showSummary(monitor);
+    QTest::qWait(1100);
+    QCOMPARE(attempts, 2); // A slow round may exceed the one-second live cadence.
+    QTRY_VERIFY_WITH_TIMEOUT(attempts >= 4, 4000);
+    QVERIFY(!overlap && retainedResults);
+    QTRY_COMPARE(monitor.summaryResults().first().toMap().value("roundTripMs").toDouble(), 30.0);
+    monitor.stop();
+    QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
+    const int stoppedAt = attempts;
+    QTest::qWait(1100);
+    QCOMPARE(attempts, stoppedAt);
 }
 
 void ConnectivityTest::statusUi()
@@ -402,7 +496,9 @@ void ConnectivityTest::statusUi()
     Settings settings;
     settings.hosts = {"192.0.2.1", "192.0.2.2", "192.0.2.3"};
     bool online = false;
-    Monitor monitor(settings, nullptr, [&online](const QString& address, int) {
+    int attempts = 0;
+    Monitor monitor(settings, nullptr, [&online, &attempts](const QString& address, int) {
+        ++attempts;
         if (!online || address.endsWith(".2")) return stub(1, 10);
         if (address.endsWith(".3")) return stub(64, 20, "ping: socket: Operation not permitted");
         return stub(0, 250, {}, "rtt min/avg/max/mdev = 12.4/12.4/12.4/0 ms\n");
@@ -427,7 +523,7 @@ void ConnectivityTest::statusUi()
                 background: Rectangle { color: "#393D43" }
                 RowLayout {
                     anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12
-                    Label { text: "1.2.12-client-ping-details"; font.pointSize: 9; color: "#B7BDC5" }
+                    Label { text: "1.4.04-client-live-connectivity"; font.pointSize: 9; color: "#B7BDC5" }
                     Label { text: "Computers"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                     PlankInternetStatus { monitor: testMonitor }
                     ToolButton { text: "+" }
@@ -447,7 +543,7 @@ void ConnectivityTest::statusUi()
     QCOMPARE(label->property("text").toString(), QString("Internet: Checking"));
     QVERIFY(status->width() > 80);
     QVERIFY(status->height() <= 56);
-    monitor.start();
+    QVERIFY(monitor.windowVisible()); // Enabled by the production QML binding.
     QTRY_COMPARE(label->property("text").toString(), QString("Internet: No response"));
     window->resize(720, 640);
     QTest::qWait(50);
@@ -472,13 +568,10 @@ void ConnectivityTest::statusUi()
     auto* dialog = root->findChild<QObject*>("internetSummaryDialog");
     auto* refresh = root->findChild<QQuickItem*>("internetSummaryRefresh");
     auto* close = root->findChild<QQuickItem*>("internetSummaryClose");
-    QVERIFY(dialog && refresh && close);
+    QVERIFY(dialog && !refresh && close);
     click(status);
     QTRY_VERIFY(dialog->property("opened").toBool());
-    QVERIFY(monitor.summaryRunning());
-    QVERIFY(!refresh->isEnabled());
-    QTRY_VERIFY(!monitor.summaryRunning());
-    QTRY_VERIFY(refresh->isEnabled());
+    QTRY_VERIFY(!monitor.summaryCheckedAt().isEmpty());
     QQuickItem* firstRtt = nullptr;
     QQuickItem* secondStatus = nullptr;
     QQuickItem* thirdStatus = nullptr;
@@ -493,11 +586,9 @@ void ConnectivityTest::statusUi()
     if (!captureDirectory.isEmpty())
         QVERIFY(window->grabWindow().save(captureDirectory + "/internet-summary.png"));
     online = false;
-    click(refresh);
-    QTRY_VERIFY(!monitor.summaryRunning());
+    QTRY_COMPARE_WITH_TIMEOUT(monitor.state(), Monitor::NoResponse, 3000);
     for (const auto& row : monitor.summaryResults())
         QCOMPARE(row.toMap().value("state").toInt(), int(Monitor::NoResponse));
-    QCOMPARE(monitor.state(), Monitor::Reachable);
     click(close);
     QTRY_VERIFY(!dialog->property("visible").toBool());
     QTRY_VERIFY(status->hasActiveFocus());
@@ -507,15 +598,41 @@ void ConnectivityTest::statusUi()
     QTRY_VERIFY(!dialog->property("visible").toBool());
     QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
 
+    // Exercise the production indicator's actual Window binding, not a test
+    // copy of the visibility rule. Focus/network notifications cannot revive it.
+    window->hide();
+    QTRY_VERIFY(!monitor.windowVisible());
+    QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
+    const int hiddenAt = attempts;
+    monitor.networkChanged();
+    monitor.refreshIfStale();
+    QTest::qWait(1100);
+    QCOMPARE(attempts, hiddenAt);
+    window->show();
+    QTRY_VERIFY(monitor.windowVisible());
+    QTRY_VERIFY(attempts > hiddenAt);
+    window->showMinimized();
+    QTRY_VERIFY(!monitor.windowVisible());
+    QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
+    const int minimizedAt = attempts;
+    monitor.networkChanged();
+    monitor.refreshIfStale();
+    QTest::qWait(1100);
+    QCOMPARE(attempts, minimizedAt);
+    window->showNormal();
+    QTRY_VERIFY(monitor.windowVisible());
+    QTRY_VERIFY(attempts > minimizedAt);
+
     settings.hosts = {"192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4",
                       "192.0.2.5", "192.0.2.6", "192.0.2.7", "192.0.2.8"};
     Monitor maximum(settings, nullptr, [](const QString&, int) {
         return stub(0, 30, {}, "round-trip min/avg/max/stddev = 0.1/0.1/0.1/0 ms\n");
     });
     status->setProperty("monitor", QVariant::fromValue(static_cast<QObject*>(&maximum)));
+    status->forceActiveFocus();
     QTest::keyClick(window, Qt::Key_Space);
     QTRY_VERIFY(dialog->property("opened").toBool());
-    QTRY_VERIFY(!maximum.summaryRunning());
+    QTRY_VERIFY(!maximum.summaryCheckedAt().isEmpty());
     QCOMPARE(maximum.summaryResults().size(), 8);
     QTest::qWait(50);
     QQuickItem* lastRtt = nullptr;

@@ -25,5 +25,7 @@ private slots:
     void summaryRoundTripFormats();
     void summaryFailuresAndDeadlines();
     void summaryCancellationAndReopen();
+    void hiddenWindowStopsAndResumes();
+    void liveSummaryPreservesResultsAndDoesNotOverlap();
     void statusUi();
 };

@@ -368,6 +368,7 @@ ApplicationWindow {
     NavigableDialog {
         id: addPcDialog
         title: qsTr("Add workstation bookmark")
+        closePolicy: Popup.CloseOnEscape
         property var virtualModeChoices: ComputerManager.plankVirtualModeChoices()
         property var profileBitratesKbps: []
 

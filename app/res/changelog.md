@@ -1,3 +1,16 @@
+## 1.4.04 — Live connectivity checks
+
+### Client
+- Update Internet ping results automatically while the connectivity dialog is open.
+- Stop Internet pings when the main window is hidden or minimized; resume when it returns.
+- Keep Add and Edit bookmark dialogs open when clicking outside them.
+
+## 1.4.03 — macOS login and mouse fixes
+
+### Host
+- Keep the session reconnecting through the macOS login-to-desktop handoff.
+- Allow moving and resizing QuickTime's screen-recording area with the mouse.
+
 ## 1.4.01 — Video recovery
 
 ### Client

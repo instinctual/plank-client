@@ -7,7 +7,7 @@
 #include <QtDebug>
 
 // One bounded asynchronous ping, shared by the ordered background check and
-// the on-demand concurrent summary. Cancellation reaps the child before reuse.
+// the live concurrent summary. Cancellation reaps the child before reuse.
 struct InternetConnectivity::Probe : QObject
 {
     using Completion = std::function<void(Probe*, State, double)>;
@@ -134,10 +134,14 @@ InternetConnectivity::InternetConnectivity(const PlankClientPolicy::InternetChec
             m_ConfigurationError = tr("Internet-check targets must be unicast IPv4 addresses.");
         }
     }
-    if (!settings.enabled) m_State = Disabled;
+    if (!settings.enabled) {
+        m_State = Disabled;
+        m_SummaryError = tr("Internet checks are disabled in client.conf.");
+    }
     else if (!m_ConfigurationError.isEmpty()) {
         m_State = Unavailable;
         m_Detail = m_ConfigurationError;
+        m_SummaryError = m_ConfigurationError;
     }
     else m_Detail = tr("Checking the configured Internet addresses. PLANK connections remain available.");
 
@@ -182,58 +186,78 @@ InternetConnectivity::PingCommand InternetConnectivity::systemPingCommand(const 
 #endif
 }
 
-void InternetConnectivity::start()
+bool InternetConnectivity::canProbe() const
 {
-    if (m_Running || !m_Settings.enabled) return;
-    if (!m_ConfigurationError.isEmpty()) {
-        qWarning() << "Internet connectivity check unavailable:" << m_ConfigurationError;
-        return;
-    }
-    m_Running = true;
-    checkNow();
+    return m_WindowVisible && m_Settings.enabled && m_ConfigurationError.isEmpty();
+}
+
+void InternetConnectivity::setWindowVisible(bool visible)
+{
+    if (m_WindowVisible == visible) return;
+    m_WindowVisible = visible;
+    if (canProbe()) checkNow();
+    else cancelProbes(false);
+    emit modeChanged();
+}
+
+void InternetConnectivity::setSummaryVisible(bool visible)
+{
+    if (m_SummaryVisible == visible) return;
+    m_SummaryVisible = visible;
+    if (canProbe()) checkNow();
+    emit modeChanged();
 }
 
 void InternetConnectivity::stop()
 {
-    m_Running = false;
-    m_RestartPending = false;
+    setWindowVisible(false);
+}
+
+void InternetConnectivity::cancelProbes(bool restart)
+{
     m_Poll.stop();
     m_NetworkChange.stop();
+    m_RestartPending = restart;
+    m_Cancelled = true;
     if (m_Probe) m_Probe->cancel();
-    cancelSummary();
+    const auto probes = m_SummaryProbes;
+    for (auto* probe : probes) probe->cancel();
 }
 
 void InternetConnectivity::networkChanged()
 {
     // Coalesce bursts of platform notifications. Neither OS reachability nor
     // transport type is itself proof that a configured destination responds.
-    if (m_Running) m_NetworkChange.start(250);
+    if (canProbe()) m_NetworkChange.start(250);
 }
 
 void InternetConnectivity::refreshIfStale()
 {
     // Wall time includes suspend; activation need not generate another ping if
     // the normal periodic check has just run following resume.
-    if (m_Running && QDateTime::currentMSecsSinceEpoch() - m_LastStartedMs >= m_Settings.intervalMs)
+    const int interval = m_SummaryVisible ? 1000 : m_Settings.intervalMs;
+    if (canProbe() && !m_Probe && m_SummaryProbes.isEmpty() &&
+            QDateTime::currentMSecsSinceEpoch() - m_LastStartedMs >= interval)
         checkNow();
 }
 
 void InternetConnectivity::checkNow()
 {
-    if (!m_Running) return;
+    if (!canProbe()) return;
     m_Poll.stop();
-    if (m_Probe) {
-        m_RestartPending = true;
-        m_Probe->cancel();
-        return; // Reap this child before starting another; no overlapping rounds.
+    if (m_Probe || !m_SummaryProbes.isEmpty()) {
+        cancelProbes(true);
+        return; // Reap every old child before switching modes or restarting.
     }
-    beginRound();
+    m_LastStartedMs = QDateTime::currentMSecsSinceEpoch();
+    m_RestartPending = false;
+    m_Cancelled = false;
+    if (m_SummaryVisible) beginSummaryRound();
+    else beginRound();
 }
 
 void InternetConnectivity::beginRound()
 {
-    m_LastStartedMs = QDateTime::currentMSecsSinceEpoch();
-    m_RestartPending = false;
     m_ProbeError = false;
     m_Target = 0;
     startTarget();
@@ -252,15 +276,13 @@ void InternetConnectivity::targetFinished(Probe* probe, State state)
 {
     if (probe != m_Probe) return;
     m_Probe = nullptr;
-    if (!m_Running) return;
-    if (m_RestartPending) {
-        beginRound();
+    if (!canProbe()) return;
+    if (m_Cancelled) {
+        if (m_RestartPending) checkNow();
         return;
     }
     if (state == Reachable) {
-        completeRound(Reachable, tr("Reply received from %1. This checks access to a configured address, "
-                                   "not DNS, VPN connectivity or a particular PLANK Host.")
-                      .arg(m_Settings.hosts.at(m_Target)));
+        completeRound(Reachable, m_Settings.hosts.at(m_Target));
         return;
     }
     if (state == Unavailable) m_ProbeError = true;
@@ -268,15 +290,7 @@ void InternetConnectivity::targetFinished(Probe* probe, State state)
         startTarget();
         return;
     }
-    if (m_ProbeError) {
-        completeRound(Unavailable, tr("One or more Internet checks could not run. "
-                                      "Check the system ping utility and client.conf. PLANK connections remain available."));
-    }
-    else {
-        completeRound(NoResponse, tr("None of the configured Internet addresses replied. "
-                                     "Your connection may be unavailable, or the network may block ping. "
-                                     "PLANK connections remain available."));
-    }
+    completeRound(m_ProbeError ? Unavailable : NoResponse);
 }
 
 QVariantList InternetConnectivity::summaryResults() const
@@ -305,28 +319,16 @@ QString InternetConnectivity::summaryCheckedAt() const
                 m_SummaryCompletedAt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")) : QString();
 }
 
-void InternetConnectivity::refreshSummary()
+void InternetConnectivity::beginSummaryRound()
 {
-    if (!m_Settings.enabled || !m_ConfigurationError.isEmpty()) {
-        m_SummaryError = !m_Settings.enabled ? tr("Internet checks are disabled in client.conf.") : m_ConfigurationError;
-        emit summaryChanged();
-        return;
+    // Keep previous results visible while the next round runs. In particular,
+    // don't recreate all rows as Checking once per second.
+    if (m_SummaryRows.isEmpty()) {
+        for (const auto& address : m_Settings.hosts)
+            m_SummaryRows.append(SummaryResult{address, Checking, -1});
     }
-    if (!m_SummaryProbes.isEmpty()) {
-        m_SummaryRestartPending = true;
-        m_SummaryCancelled = true;
-        const auto probes = m_SummaryProbes;
-        for (auto* probe : probes) probe->cancel();
-        return; // Coalesce rapid reopen/refresh until every old child is reaped.
-    }
-    m_SummaryRestartPending = false;
-    m_SummaryCancelled = false;
-    m_SummaryCompletedAt = {};
-    m_SummaryRows.clear();
-    for (const auto& address : m_Settings.hosts) {
-        const int row = m_SummaryRows.size();
-        m_SummaryRows.append(SummaryResult{address, Checking, -1});
-        m_SummaryProbes.append(new Probe(this, m_CommandFactory(address, m_Settings.timeoutMs),
+    for (int row = 0; row < m_SummaryRows.size(); ++row) {
+        m_SummaryProbes.append(new Probe(this, m_CommandFactory(m_SummaryRows.at(row).address, m_Settings.timeoutMs),
                                         m_Settings.timeoutMs, [this, row](Probe* probe, State state, double rtt) {
             summaryFinished(probe, row, state, rtt);
         }));
@@ -337,35 +339,49 @@ void InternetConnectivity::refreshSummary()
     for (auto* probe : probes) probe->start();
 }
 
-void InternetConnectivity::cancelSummary()
-{
-    m_SummaryRestartPending = false;
-    m_SummaryCancelled = true;
-    const auto probes = m_SummaryProbes;
-    for (auto* probe : probes) probe->cancel();
-}
-
 void InternetConnectivity::summaryFinished(Probe* probe, int row, State state, double roundTripMs)
 {
     if (!m_SummaryProbes.removeOne(probe)) return;
-    if (!m_SummaryCancelled) {
+    if (!m_Cancelled && canProbe()) {
         m_SummaryRows[row].state = state;
         m_SummaryRows[row].roundTripMs = roundTripMs;
     }
     if (m_SummaryProbes.isEmpty()) {
-        if (m_SummaryRestartPending) { refreshSummary(); return; }
-        if (!m_SummaryCancelled) m_SummaryCompletedAt = QDateTime::currentDateTime();
+        if (m_Cancelled) {
+            if (m_RestartPending && canProbe()) checkNow();
+        }
+        else if (canProbe()) {
+            m_SummaryCompletedAt = QDateTime::currentDateTime();
+            State result = NoResponse;
+            QString address;
+            for (const auto& item : m_SummaryRows) {
+                if (item.state == Reachable) { result = Reachable; address = item.address; break; }
+                if (item.state == Unavailable) result = Unavailable;
+            }
+            completeRound(result, address);
+        }
     }
     emit summaryChanged();
 }
 
-void InternetConnectivity::completeRound(State state, const QString& detail)
+void InternetConnectivity::completeRound(State state, const QString& address)
 {
+    const QString detail = state == Reachable ?
+        tr("Reply received from %1. This checks access to a configured address, "
+           "not DNS, VPN connectivity or a particular PLANK Host.").arg(address) :
+        state == Unavailable ?
+        tr("One or more Internet checks could not run. Check the system ping utility "
+           "and client.conf. PLANK connections remain available.") :
+        tr("None of the configured Internet addresses replied. Your connection may "
+           "be unavailable, or the network may block ping. PLANK connections remain available.");
     setState(state, detail);
+    // A synchronous state observer may hide the window or switch modes.
+    if (!canProbe() || m_Probe || !m_SummaryProbes.isEmpty()) return;
     // Start-to-start cadence, without concurrent rounds or accumulating work.
     const qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - m_LastStartedMs;
-    const qint64 interval = m_Settings.intervalMs;
-    m_Poll.start(static_cast<int>(qBound(qint64(1000), interval - elapsed, interval)));
+    const qint64 interval = m_SummaryVisible ? 1000 : m_Settings.intervalMs;
+    const qint64 minimumDelay = m_SummaryVisible ? 0 : 1000;
+    m_Poll.start(static_cast<int>(qBound(minimumDelay, interval - elapsed, interval)));
 }
 
 void InternetConnectivity::setState(State state, const QString& detail)
