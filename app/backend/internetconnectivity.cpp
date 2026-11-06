@@ -313,12 +313,6 @@ QVariantList InternetConnectivity::summaryResults() const
     return results;
 }
 
-QString InternetConnectivity::summaryCheckedAt() const
-{
-    return m_SummaryCompletedAt.isValid() ?
-                m_SummaryCompletedAt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")) : QString();
-}
-
 void InternetConnectivity::beginSummaryRound()
 {
     // Keep previous results visible while the next round runs. In particular,
@@ -351,7 +345,6 @@ void InternetConnectivity::summaryFinished(Probe* probe, int row, State state, d
             if (m_RestartPending && canProbe()) checkNow();
         }
         else if (canProbe()) {
-            m_SummaryCompletedAt = QDateTime::currentDateTime();
             State result = NoResponse;
             QString address;
             for (const auto& item : m_SummaryRows) {

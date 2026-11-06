@@ -30,6 +30,7 @@ CenteredGridView {
         // We do this here instead of onActivated to avoid losing the user's
         // selection when backing out of a different page of the app.
         currentIndex = -1
+        console.info("PLANK bookmark page ready")
     }
 
     // Note: Any initialization done here that is critical for streaming must
@@ -474,7 +475,6 @@ CenteredGridView {
         property var originalProfileBitratesKbps: []
         property var profileBitratesKbps: []
         title: qsTr("Edit workstation bookmark")
-        closePolicy: Popup.CloseOnEscape
         width: Math.min(640, parent.width - 40)
         height: Math.min(implicitHeight, parent.height - 20)
         dim: false

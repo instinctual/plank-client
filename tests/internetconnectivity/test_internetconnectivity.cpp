@@ -297,7 +297,6 @@ void ConnectivityTest::summaryChecksEveryTargetConcurrently()
     showSummary(monitor);
     QCOMPARE(attempted, settings.hosts); // All targets start before any result.
     QVERIFY(monitor.summaryRunning());
-    QVERIFY(monitor.summaryCheckedAt().isEmpty());
     QTRY_VERIFY(!monitor.summaryRunning());
     const auto rows = monitor.summaryResults();
     QCOMPARE(rows.size(), 3);
@@ -308,7 +307,6 @@ void ConnectivityTest::summaryChecksEveryTargetConcurrently()
     QCOMPARE(rows[1].toMap().value("state").toInt(), int(Monitor::NoResponse));
     QCOMPARE(rows[1].toMap().value("roundTripMs").toDouble(), -1.0);
     QCOMPARE(rows[2].toMap().value("state").toInt(), int(Monitor::Unavailable));
-    QVERIFY(!monitor.summaryCheckedAt().isEmpty());
     QCOMPARE(backgroundUpdates.size(), 1); // Live results also serve the main indicator.
     QCOMPARE(monitor.state(), Monitor::Reachable);
     QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
@@ -393,12 +391,10 @@ void ConnectivityTest::summaryCancellationAndReopen()
     }
     QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
     slow = true;
-    const QString checked = monitor.summaryCheckedAt();
     monitor.checkNow();
     monitor.stop();
     QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
     QVERIFY(!monitor.summaryRunning());
-    QCOMPARE(monitor.summaryCheckedAt(), checked);
     for (const auto& row : monitor.summaryResults())
         QCOMPARE(row.toMap().value("state").toInt(), int(Monitor::Reachable));
     QCOMPARE(attempts, 6);
@@ -443,7 +439,7 @@ void ConnectivityTest::hiddenWindowStopsAndResumes()
     QCOMPARE(attempts, 3);
     slow = false;
     monitor.setWindowVisible(true);
-    QTRY_VERIFY(!monitor.summaryCheckedAt().isEmpty());
+    QTRY_VERIFY(!monitor.summaryRunning());
     QCOMPARE(attempts, 5);
     monitor.setSummaryVisible(false);
     QTRY_VERIFY(monitor.findChildren<QProcess*>().isEmpty());
@@ -523,7 +519,7 @@ void ConnectivityTest::statusUi()
                 background: Rectangle { color: "#393D43" }
                 RowLayout {
                     anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12
-                    Label { text: "1.4.04-client-live-connectivity"; font.pointSize: 9; color: "#B7BDC5" }
+                    Label { text: "1.4.05-client-live-connectivity"; font.pointSize: 9; color: "#B7BDC5" }
                     Label { text: "Computers"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                     PlankInternetStatus { monitor: testMonitor }
                     ToolButton { text: "+" }
@@ -571,7 +567,8 @@ void ConnectivityTest::statusUi()
     QVERIFY(dialog && !refresh && close);
     click(status);
     QTRY_VERIFY(dialog->property("opened").toBool());
-    QTRY_VERIFY(!monitor.summaryCheckedAt().isEmpty());
+    QTRY_COMPARE(monitor.summaryResults().size(), 3);
+    QTRY_VERIFY(!monitor.summaryRunning());
     QQuickItem* firstRtt = nullptr;
     QQuickItem* secondStatus = nullptr;
     QQuickItem* thirdStatus = nullptr;
@@ -581,8 +578,11 @@ void ConnectivityTest::statusUi()
     QCOMPARE(firstRtt->property("text").toString(), QString("12 ms"));
     QCOMPARE(secondStatus->property("text").toString(), QString("No response"));
     QCOMPARE(thirdStatus->property("text").toString(), QString("Unavailable"));
-    QVERIFY(!monitor.summaryCheckedAt().isEmpty());
     QVERIFY(firstRtt->mapToScene(QPointF(firstRtt->width(), 0)).x() <= window->width());
+    const qreal footerGap = close->mapToScene(QPointF()).y() -
+            thirdStatus->mapToScene(QPointF(0, thirdStatus->height())).y();
+    QVERIFY(footerGap >= 0 && footerGap <= 40);
+    QVERIFY(!root->findChild<QObject*>("internetSummaryCheckedAt"));
     if (!captureDirectory.isEmpty())
         QVERIFY(window->grabWindow().save(captureDirectory + "/internet-summary.png"));
     online = false;
@@ -632,8 +632,8 @@ void ConnectivityTest::statusUi()
     status->forceActiveFocus();
     QTest::keyClick(window, Qt::Key_Space);
     QTRY_VERIFY(dialog->property("opened").toBool());
-    QTRY_VERIFY(!maximum.summaryCheckedAt().isEmpty());
-    QCOMPARE(maximum.summaryResults().size(), 8);
+    QTRY_COMPARE(maximum.summaryResults().size(), 8);
+    QTRY_VERIFY(!maximum.summaryRunning());
     QTest::qWait(50);
     QQuickItem* lastRtt = nullptr;
     QTRY_VERIFY((lastRtt = findVisualItem(window->contentItem(), "internetSummaryRtt7")));
@@ -648,6 +648,8 @@ void ConnectivityTest::statusUi()
     Monitor disabled(settings);
     status->setProperty("monitor", QVariant::fromValue(static_cast<QObject*>(&disabled)));
     QTRY_VERIFY(!status->isVisible());
+    QVERIFY(!maximum.windowVisible());
+    QTRY_VERIFY(maximum.findChildren<QProcess*>().isEmpty());
     root.reset();
     QCOMPARE(warnings.size(), 0);
 }

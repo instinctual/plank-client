@@ -70,6 +70,7 @@ NavigableToolButton {
         modal: true
         dim: false
         focus: true
+        bottomPadding: 4
         width: Math.max(0, Math.min(600, parent.width - 32))
         height: Math.max(0, Math.min(implicitHeight, parent.height - 32))
         closePolicy: Popup.CloseOnEscape
@@ -116,6 +117,7 @@ NavigableToolButton {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.preferredHeight: resultsColumn.implicitHeight
+                Layout.maximumHeight: resultsColumn.implicitHeight
                 Layout.minimumHeight: 0
                 clip: true
                 contentWidth: availableWidth
@@ -167,12 +169,11 @@ NavigableToolButton {
             }
 
             Label {
-                objectName: "internetSummaryCheckedAt"
-                text: control.monitor.summaryError ? control.monitor.summaryError :
-                      control.monitor.summaryCheckedAt ? qsTr("Live · Last updated: %1").arg(control.monitor.summaryCheckedAt) :
-                      qsTr("Live · Checking…")
+                objectName: "internetSummaryError"
+                visible: control.monitor.summaryError.length > 0
+                text: control.monitor.summaryError
                 textFormat: Text.PlainText
-                color: control.monitor.summaryError ? theme.warning : theme.textSecondary
+                color: theme.warning
                 wrapMode: Text.Wrap
                 Layout.fillWidth: true
             }
@@ -181,6 +182,8 @@ NavigableToolButton {
 
         footer: DialogButtonBox {
             alignment: Qt.AlignRight
+            topPadding: 0
+            bottomPadding: 0
             background: Rectangle { color: theme.surfaceRaised }
             Button {
                 objectName: "internetSummaryClose"

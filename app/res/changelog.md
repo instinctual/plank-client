@@ -1,3 +1,9 @@
+## 1.4.05 — Bookmark page repair
+
+### Client
+- Restore the bookmark list, Add button and Back navigation after the 1.4.04 UI regression.
+- Compact the Internet Connectivity dialog and remove its Live timestamp line.
+
 ## 1.4.04 — Live connectivity checks
 
 ### Client

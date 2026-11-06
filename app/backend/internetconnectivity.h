@@ -3,7 +3,6 @@
 #include "../settings/plankclientpolicy.h"
 
 #include <QObject>
-#include <QDateTime>
 #include <QProcess>
 #include <QTimer>
 #include <QVariantList>
@@ -21,7 +20,6 @@ class InternetConnectivity : public QObject
     Q_PROPERTY(bool summaryVisible READ summaryVisible WRITE setSummaryVisible NOTIFY modeChanged)
     Q_PROPERTY(QVariantList summaryResults READ summaryResults NOTIFY summaryChanged)
     Q_PROPERTY(bool summaryRunning READ summaryRunning NOTIFY summaryChanged)
-    Q_PROPERTY(QString summaryCheckedAt READ summaryCheckedAt NOTIFY summaryChanged)
     Q_PROPERTY(QString summaryError READ summaryError NOTIFY summaryChanged)
 
 public:
@@ -56,7 +54,6 @@ public:
 
     QVariantList summaryResults() const;
     bool summaryRunning() const { return !m_SummaryProbes.isEmpty(); }
-    QString summaryCheckedAt() const;
     QString summaryError() const { return m_SummaryError; }
 
 signals:
@@ -98,6 +95,5 @@ private:
     QString m_ConfigurationError;
     QList<Probe*> m_SummaryProbes;
     QList<SummaryResult> m_SummaryRows;
-    QDateTime m_SummaryCompletedAt;
     QString m_SummaryError;
 };
