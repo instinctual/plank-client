@@ -1,3 +1,12 @@
+## 1.4.09 — Video transmission improvements
+
+### Client
+- Add sending headroom for webcam and microphone traffic.
+
+### Host
+- Start sending Linux video before its packet-loss recovery data is prepared.
+- Give large video frames more room during short sending stalls on Linux and macOS.
+
 ## 1.4.05 — Bookmark page repair
 
 ### Client
