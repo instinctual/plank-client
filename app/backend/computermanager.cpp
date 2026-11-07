@@ -104,7 +104,6 @@ class PcMonitorThread : public PollingThread
     Q_OBJECT
 
 #define TRIES_BEFORE_OFFLINING 2
-#define POLLS_PER_APPLIST_FETCH 10
 
 public:
     PcMonitorThread(NvComputer* computer)
@@ -179,26 +178,6 @@ private:
         return true;
     }
 
-    bool updateAppList(QNetworkAccessManager* nam, bool& changed)
-    {
-        NvHTTP http(m_Computer, nam);
-
-        QVector<NvApp> appList;
-
-        try {
-            appList = http.getAppList();
-            if (appList.isEmpty()) {
-                return false;
-            }
-        } catch (...) {
-            return false;
-        }
-
-        QWriteLocker lock(&m_Computer->lock);
-        changed = m_Computer->updateAppList(appList);
-        return true;
-    }
-
     void run() override
     {
         // Reduce the power and performance impact of our
@@ -217,7 +196,6 @@ private:
         QNetworkAccessManager nam;
 
         // Always fetch the applist the first time
-        int pollsSinceLastAppListFetch = POLLS_PER_APPLIST_FETCH;
         while (!stopping()) {
             bool stateChanged = false;
             bool online = false;
@@ -251,22 +229,8 @@ private:
                 stateChanged = true;
             }
 
-            // Grab the applist if it's empty or it's been long enough that we need to refresh
-            pollsSinceLastAppListFetch++;
-            if (m_Computer->state == NvComputer::CS_ONLINE &&
-                    m_Computer->authorizationState == NvComputer::AS_AUTHORIZED &&
-                    (m_Computer->appList.isEmpty() || pollsSinceLastAppListFetch >= POLLS_PER_APPLIST_FETCH)) {
-                // Notify prior to the app list poll since it may take a while, and we don't
-                // want to delay onlining of a machine, especially if we already have a cached list.
-                if (stateChanged) {
-                    emit computerStateChanged(m_Computer);
-                    stateChanged = false;
-                }
-
-                if (updateAppList(&nam, stateChanged)) {
-                    pollsSinceLastAppListFetch = 0;
-                }
-            }
+            // The desktop contract is fetched during authenticated launch.
+            // Status polling does not refresh an immutable game/application list.
 
             if (stateChanged) {
                 // Tell anyone listening that we've changed state

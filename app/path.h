@@ -7,7 +7,6 @@ class Path
 {
 public:
     static QString getLogDir();
-    static QString getBoxArtCacheDir();
     static QString getQmlCacheDir();
 
     static QByteArray readDataFile(QString fileName);
@@ -23,6 +22,5 @@ public:
 private:
     static QString s_CacheDir;
     static QString s_LogDir;
-    static QString s_BoxArtCacheDir;
     static QString s_QmlCacheDir;
 };

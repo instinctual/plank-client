@@ -202,12 +202,11 @@ void Session::arDecodeAndPlaySample(char* sampleData, int sampleLength, int64_t 
                 const int frameDurationMs =
                     s_ActiveSession->m_ActiveAudioConfig.samplesPerFrame * 1000 /
                     s_ActiveSession->m_ActiveAudioConfig.sampleRate;
-                qInfo("PLANK A/V audio clock: media=%llu submit=%llu queue=%d device=%d pending=%d frame=%d correction=%d skipped=%llu raw=%llu catchup=%d",
+                qInfo("PLANK A/V audio clock: media=%llu submit=%llu queue=%d device=%d frame=%d correction=%d skipped=%llu raw=%llu catchup=%d",
                             static_cast<unsigned long long>(mediaTimeMs),
                             static_cast<unsigned long long>(now),
                             s_ActiveSession->m_AudioRenderer->getQueuedAudioDurationMs(),
                             s_ActiveSession->m_AudioRenderer->getDeviceBufferDurationMs(),
-                            LiGetPendingAudioDuration(),
                             frameDurationMs,
                             s_ActiveSession->m_AudioRenderer->getAudioClockCorrectionPpm(),
                             static_cast<unsigned long long>(

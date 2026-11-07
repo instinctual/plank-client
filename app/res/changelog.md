@@ -1,3 +1,18 @@
+## 1.4.10 — Reliability and cleanup
+
+### Client
+
+- Make session shutdown and reconnection safer when multiple failures arrive together.
+- Prevent one stalled media stream from blocking the other streams.
+- Remove obsolete application-artwork handling and misleading audio telemetry.
+
+### Host
+
+- Bound incoming control requests before allocating memory.
+- Release all mouse buttons and mapped keys correctly after disconnecting.
+- Make Linux audio capture and shutdown recover from an unresponsive audio server.
+- Reduce shared video/FEC copying while preserving the stream format and repair data.
+
 ## 1.4.09 — Video transmission improvements
 
 ### Client

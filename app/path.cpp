@@ -9,7 +9,6 @@
 
 QString Path::s_CacheDir;
 QString Path::s_LogDir;
-QString Path::s_BoxArtCacheDir;
 QString Path::s_QmlCacheDir;
 
 QString Path::getLogDir()
@@ -18,11 +17,6 @@ QString Path::getLogDir()
     return s_LogDir;
 }
 
-QString Path::getBoxArtCacheDir()
-{
-    Q_ASSERT(!s_BoxArtCacheDir.isEmpty());
-    return s_BoxArtCacheDir;
-}
 
 QString Path::getQmlCacheDir()
 {
@@ -107,7 +101,6 @@ void Path::initialize(bool portable)
 {
     if (portable) {
         s_LogDir = QDir::currentPath();
-        s_BoxArtCacheDir = QDir::currentPath() + "/boxart";
         s_QmlCacheDir = QDir::currentPath() + "/qmlcache";
 
         // Preserve timestamps for cache consumers that use If-Modified-Since.
@@ -127,7 +120,6 @@ void Path::initialize(bool portable)
         s_LogDir = QDir::tempPath();
 #endif
         s_CacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
-        s_BoxArtCacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/boxart";
         s_QmlCacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/qmlcache";
     }
 }

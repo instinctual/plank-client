@@ -17,7 +17,6 @@
 #include <QXmlStreamReader>
 #include <QSslKey>
 #include <QSslCipher>
-#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -402,9 +401,6 @@ NvHTTP::getAppList()
                 else if (XML_NAME_EQUALS(name, "ID")) {
                     apps.last().id = xmlReader.readElementText().toInt();
                 }
-                else if (XML_NAME_EQUALS(name, "IsAppCollectorGame")) {
-                    apps.last().isAppCollectorGame = xmlReader.readElementText() == "1";
-                }
             }
         }
     }
@@ -443,28 +439,6 @@ NvHTTP::verifyResponseStatus(QString xml)
     }
 
     throw GfeHttpResponseException(-1, "Malformed XML (missing root element)");
-}
-
-QImage
-NvHTTP::getBoxArt(int appId)
-{
-    QNetworkReply* reply = openConnection(m_BaseUrlHttps,
-                                          "appasset",
-                                          "appid="+QString::number(appId)+
-                                          "&AssetType=2&AssetIdx=0",
-                                          REQUEST_TIMEOUT_MS,
-                                          NvLogLevel::NVLL_VERBOSE);
-    QImage image = QImageReader(reply).read();
-    delete reply;
-
-    return image;
-}
-
-QByteArray
-NvHTTP::getXmlStringFromHex(QString xml,
-                            QString tagName)
-{
-    return QByteArray::fromHex(getXmlString(xml, tagName).toUtf8());
 }
 
 QString

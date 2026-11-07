@@ -132,7 +132,6 @@ macx: HEADERS += macapplication.h
 
 HEADERS += \
     backend/authenticationtakeover.h \
-    streaming/video/packedbt709.h \
     backend/nvaddress.h \
     backend/outputtopology.h \
     backend/nvapp.h \
@@ -153,11 +152,9 @@ HEADERS += \
     settings/plankclientpolicy.h \
     backend/internetconnectivity.h \
     streaming/avsynccontroller.h \
-    streaming/input/plankpointerlogic.h \
     streaming/session.h \
     streaming/plankdisplaymode.h \
     streaming/plankpresentation.h \
-    streaming/planktoolbarlogic.h \
     streaming/planktoolbarstats.h \
     streaming/plankreconnectpolicy.h \
     streaming/audio/renderers/renderer.h \
@@ -198,7 +195,6 @@ macx {
     DEFINES += HAVE_MAC_RAW_WACOM
     SOURCES += streaming/input/macrawwacom.cpp
     HEADERS += streaming/input/macrawwacom.h streaming/input/macrawwacomlogic.h streaming/input/macrawwacomasync.h
-    HEADERS += streaming/input/macrawwacomfocus.h
     LIBS += -framework IOKit -framework CoreFoundation -framework ApplicationServices -framework Carbon
 
     SOURCES += \

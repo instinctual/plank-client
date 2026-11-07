@@ -12,7 +12,6 @@ public:
     {
         return id == other.id &&
                 name == other.name &&
-                isAppCollectorGame == other.isAppCollectorGame &&
                 hidden == other.hidden &&
                 directLaunch == other.directLaunch;
     }
@@ -34,7 +33,6 @@ public:
 
     int id = 0;
     QString name;
-    bool isAppCollectorGame = false;
     bool hidden = false;
     bool directLaunch = false;
 };
