@@ -5,13 +5,14 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include "penmetrics.h"
 
 struct libinput_event_tablet_tool;
 
 class LinuxWacomInput
 {
 public:
-    explicit LinuxWacomInput(std::function<void()> tabletActivity);
+    explicit LinuxWacomInput(std::function<void()> tabletActivity, PlankPenObserver penObserver = {});
     ~LinuxWacomInput();
 
     LinuxWacomInput(const LinuxWacomInput&) = delete;
@@ -49,4 +50,7 @@ private:
     unsigned short m_Rotation;
     unsigned char m_Tilt;
     std::function<void()> m_TabletActivity;
+    PlankPenObserver m_PenObserver;
+    PlankPenActivityState m_PenMetrics;
+    bool m_PenNear = false;
 };

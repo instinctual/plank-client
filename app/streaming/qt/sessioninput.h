@@ -1,5 +1,6 @@
 #pragma once
 #include "../input/remotecursor.h"
+#include "../input/penmetrics.h"
 #include "../plankcallbacktarget.h"
 #include "remotekeymap.h"
 #include <QObject>
@@ -31,6 +32,8 @@ public:
     explicit QtSessionInput(QObject* parent = nullptr);
     ~QtSessionInput() override;
     void startTablets(unsigned hostFeatures); // session worker, once connected
+    // Set once before the tablet worker starts; callback accepts aggregates only.
+    void setPenObserver(PlankPenObserver observer) { m_PenObserver = std::move(observer); }
     void beginReconnect();                  // session worker, acknowledged
     void finishReconnect();                 // session worker, acknowledged
     void shutdown();                        // session worker, joins tablet owner
@@ -91,6 +94,7 @@ private:
     bool m_TabletFocus = false, m_TabletFinished = false;
     std::uint64_t m_RequestedRevision = 0, m_AppliedRevision = 0;
     std::thread m_TabletThread;
+    PlankPenObserver m_PenObserver;
 #ifdef Q_OS_MACOS
     std::unique_ptr<MacKeyboardCapture> m_MacKeys;
     std::unique_ptr<MacQuitShortcut> m_MacQuit;

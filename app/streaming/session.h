@@ -35,6 +35,7 @@ class QtSessionInput;
 #ifdef PLANK_TRANSPORT
 struct PlankTransportNativeEndpoint;
 struct PlankMetricsHandle;
+struct PlankPenActivity;
 #endif
 
 class SupportedVideoFormatList : public QList<int>
@@ -155,6 +156,7 @@ public:
     }
 
     void publishVideoMetrics(const VIDEO_STATS& window, bool hardwareDecoder);
+    void publishPenMetrics(const PlankPenActivity& activity);
 
     VideoFecLossPercent currentVideoFecLoss() const
     {

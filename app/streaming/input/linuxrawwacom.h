@@ -7,10 +7,12 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
 #include "linuxwacomreportworker.h"
+#include "penmetrics.h"
 
 enum class PlankWacomTransport
 {
@@ -53,7 +55,7 @@ PlankWacomTransportDecision plankWacomTransportForConnectedDevice();
 class LinuxRawWacomInput
 {
 public:
-    explicit LinuxRawWacomInput(std::function<void()> tabletActivity);
+    explicit LinuxRawWacomInput(std::function<void()> tabletActivity, PlankPenObserver penObserver = {});
     ~LinuxRawWacomInput();
 
     LinuxRawWacomInput(const LinuxRawWacomInput&) = delete;
@@ -77,6 +79,7 @@ private:
                    std::uint32_t transactionId,
                    const unsigned char* payload, std::size_t payloadLength);
     void handlePhysicalReports();
+    void observePenEvents();
     void processControl(const unsigned char* data, unsigned int length);
     void synchronizeSuspend();
     void waitForWork(std::chrono::milliseconds delay);
@@ -103,11 +106,14 @@ private:
     bool m_ControlOverflow = false;
     std::vector<HidInterface> m_Interfaces;
     std::vector<int> m_EventFds;
+    struct PenNode;
+    std::vector<std::unique_ptr<PenNode>> m_PenNodes;
     std::uint16_t m_Generation;
     std::uint32_t m_InputSequence;
     bool m_AttachPending;
     bool m_Attached;
     std::function<void()> m_TabletActivity;
+    PlankPenObserver m_PenObserver;
     std::chrono::steady_clock::time_point m_AttachDeadline;
     LinuxWacomReportWorker m_ReportWorker;
 };

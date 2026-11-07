@@ -62,13 +62,14 @@ void QtSessionInput::tabletMain(unsigned hostFeatures)
     m_NormalizedPen.store(!raw && (hostFeatures & LI_FF_PEN_TOUCH_EVENTS));
 #else
     std::unique_ptr<LinuxWacomInput> normalized;
+    if (m_PenObserver) m_PenObserver({});
     if (!qEnvironmentVariableIntValue("PLANK_EXTERNAL_WACOM_BRIDGE")) {
         const auto decision = plankWacomTransportForConnectedDevice();
         const auto rawFlags = LI_FF_RAW_HID_TABLET | LI_FF_RAW_HID_FOCUS_SUSPEND;
         if ((hostFeatures & rawFlags) == rawFlags && decision.transport == PlankWacomTransport::ExactRawHid)
-            raw = std::make_unique<LinuxRawWacomInput>(activity);
+            raw = std::make_unique<LinuxRawWacomInput>(activity, m_PenObserver);
         else if (hostFeatures & LI_FF_PEN_TOUCH_EVENTS)
-            normalized = std::make_unique<LinuxWacomInput>(activity);
+            normalized = std::make_unique<LinuxWacomInput>(activity, m_PenObserver);
     }
 #endif
     m_RawControl.publish(raw.get());

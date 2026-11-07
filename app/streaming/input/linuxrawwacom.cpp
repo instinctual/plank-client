@@ -1,5 +1,6 @@
 #include <QDebug>
 #include "linuxrawwacom.h"
+#include "linuxpenmetrics.h"
 
 #include <Limelight.h>
 #include <plank.h>
@@ -213,7 +214,13 @@ PlankWacomTransportDecision plankWacomTransportForConnectedDevice()
     return connectedWacomTransportDecision();
 }
 
-LinuxRawWacomInput::LinuxRawWacomInput(std::function<void()> tabletActivity)
+struct LinuxRawWacomInput::PenNode {
+    int fd;
+    LinuxPenActivityTracker tracker;
+    bool failed = false;
+};
+
+LinuxRawWacomInput::LinuxRawWacomInput(std::function<void()> tabletActivity, PlankPenObserver penObserver)
     : m_Active(false),
       m_Stopping(false),
       m_Reconnecting(false),
@@ -222,7 +229,8 @@ LinuxRawWacomInput::LinuxRawWacomInput(std::function<void()> tabletActivity)
       m_InputSequence(0),
       m_AttachPending(false),
       m_Attached(false),
-      m_TabletActivity(std::move(tabletActivity))
+      m_TabletActivity(std::move(tabletActivity)),
+      m_PenObserver(std::move(penObserver))
 {
     m_Thread = std::thread(&LinuxRawWacomInput::run, this);
 }
@@ -515,6 +523,7 @@ bool LinuxRawWacomInput::discover()
                 if (ioctl(fd, EVIOCGBIT(EV_KEY, keys.size()), keys.data()) >= 0 &&
                         (keys[BTN_TOOL_PEN / 8] & (1u << (BTN_TOOL_PEN % 8)))) {
                     penReady = true;
+                    if (m_PenObserver) m_PenNodes.push_back(std::make_unique<PenNode>(PenNode {fd, {}, false}));
                 }
             } else {
                 allEventsOpened = false;
@@ -667,6 +676,49 @@ void LinuxRawWacomInput::handlePhysicalReports()
             if (m_TabletActivity) m_TabletActivity();
         }
     }
+    observePenEvents();
+}
+
+void LinuxRawWacomInput::observePenEvents()
+{
+    if (!m_PenObserver || !m_Active.load() || m_Reconnecting.load() || !m_Attached) return;
+    PlankPenActivity total;
+    for (auto& node : m_PenNodes) {
+        if (node->failed) continue;
+        // Bound optional observation work. Never delay the raw report sender
+        // to catch up with a metrics backlog; discard it and rebase instead.
+        std::array<input_event, 64> events {};
+        for (unsigned batch = 0; batch < 8; ++batch) {
+            const auto bytes = read(node->fd, events.data(), sizeof(events));
+            if (bytes < 0 && errno == EINTR) continue;
+            if (bytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                if (!node->tracker.ready()) {
+                    input_absinfo x {}, y {};
+                    std::array<unsigned char, (KEY_MAX + 8) / 8> keys {};
+                    if (ioctl(node->fd, EVIOCGABS(ABS_X), &x) >= 0 &&
+                        ioctl(node->fd, EVIOCGABS(ABS_Y), &y) >= 0 &&
+                        ioctl(node->fd, EVIOCGKEY(keys.size()), keys.data()) >= 0) {
+                        const auto pressed = [&](unsigned code) { return keys[code / 8] & (1u << (code % 8)); };
+                        node->tracker.prime(x.value, y.value, pressed(BTN_TOOL_PEN), pressed(BTN_TOOL_RUBBER), pressed(BTN_TOUCH));
+                    }
+                }
+                break;
+            }
+            if (bytes <= 0 || bytes % sizeof(input_event) != 0) {
+                node->failed = true;
+                node->tracker.reset();
+                break; // Metrics failure never changes tablet forwarding.
+            }
+            for (std::size_t n = 0; n < std::size_t(bytes) / sizeof(input_event); ++n) {
+                const auto sample = node->tracker.consume(events[n]);
+                total.motion += sample.motion;
+                total.tipDown += sample.tipDown;
+            }
+            if (batch == 7) node->tracker.reset();
+        }
+        total.observed = total.observed || node->tracker.ready();
+    }
+    m_PenObserver(total);
 }
 
 void LinuxRawWacomInput::handleControl(const unsigned char* data,
@@ -792,6 +844,7 @@ void LinuxRawWacomInput::queueReport(std::uint16_t type,
 
 bool LinuxRawWacomInput::setGrabbed(bool grabbed)
 {
+    for (auto& node : m_PenNodes) node->tracker.reset();
     const int value = grabbed ? 1 : 0;
     bool success = true;
     for (int fd : m_EventFds) {
@@ -823,6 +876,8 @@ void LinuxRawWacomInput::suspendForwarding()
 
 void LinuxRawWacomInput::release()
 {
+    if (m_PenObserver) m_PenObserver({});
+    m_PenNodes.clear();
     m_ReportWorker.invalidate();
     if (m_Attached) {
         setGrabbed(false);

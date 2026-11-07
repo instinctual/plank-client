@@ -914,6 +914,22 @@ bool Session::negotiatePlankTransportSession(quint16 sessionPort, QString& error
 #endif
 }
 
+void Session::publishPenMetrics(const PlankPenActivity& activity)
+{
+#ifdef PLANK_TRANSPORT
+    std::unique_lock<std::mutex> lock(m_MetricsMutex, std::try_to_lock);
+    if (!lock || !m_MetricsHandle) return;
+    PlankMetricsPenActivity sample {};
+    sample.struct_size = sizeof(sample);
+    sample.observed = activity.observed ? 1 : 0;
+    sample.motion_events = activity.motion;
+    sample.tip_down_events = activity.tipDown;
+    plank_metrics_pen_activity(m_MetricsHandle, &sample);
+#else
+    Q_UNUSED(activity)
+#endif
+}
+
 void Session::publishVideoMetrics(const VIDEO_STATS& window, bool hardwareDecoder)
 {
 #ifdef PLANK_TRANSPORT

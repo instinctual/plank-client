@@ -7,6 +7,7 @@
 #include "../../backend/hostrecovery.h"
 #include "../../backend/clientdisplays.h"
 #include "../../backend/nvhttp.h"
+#include "../../settings/plankclientpolicy.h"
 #include "../audio/microphone.h"
 #include "../camera/camera.h"
 #ifdef Q_OS_MACOS
@@ -27,6 +28,9 @@ QtSessionRuntime::QtSessionRuntime(Session* session) : QObject(session), m_Sessi
     m_Input = std::make_unique<QtSessionInput>();
 #ifdef Q_OS_LINUX
     m_WindowGuard = std::make_unique<QtWaylandSessionGuard>();
+    if (PlankClientPolicy().metrics().enabled) {
+        m_Input->setPenObserver([session](const PlankPenActivity& activity) { session->publishPenMetrics(activity); });
+    }
 #endif
     m_TargetBitrate = session->m_PlankBitrateKbps;
     m_CapturePolicy = session->m_Preferences->captureSysKeysMode;
