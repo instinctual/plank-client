@@ -163,8 +163,6 @@ public:
     getXmlString(QString xml,
                  QString tagName);
 
-    static
-
     QString
     openConnectionToString(QUrl baseUrl,
                            QString command,
@@ -234,7 +232,6 @@ public:
 
     QVector<NvApp>
     getAppList();
-
 
     static
     QVector<NvDisplayMode>

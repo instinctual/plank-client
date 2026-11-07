@@ -2,6 +2,7 @@
 #include "desktopstage.h"
 #include "hostrecovery.h"
 #include "authenticationtakeover.h"
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QScopedPointer>
 #include <Limelight.h>

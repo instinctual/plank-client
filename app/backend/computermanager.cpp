@@ -195,7 +195,6 @@ private:
         // ensures that the NAM's worker thread will inherit our lower priority.
         QNetworkAccessManager nam;
 
-        // Always fetch the applist the first time
         while (!stopping()) {
             bool stateChanged = false;
             bool online = false;

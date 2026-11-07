@@ -17,7 +17,6 @@ QString Path::getLogDir()
     return s_LogDir;
 }
 
-
 QString Path::getQmlCacheDir()
 {
     Q_ASSERT(!s_QmlCacheDir.isEmpty());
