@@ -633,7 +633,10 @@ bool Session::startPlankTransportDataPlane(quint16 port,
             QByteArray workstation, slot;
             {
                 QReadLocker computerLock(&m_Computer->lock);
-                workstation = m_Computer->serverUuid.toUtf8();
+                // Discovered entries already use the server UUID. Manual
+                // bookmarks have their own UUID plus the authenticated server ID.
+                workstation = (m_Computer->manualBookmark ?
+                               m_Computer->serverUuid : m_Computer->uuid).toUtf8();
                 slot = m_Computer->uuid.toUtf8();
             }
             const auto version = QCoreApplication::applicationVersion().toUtf8();
