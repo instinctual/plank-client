@@ -579,9 +579,17 @@ void ConnectivityTest::statusUi()
     QCOMPARE(secondStatus->property("text").toString(), QString("No response"));
     QCOMPARE(thirdStatus->property("text").toString(), QString("Unavailable"));
     QVERIFY(firstRtt->mapToScene(QPointF(firstRtt->width(), 0)).x() <= window->width());
-    const qreal footerGap = close->mapToScene(QPointF()).y() -
-            thirdStatus->mapToScene(QPointF(0, thirdStatus->height())).y();
-    QVERIFY(footerGap >= 0 && footerGap <= 40);
+    // Results are published before Qt Quick polishes the new delegate layout.
+    // Wait for geometry, retaining the same bounds. Resolve the current delegate
+    // each time because live ping rounds can replace the Repeater's items.
+    qreal footerGap = -1;
+    QTRY_VERIFY2_WITH_TIMEOUT(([&] {
+        auto* lastRow = findVisualItem(window->contentItem(), "internetSummaryStatus2");
+        if (!lastRow) return false;
+        footerGap = close->mapToScene(QPointF()).y() -
+                lastRow->mapToScene(QPointF(0, lastRow->height())).y();
+        return footerGap >= 0 && footerGap <= 40;
+    })(), qPrintable(QStringLiteral("Footer gap after layout: %1").arg(footerGap)), 1000);
     QVERIFY(!root->findChild<QObject*>("internetSummaryCheckedAt"));
     if (!captureDirectory.isEmpty())
         QVERIFY(window->grabWindow().save(captureDirectory + "/internet-summary.png"));
