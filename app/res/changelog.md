@@ -1,3 +1,15 @@
+## 1.4.11 — Optional application metrics
+
+### Client
+
+- Send session, network, decoding and rendering statistics to a local Telegraf agent.
+- Preserve administrator settings when adding the new disabled-by-default metrics options.
+
+### Host
+
+- Add the same optional Telegraf integration on Linux and macOS.
+- Report transport queues, drops, bitrate and processing timing for Grafana troubleshooting.
+
 ## 1.4.10 — Reliability and cleanup
 
 ### Client

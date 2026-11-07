@@ -98,6 +98,26 @@ PlankClientPolicy::InternetCheck PlankClientPolicy::internetCheck() const
     return result;
 }
 
+PlankClientPolicy::Metrics PlankClientPolicy::metrics() const
+{
+    Metrics result;
+    managedBoolean(QStringLiteral("metrics/metrics_enabled"), &result.enabled);
+    if (!result.enabled) return result;
+    QSettings policy(m_ConfigPath, QSettings::IniFormat);
+    bool portValid = false, intervalValid = false;
+    const auto port = policy.value(QStringLiteral("metrics/metrics_port"), 28991).toUInt(&portValid);
+    const auto interval = policy.value(QStringLiteral("metrics/metrics_interval_seconds"), 1).toUInt(&intervalValid);
+    if (policy.status() != QSettings::NoError || !portValid || port < 1024 || port > 65535 ||
+            !intervalValid || interval < 1 || interval > 60) {
+        result.enabled = false;
+        result.error = QStringLiteral("Metrics disabled: port must be 1024–65535 and interval 1–60 seconds.");
+        return result;
+    }
+    result.port = quint16(port);
+    result.intervalSeconds = interval;
+    return result;
+}
+
 quint16 PlankClientPolicy::configuredPort(const QString& key, quint16 fallback,
                                           const QString& description) const
 {

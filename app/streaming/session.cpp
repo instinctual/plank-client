@@ -7,6 +7,8 @@
 #include "backend/hostrecovery.h"
 #include "backend/planknetwork.h"
 #include "settings/streamingpreferences.h"
+#include "settings/plankclientpolicy.h"
+#include <QReadLocker>
 #include "streaming/avsynccontroller.h"
 #include "streaming/plankdisplaymode.h"
 #ifdef Q_OS_MACOS
@@ -42,6 +44,7 @@
 
 #ifdef PLANK_TRANSPORT
 #include "plank_transport.h"
+#include "plank_metrics.h"
 #include "plank_transport_control.h"
 #include "plank_transport_camera.h"
 #include "plank_transport_event.h"
@@ -371,6 +374,19 @@ int Session::drSetup(int videoFormat, int width, int height, int frameRate, void
                     videoFormat == VIDEO_FORMAT_H264_HIGH10_422 ? "10-bit" : "8-bit");
     }
 
+#ifdef PLANK_TRANSPORT
+    if (s_ActiveSession->m_PlankTransportEndpoint) {
+        const auto* profile = plank_encoding_profile(s_ActiveSession->m_PlankVideoProfile);
+        const char* capture = plank_capture_name(s_ActiveSession->m_PlankCaptureSource);
+        if (profile && capture) {
+            PlankMetricsStreamInfo info {};
+            info.struct_size = sizeof(info); info.width = width; info.height = height;
+            info.requested_fps = frameRate;
+            info.capture_source = capture; info.encoding_profile = profile->mode;
+            plank_transport_native_metrics_stream_info(s_ActiveSession->m_PlankTransportEndpoint, &info);
+        }
+    }
+#endif
     return 0;
 }
 
@@ -608,8 +624,29 @@ bool Session::startPlankTransportDataPlane(quint16 port,
     config.session_token = tokenUtf8.constData();
 
     PlankTransportNativeEndpoint* endpoint = nullptr;
+    PlankMetricsHandle* metrics = nullptr;
     int result = plank_transport_native_endpoint_create(&config, &endpoint);
     if (result == PLANK_TRANSPORT_OK) {
+        const auto options = PlankClientPolicy().metrics();
+        if (!options.error.isEmpty()) qWarning().noquote() << options.error;
+        if (options.enabled) {
+            QByteArray workstation, slot;
+            {
+                QReadLocker computerLock(&m_Computer->lock);
+                workstation = m_Computer->serverUuid.toUtf8();
+                slot = m_Computer->uuid.toUtf8();
+            }
+            const auto version = QCoreApplication::applicationVersion().toUtf8();
+            PlankMetricsConfig output {};
+            output.struct_size = sizeof(output);
+            output.port = options.port;
+            output.interval_seconds = options.intervalSeconds;
+            output.workstation_id = workstation.constData();
+            output.slot_id = slot.constData();
+            output.version = version.isEmpty() ? "unknown" : version.constData();
+            if (plank_transport_native_metrics_configure(endpoint, &output, &metrics) != PLANK_TRANSPORT_OK)
+                qWarning("PLANK metrics unavailable; continuing the session");
+        }
         result = plank_transport_native_endpoint_start(endpoint);
     }
     if (result == PLANK_TRANSPORT_OK) {
@@ -634,11 +671,16 @@ bool Session::startPlankTransportDataPlane(quint16 port,
             plank_transport_native_endpoint_stop(endpoint);
             plank_transport_native_endpoint_destroy(endpoint);
         }
+        plank_metrics_destroy(metrics);
         qWarning() << "Experimental plank_transport handshake failed:" << error.constData();
         return false;
     }
 
     m_PlankTransportEndpoint = endpoint;
+    {
+        std::lock_guard<std::mutex> lock(m_MetricsMutex);
+        m_MetricsHandle = metrics;
+    }
     LiSetPlankNativeControlSender(
                 &Session::plankTransportNativeControlSender, endpoint);
     LiSetPlankNativeInputSender(
@@ -869,9 +911,44 @@ bool Session::negotiatePlankTransportSession(quint16 sessionPort, QString& error
 #endif
 }
 
+void Session::publishVideoMetrics(const VIDEO_STATS& window, bool hardwareDecoder)
+{
+#ifdef PLANK_TRANSPORT
+    std::unique_lock<std::mutex> lock(m_MetricsMutex, std::try_to_lock);
+    if (!lock || !m_MetricsHandle) return;
+    const auto elapsed = PlankClock::milliseconds() - window.measurementStartTimestamp;
+    if (!elapsed) return;
+    PlankMetricsClientVideo sample {};
+    sample.struct_size = sizeof(sample);
+    sample.hardware_decoder = hardwareDecoder ? 1 : 0;
+    sample.window_seconds = double(elapsed) / 1000.0;
+    sample.received_frames = window.receivedFrames;
+    sample.decoded_frames = window.decodedFrames;
+    sample.rendered_frames = window.renderedFrames;
+    sample.network_dropped_frames = window.networkDroppedFrames;
+    sample.render_dropped_frames = window.renderQueueDroppedFrames;
+    sample.overflow_dropped_frames = window.queueOverflowDroppedFrames;
+    sample.decode_time_ms = window.totalDecodeTime;
+    sample.render_queue_time_ms = window.totalPacerTime;
+    sample.render_time_ms = window.totalRenderTime;
+    sample.host_latency_samples = window.framesWithHostProcessingLatency;
+    sample.host_latency_time_ms = double(window.totalHostProcessingLatency) / 10.0;
+    // A busy or retired metrics sink only loses this observation, never video.
+    plank_metrics_client_video(m_MetricsHandle, &sample);
+#else
+    Q_UNUSED(window)
+    Q_UNUSED(hardwareDecoder)
+#endif
+}
+
 void Session::stopPlankTransportDataPlane()
 {
 #ifdef PLANK_TRANSPORT
+    {
+        std::lock_guard<std::mutex> lock(m_MetricsMutex);
+        plank_metrics_destroy(m_MetricsHandle);
+        m_MetricsHandle = nullptr;
+    }
     if (m_PlankTransportEndpoint != nullptr) {
         unsigned char packet[PLANK_TRANSPORT_CONTROL_MAX_PACKET_SIZE];
         size_t packetSize = 0;

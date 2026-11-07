@@ -24,7 +24,40 @@ private slots:
     void rememberUsernameDefaultsOff();
     void rememberUsernameOptIn_data();
     void rememberUsernameOptIn();
+    void metricsDefaultsAndValidation();
 };
+
+void TestPlankClientPolicy::metricsDefaultsAndValidation()
+{
+    QTemporaryDir directory;
+    const QString path = directory.filePath(QStringLiteral("client.conf"));
+    QVERIFY(!PlankClientPolicy(path).metrics().enabled);
+    {
+        QSettings settings(path, QSettings::IniFormat);
+        settings.setValue(QStringLiteral("metrics/metrics_enabled"), true);
+        settings.setValue(QStringLiteral("metrics/metrics_port"), 30002);
+        settings.setValue(QStringLiteral("metrics/metrics_interval_seconds"), 5);
+    }
+    const auto valid = PlankClientPolicy(path).metrics();
+    QVERIFY(valid.enabled);
+    QCOMPARE(valid.port, quint16(30002));
+    QCOMPARE(valid.intervalSeconds, 5U);
+    for (const auto& bad : QStringList{"0", "-1", "65536", "1e4", "garbage"}) {
+        QSettings settings(path, QSettings::IniFormat);
+        settings.setValue(QStringLiteral("metrics/metrics_port"), bad);
+        settings.sync();
+        const auto invalid = PlankClientPolicy(path).metrics();
+        QVERIFY(!invalid.enabled);
+        QVERIFY(!invalid.error.isEmpty());
+    }
+    for (int interval : {0, 61}) {
+        QSettings settings(path, QSettings::IniFormat);
+        settings.setValue(QStringLiteral("metrics/metrics_port"), 28991);
+        settings.setValue(QStringLiteral("metrics/metrics_interval_seconds"), interval);
+        settings.sync();
+        QVERIFY(!PlankClientPolicy(path).metrics().enabled);
+    }
+}
 
 void TestPlankClientPolicy::omittedValueIsNotManaged()
 {

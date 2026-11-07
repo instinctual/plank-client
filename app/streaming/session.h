@@ -34,6 +34,7 @@ class QtSessionRuntime;
 class QtSessionInput;
 #ifdef PLANK_TRANSPORT
 struct PlankTransportNativeEndpoint;
+struct PlankMetricsHandle;
 #endif
 
 class SupportedVideoFormatList : public QList<int>
@@ -152,6 +153,8 @@ public:
         m_CurrentRenderedFps.store(fps, std::memory_order_relaxed);
         m_CurrentVideoMbps.store(videoMbps, std::memory_order_relaxed);
     }
+
+    void publishVideoMetrics(const VIDEO_STATS& window, bool hardwareDecoder);
 
     VideoFecLossPercent currentVideoFecLoss() const
     {
@@ -363,6 +366,8 @@ private:
     StreamingPreferences::PlankCaptureSource m_PlankCaptureSource;
 #ifdef PLANK_TRANSPORT
     PlankTransportNativeEndpoint* m_PlankTransportEndpoint = nullptr;
+    std::mutex m_MetricsMutex;
+    PlankMetricsHandle* m_MetricsHandle = nullptr;
     std::atomic_bool m_PlankTransportReceiversStopping {false};
     std::thread m_PlankTransportVideoThread;
     std::thread m_PlankTransportAudioThread;
