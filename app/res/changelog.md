@@ -1,3 +1,10 @@
+## 1.4.12 — Wacom activity metrics
+
+### Client
+
+- Add optional pen-movement and tip-contact counts during Ubuntu sessions for Telegraf/Grafana.
+- Report activity without recording pen coordinates, strokes or pressure values.
+
 ## 1.4.11 — Optional application metrics
 
 ### Client
