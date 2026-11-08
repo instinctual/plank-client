@@ -1,3 +1,10 @@
+## 1.4.14 — Native X11 capture buffers
+
+### Host
+
+- Reuse Native X11 capture buffers to reduce repeated allocation and GPU-registration stalls.
+- Add capture-buffer timing to Linux Host logs for performance diagnosis.
+
 ## 1.4.12 — Wacom activity metrics
 
 ### Client
