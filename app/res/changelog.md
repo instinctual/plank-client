@@ -1,3 +1,10 @@
+## 1.4.16 — macOS Host startup reliability
+
+### Host
+
+- Keep the macOS Host online when another application changes the shared Application Support folder to administrator-writable permissions.
+- Preserve PLANK's protected files and report the specific directory when unsafe permissions prevent startup or installation.
+
 ## 1.4.15 — macOS Host startup
 
 ### Host
