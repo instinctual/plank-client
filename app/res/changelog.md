@@ -1,3 +1,10 @@
+## 1.4.15 — macOS Host startup
+
+### Host
+
+- Fix the macOS Host appearing offline because optional metrics settings prevented startup.
+- Keep metrics disabled by default on macOS Host and Client.
+
 ## 1.4.14 — Native X11 capture buffers
 
 ### Host
