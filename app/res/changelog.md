@@ -1,3 +1,11 @@
+## 1.4.18 — macOS display wake and recovery
+
+### Host
+
+- Wake the macOS display before setting the remote desktop resolution.
+- Keep the display awake during a remote session and release that protection when it ends.
+- Recover from a sleeping display or an interrupted first resolution setup without restarting the desktop.
+
 ## 1.4.16 — macOS Host startup reliability
 
 ### Host
