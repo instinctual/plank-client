@@ -693,6 +693,12 @@ bool Session::startPlankTransportDataPlane(quint16 port,
                 &Session::plankTransportNativeInputSender, endpoint);
     qInfo() << "Experimental native KyProto media, input, and data protocols are ready on UDP"
             << port;
+    uint64_t receiveRequested = 0, receiveReported = 0;
+    if (plank_transport_native_endpoint_udp_receive_buffer(
+                endpoint, &receiveRequested, &receiveReported) == PLANK_TRANSPORT_OK) {
+        qInfo() << "QUIC UDP receive buffer: requested bytes" << receiveRequested
+                << "OS-reported bytes" << receiveReported;
+    }
     return true;
 #endif
 }

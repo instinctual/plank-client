@@ -3,10 +3,12 @@
 ### Client
 
 - Adds candidate Tangent Element Mf/KnobX1 forwarding from Ubuntu to a compatible Linux Host. Panels stay with their session until it disconnects.
+- Requests more network receive-buffer headroom to absorb short packet bursts, and records the size granted by the OS.
 
 ### Host
 
 - Includes the virtual USB driver needed for Tangent panels in the Rocky Linux installer.
+- Uses the same bounded QUIC receive-buffer request as the Client and reports the size granted by the OS.
 
 ## 1.4.18 — macOS display wake and recovery
 
