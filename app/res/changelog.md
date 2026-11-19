@@ -1,3 +1,13 @@
+## This build — Tangent panel candidate
+
+### Client
+
+- Adds candidate Tangent Element Mf/KnobX1 forwarding from Ubuntu to a compatible Linux Host. Panels stay with their session until it disconnects.
+
+### Host
+
+- Includes the virtual USB driver needed for Tangent panels in the Rocky Linux installer.
+
 ## 1.4.18 — macOS display wake and recovery
 
 ### Host

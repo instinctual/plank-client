@@ -564,6 +564,9 @@ Session::Session(NvComputer* computer, NvApp& app,
 Session::~Session()
 {
     stopPlankTransportDataPlane();
+#ifdef PLANK_TRANSPORT
+    plank_transport_tangent_client_destroy(m_TangentClient);
+#endif
     clearPlankReconnectCredentials();
 }
 
@@ -764,7 +767,7 @@ bool Session::negotiatePlankTransportSession(quint16 sessionPort, QString& error
             (m_AudioCallbacks.capabilities & CAPABILITY_SLOW_OPUS_DECODER) != 0 ?
                 10 : 5;
 
-    const QJsonObject request {
+    QJsonObject request {
         {QStringLiteral("video"), QJsonObject {
             {QStringLiteral("width"), m_StreamConfig.width},
             {QStringLiteral("height"), m_StreamConfig.height},
@@ -788,6 +791,20 @@ bool Session::negotiatePlankTransportSession(quint16 sessionPort, QString& error
             {QStringLiteral("high_quality"), highQualityAudio},
         }},
     };
+#ifdef Q_OS_LINUX
+    bool tangentRequested = false;
+    {
+        QReadLocker computerLock(&m_Computer->lock);
+        tangentRequested = m_Computer->plankTangentVersion == 1;
+    }
+    if (tangentRequested && !m_TangentClient &&
+            plank_transport_tangent_client_create(&m_TangentClient) != PLANK_TRANSPORT_OK) {
+        qInfo("Tangent panels remain owned by another session, or local ownership is unavailable");
+    }
+    if (tangentRequested && m_TangentClient) {
+        request.insert(QStringLiteral("tangent"), QJsonObject {{QStringLiteral("version"), 1}});
+    }
+#endif
     const QByteArray payload = QJsonDocument(request).toJson(QJsonDocument::Compact);
     std::vector<unsigned char> packet(
                 PLANK_TRANSPORT_SETUP_HEADER_SIZE + static_cast<size_t>(payload.size()));
@@ -904,6 +921,20 @@ bool Session::negotiatePlankTransportSession(quint16 sessionPort, QString& error
         errorMessage = tr("The native PLANK session values were rejected locally.");
         return false;
     }
+
+#ifdef Q_OS_LINUX
+    if (tangentRequested && m_TangentClient) {
+        const int version = response.value(QStringLiteral("tangent")).toObject()
+                .value(QStringLiteral("version")).toInt();
+        if (version == 1 && plank_transport_native_tangent_client_enable(
+                    m_PlankTransportEndpoint, m_TangentClient, version) == PLANK_TRANSPORT_OK) {
+            qInfo("Tangent panel forwarding enabled for this session");
+        }
+        else {
+            qWarning("Tangent panel forwarding is unavailable; desktop input and media are unaffected");
+        }
+    }
+#endif
 
     qInfo() << "Native QUIC session negotiated: video format"
             << QString::number(responseVideoFormat, 16)

@@ -31,10 +31,12 @@ unix:contains(CONFIG, plank-transport) {
 
     plank_transport.target = $$PLANK_TRANSPORT_LIBRARY
     plank_transport.depends = FORCE
+    PLANK_TRANSPORT_FEATURES =
+    linux: PLANK_TRANSPORT_FEATURES = --features tangent-client
     plank_transport.commands = \
         CARGO_TARGET_DIR=$$shell_quote($$PLANK_TRANSPORT_CARGO_TARGET_DIR) \
         $$shell_quote($$PLANK_CARGO) build --locked --offline --release \
-        --manifest-path $$shell_quote($$PLANK_TRANSPORT_DIR/Cargo.toml)
+        --manifest-path $$shell_quote($$PLANK_TRANSPORT_DIR/Cargo.toml) $$PLANK_TRANSPORT_FEATURES
     QMAKE_EXTRA_TARGETS += plank_transport
     PRE_TARGETDEPS += $$PLANK_TRANSPORT_LIBRARY
     QMAKE_CLEAN += $$PLANK_TRANSPORT_CARGO_TARGET_DIR
@@ -82,7 +84,7 @@ DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs depr
 CONFIG += link_pkgconfig ffmpeg
 PKGCONFIG += openssl opus libavcodec libavutil libswresample
 linux {
-    PKGCONFIG += libpipewire-0.3 wayland-client x11 egl libdrm libva libplacebo
+    PKGCONFIG += libpipewire-0.3 wayland-client x11 egl libdrm libva libplacebo libusb-1.0
     DEFINES += HAS_X11 HAS_WAYLAND HAVE_EGL HAVE_DRM HAVE_LIBVA HAVE_LIBPLACEBO_VULKAN
     SOURCES += streaming/audio/linuxmicrophone.cpp
     HEADERS += streaming/audio/linuxmicrophone.h streaming/audio/microphonecapturequeue.h streaming/audio/microphonecaptureclock.h

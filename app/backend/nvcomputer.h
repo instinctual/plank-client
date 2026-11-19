@@ -134,6 +134,7 @@ public:
     QByteArray sessionIdentityKey;
     int plankTopologyVersion = 0;
     int plankFeatureFlags = 0;
+    int plankTangentVersion = 0;
     NvOutputTopology outputTopology;
     // GUI-thread snapshot taken before authentication/display preparation.
     // Kept separate from discovery and from session-only presentation overrides.

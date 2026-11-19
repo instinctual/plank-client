@@ -34,6 +34,7 @@ class QtSessionRuntime;
 class QtSessionInput;
 #ifdef PLANK_TRANSPORT
 struct PlankTransportNativeEndpoint;
+struct PlankTransportTangentClient;
 struct PlankMetricsHandle;
 struct PlankPenActivity;
 #endif
@@ -368,6 +369,8 @@ private:
     StreamingPreferences::PlankCaptureSource m_PlankCaptureSource;
 #ifdef PLANK_TRANSPORT
     PlankTransportNativeEndpoint* m_PlankTransportEndpoint = nullptr;
+    // Logical-session ownership survives transport recovery; it never follows focus.
+    PlankTransportTangentClient* m_TangentClient = nullptr;
     std::mutex m_MetricsMutex;
     PlankMetricsHandle* m_MetricsHandle = nullptr;
     std::atomic_bool m_PlankTransportReceiversStopping {false};
