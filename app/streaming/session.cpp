@@ -927,7 +927,8 @@ bool Session::negotiatePlankTransportSession(quint16 sessionPort, QString& error
         const int version = response.value(QStringLiteral("tangent")).toObject()
                 .value(QStringLiteral("version")).toInt();
         if (version == 1 && plank_transport_native_tangent_client_enable(
-                    m_PlankTransportEndpoint, m_TangentClient, version) == PLANK_TRANSPORT_OK) {
+                    m_PlankTransportEndpoint, m_TangentClient, version,
+                    [](const char* message) { qWarning().noquote() << QString::fromUtf8(message); }) == PLANK_TRANSPORT_OK) {
             qInfo("Tangent panel forwarding enabled for this session");
         }
         else {
