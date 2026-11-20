@@ -808,7 +808,9 @@ bool Session::negotiatePlankTransportSession(quint16 sessionPort, QString& error
         qInfo("Tangent panels remain owned by another session, or local ownership is unavailable");
     }
     if (tangentRequested && m_TangentClient) {
-        request.insert(QStringLiteral("tangent"), QJsonObject {{QStringLiteral("version"), 1}});
+        request.insert(QStringLiteral("tangent"), QJsonObject {
+            {QStringLiteral("version"), 1}, {QStringLiteral("element_series"), true}
+        });
     }
 #endif
     const QByteArray payload = QJsonDocument(request).toJson(QJsonDocument::Compact);
@@ -930,10 +932,12 @@ bool Session::negotiatePlankTransportSession(quint16 sessionPort, QString& error
 
 #ifdef Q_OS_LINUX
     if (tangentRequested && m_TangentClient) {
-        const int version = response.value(QStringLiteral("tangent")).toObject()
-                .value(QStringLiteral("version")).toInt();
+        const auto tangent = response.value(QStringLiteral("tangent")).toObject();
+        const int version = tangent.value(QStringLiteral("version")).toInt();
+        const auto profile = tangent.value(QStringLiteral("element_series")).toBool()
+                ? PLANK_TANGENT_PROFILE_ELEMENT : PLANK_TANGENT_PROFILE_MF;
         if (version == 1 && plank_transport_native_tangent_client_enable(
-                    m_PlankTransportEndpoint, m_TangentClient, version,
+                    m_PlankTransportEndpoint, m_TangentClient, profile,
                     [](const char* message) { qWarning().noquote() << QString::fromUtf8(message); }) == PLANK_TRANSPORT_OK) {
             qInfo("Tangent panel forwarding enabled for this session");
         }
