@@ -1,14 +1,15 @@
-## This build — Tangent panel candidate
+## 1.4.22 — Tangent Element panels and network receive buffers
 
 ### Client
 
-- Forwards Tangent Element Tk, Mf, Kb and Bt panels, including the KnobX1 Mf emulator, from Ubuntu to a compatible Rocky Linux Host. Busy panels reconnect automatically.
-- Requests more network receive-buffer headroom to absorb short packet bursts, and records the size granted by the OS.
+- Forward Tangent Element Tk, Mf, Kb and Bt panels, including the KnobX1 Mf emulator, from Ubuntu to a Rocky Linux Host. Panels stay with the first session until it disconnects.
+- Retry a busy panel automatically so you can keep working with the others.
+- Request a larger QUIC receive buffer to absorb short packet bursts. The Client log shows the size granted by the operating system.
 
 ### Host
 
-- Includes the virtual USB driver for Tangent panels in the Rocky Linux installer. A disconnected panel can rejoin while the other panels keep working.
-- Uses the same bounded QUIC receive-buffer request as the Client and reports the size granted by the OS.
+- The Rocky Linux installer includes the driver TangentHub uses to see forwarded panels. A panel can rejoin after unplugging while the others stay connected.
+- The Host also requests a larger QUIC receive buffer and logs the size granted by the operating system.
 
 ## 1.4.18 — macOS display wake and recovery
 
